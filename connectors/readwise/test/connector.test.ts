@@ -151,6 +151,84 @@ describe("with Reader on", () => {
     expect(vendor.writes).toEqual([]);
   });
 
+  it("keeps what was changed in Marfa before it takes a row over, and sends none of it", async () => {
+    const { marfa, vendor, once } = await fixture();
+    const [book] = vendor.sources;
+    if (book === undefined) throw new Error("fixture source missing");
+    book.document_note = "Export note";
+    await once();
+    marfa.edit(marfa.row("primary:source:1").id, {
+      title: "Marfa title",
+      notes: null,
+    });
+    marfa.edit(marfa.row("primary:highlight:11").id, {
+      note: "Marfa note",
+      tags: ["marfa"],
+    });
+    marfa.edit(marfa.row("primary:source:2").id, { title: "Marfa book" });
+    await once(readerOn);
+    await once(readerOn);
+    const source = marfa.row("primary:source:1");
+    expect(source.properties["reader_id"]).toBe("doc-1");
+    expect(source.properties["title"]).toBe("Marfa title");
+    expect(source.properties["notes"]).toBeUndefined();
+    const passage = marfa.row("primary:highlight:11");
+    expect(passage.properties["reader_id"]).toBe("hi-1");
+    expect(passage.properties["note"]).toBe("Marfa note");
+    expect(passage.properties["tags"]).toEqual(["marfa"]);
+    expect(vendor.writes).toEqual([]);
+    // A row Reader cannot take keeps mirroring the export.
+    expect(marfa.row("primary:source:2").properties["title"]).toBe("Book");
+  });
+
+  it.each([
+    ["off", { READWISE_READER: "false" }],
+    ["inbound only", { READWISE_READER_INBOUND_ONLY: "true" }],
+  ])(
+    "keeps an unanswered Reader write while Reader is %s, and sends it once Reader may be written",
+    async (_, paused) => {
+      const { marfa, vendor, once } = await adopted();
+      marfa.edit(marfa.row("primary:source:1").id, { title: "Marfa title" });
+      // The answer is lost, and Reader does not hold the write after all.
+      vendor.uncertain();
+      await once().catch(() => undefined);
+      expect(vendor.writes).toHaveLength(1);
+      const document = vendor.documents.get("doc-1");
+      if (document === undefined) throw new Error("fixture document missing");
+      document.title = "Reader title";
+      vendor.sources.push({
+        user_book_id: 3,
+        source: "kindle",
+        external_id: "book-3",
+        title: "Later book",
+        highlights: [],
+      });
+      await once(paused);
+      expect(marfa.row("primary:source:3").properties["title"]).toBe(
+        "Later book",
+      );
+      expect(marfa.row("primary:source:1").properties["title"]).toBe(
+        "Marfa title",
+      );
+      expect(vendor.writes).toHaveLength(1);
+      expect(Object.keys(marfa.problems.get("readwise") ?? {})).toContain(
+        `outbound-pending:${marfa.row("primary:source:1").id}`,
+      );
+      await once();
+      await once();
+      expect(vendor.writes.map((write) => write.body)).toEqual([
+        { title: "Marfa title" },
+        { title: "Marfa title" },
+      ]);
+      expect(vendor.documents.get("doc-1")?.title).toBe("Marfa title");
+      expect(
+        Object.keys(marfa.problems.get("readwise") ?? {}).filter((key) =>
+          key.startsWith("outbound-pending:"),
+        ),
+      ).toEqual([]);
+    },
+  );
+
   it("carries a supported edit back to Reader and leaves an unsupported one", async () => {
     const { marfa, vendor, once } = await adopted();
     marfa.edit(marfa.row("primary:source:1").id, { title: "Marfa title" });

@@ -20,6 +20,7 @@ import {
   type ReaderDocument,
   parseReaderPage,
 } from "./readwise.js";
+import { nothingHeld, type Held } from "./held.js";
 
 export interface IdentityInspection {
   items: readonly Item[];
@@ -35,6 +36,8 @@ export interface SharedContext {
   log: { condition(key: string, message: string): void };
 }
 export class PreservationQueueFull extends Error {}
+/** The kit keeps this row for a Reader write not yet settled. */
+export class HeldRow extends Error {}
 export function exportPolicy(
   type: string,
   item: Item | undefined,
@@ -97,7 +100,19 @@ export class SharedRows {
     private readonly context: SharedContext,
     private readonly reader: ReaderReader,
     private readonly preserve?: (job: ContentJob) => Promise<void>,
+    private readonly rows: {
+      held?: Held;
+      /** Gains the source ID of each entry the export has from Reader. */
+      fromReader?: Set<string>;
+    } = {},
   ) {}
+  private get held(): Held {
+    return this.rows.held ?? nothingHeld;
+  }
+  private check(row: Item): void {
+    if (this.held.key(row.id))
+      throw new HeldRow("A Reader write for this row is not yet settled");
+  }
   private document(id: string) {
     let value = this.fetched.get(id);
     if (value === undefined) {
@@ -348,12 +363,14 @@ export class SharedRows {
   }
   async source(source: Source): Promise<Entry | undefined> {
     const entry = mapSource(this.account, source);
+    if (source.source === "reader") this.rows.fromReader?.add(entry.source_id);
     const held = await this.locate(
       "readwise.source",
       entry,
       source.source === "reader" ? source.external_id : undefined,
     );
     if (held === "purged") return undefined;
+    if (held !== undefined) this.check(held);
     return held !== undefined &&
       isReaderManaged("readwise.source", held.properties, this.account)
       ? this.managed("readwise.source", held, entry)
@@ -369,12 +386,14 @@ export class SharedRows {
       highlight,
       sourceTitle(source),
     );
+    if (source.source === "reader") this.rows.fromReader?.add(entry.source_id);
     const held = await this.locate(
       "readwise.highlight",
       entry,
       source.source === "reader" ? highlight.external_id : undefined,
     );
     if (held === "purged") return undefined;
+    if (held !== undefined) this.check(held);
     if (
       held !== undefined &&
       isReaderManaged("readwise.highlight", held.properties, this.account)
@@ -405,6 +424,7 @@ export class SharedRows {
   async deletion(type: string, natural: string): Promise<string | undefined> {
     const found = await this.context.inspect(type, { source_ids: [natural] });
     const row = found.items[0];
+    if (row !== undefined) this.check(row);
     if (
       row !== undefined &&
       isReaderManaged(type, row.properties, this.account)
@@ -428,6 +448,7 @@ export class SharedRows {
       throw new Error(
         "Readwise retry identity no longer resolves to a managed row",
       );
+    if (this.held.key(row.id)) return;
     await scope.upsert(type, [await this.managed(type, row)]);
   }
   async refresh(scope: {
@@ -455,7 +476,7 @@ export class SharedRows {
       if (typeof cursor === "string" && row.id.localeCompare(cursor) <= 0)
         continue;
       let entry: Entry | undefined;
-      if (!this.refreshed.has(row.id)) {
+      if (!this.refreshed.has(row.id) && !this.held.key(row.id)) {
         try {
           entry = await this.managed(type, row);
         } catch (error) {

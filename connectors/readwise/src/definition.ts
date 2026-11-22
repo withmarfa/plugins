@@ -19,6 +19,7 @@ import { sync } from "./sync.js";
 
 export function connector() {
   let config: PolicyConfig | undefined;
+  const fromReader = new Set<string>();
   return defineConnector({
     name: "readwise",
     title: "Readwise",
@@ -49,7 +50,7 @@ export function connector() {
             !(readerMutableSourceFields as readonly string[]).includes(field),
         ),
         policy: (item, entry, archiving) =>
-          rowPolicy(sourceType.id, config, item, entry, archiving),
+          rowPolicy(sourceType.id, config, item, entry, archiving, fromReader),
         archived: readerArchived,
       },
       {
@@ -64,7 +65,14 @@ export function connector() {
             ),
         ),
         policy: (item, entry, archiving) =>
-          rowPolicy(highlightType.id, config, item, entry, archiving),
+          rowPolicy(
+            highlightType.id,
+            config,
+            item,
+            entry,
+            archiving,
+            fromReader,
+          ),
       },
       {
         name: "file",
@@ -107,7 +115,7 @@ export function connector() {
         ? [sourceType.id, highlightType.id]
         : [];
     },
-    run: sync,
+    run: (context) => sync(context, fromReader),
     preflight,
     onChange,
   });

@@ -561,7 +561,11 @@ async function performChange(
   context: Context,
 ): Promise<Entry | undefined> {
   const config = parseConfig(context.env);
-  if (!config.reader || config.inboundOnly) return;
+  // A write already sent may have reached Reader, so its intent is kept.
+  if (!config.reader || config.inboundOnly)
+    throw new Unreachable(
+      "Reader is not written while it is off or inbound only",
+    );
   const claimed = claimedId(
     readClaims(context.state.get(claimsKey)).get(change.item.id),
     config.account,

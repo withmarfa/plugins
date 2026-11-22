@@ -39,6 +39,7 @@ import { parseConfig } from "./config.js";
 import type { settings } from "../settings.js";
 import { ReaderIdentities } from "./identity.js";
 import { packIdentities, unpackIdentities } from "./checkpoint.js";
+import { heldRows } from "../held.js";
 export const readerArchived = (
   properties: Readonly<Record<string, unknown>>,
 ): boolean => properties["reader_location"] === "archive";
@@ -239,6 +240,10 @@ export async function sync(
   } = {},
 ): Promise<void> {
   const config = parseConfig(context.env);
+  const waiting = heldRows(
+    context.pendingOutbound(),
+    config.reader && !config.inboundOnly,
+  );
   const now = options.now ?? Date.now;
   const maxPages = options.maxPages ?? 15;
   const fingerprint = hash([
@@ -427,6 +432,12 @@ export async function sync(
           document.category === "highlight"
             ? mapReaderHighlight(config.account, document, enrichment)
             : mapReaderSource(config.account, document, enrichment);
+        // The kit keeps this row for a Reader write not yet settled.
+        if (waiting.entry(mapped.entry)) {
+          pending.add(document.id);
+          for (const note of notes.get(document.id) ?? []) pending.add(note.id);
+          continue;
+        }
         const initial = resolved.previousProperties;
         const mutable =
           document.category === "highlight"
@@ -443,7 +454,7 @@ export async function sync(
         )
           context.log.condition(
             `readwise:reader-adoption:${document.id}`,
-            "Existing Marfa values differ from Reader. First adoption preserves them without sending an edit upstream; a subsequent local edit creates a new intent.",
+            "Reader took over this row, and some of its values differ from Marfa's. A value changed in Marfa before the takeover is kept without being sent to Reader; the others take Reader's.",
           );
         if (document.category === "highlight" && document.parent_id) {
           if (parent === undefined) {
@@ -648,7 +659,9 @@ export async function sync(
       return;
     }
     for (const type of ["readwise.highlight", "readwise.source"]) {
-      const keys = confirmed.filter((key) => inventory.get(key)?.type === type);
+      const keys = confirmed.filter(
+        (key) => inventory.get(key)?.type === type && !waiting.key(key),
+      );
       if (keys.length > 0) await scope.archive(type, keys);
     }
     delete saved.reconcile;

@@ -23,10 +23,12 @@ import {
 import type { ExportPage } from "./readwise.js";
 import { identity, ReaderClient, type ReaderReader } from "./readwise.js";
 import {
+  HeldRow,
   PreservationQueueFull,
   SharedRows,
   type SharedContext,
 } from "./managed.js";
+import type { Held } from "./held.js";
 import { settings } from "./settings.js";
 import { highlightType, sourceType } from "./readwise.js";
 
@@ -142,6 +144,11 @@ async function write(
       try {
         return await operation();
       } catch (error) {
+        // The kit names the held row; it is read again next run.
+        if (error instanceof HeldRow) {
+          failures.push(error);
+          return undefined;
+        }
         if (
           error instanceof ReadwiseThrottleError ||
           error instanceof ReadwiseAuthorizationError
@@ -277,6 +284,8 @@ export async function sync(
      *  current, so the export leaves their refresh to it. */
     readerListing?: boolean;
     pictures?: PictureListing;
+    held?: Held;
+    fromReader?: Set<string>;
   } = {},
 ): Promise<void> {
   if (context.hints !== undefined) {
@@ -320,6 +329,12 @@ export async function sync(
               "Reader preservation queue is full; metadata waits for acknowledged content work",
             );
         },
+    {
+      ...(options.held !== undefined && { held: options.held }),
+      ...(options.fromReader !== undefined && {
+        fromReader: options.fromReader,
+      }),
+    },
   );
   const shape = hash([
     readerBase,
