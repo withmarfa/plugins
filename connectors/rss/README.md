@@ -6,7 +6,7 @@ On every start the connector gives its source `rss` the name RSS and the mark `s
 
 ## What it does
 
-Each run fetches every feed in `RSS_FEEDS`, reads the entries it finds, and writes the ones that are new or changed. A feed that has not changed since the last run, as its server says by answering 304, is not read again. That progress is saved for each feed once Marfa has taken all of that feed's entries. When Marfa refuses an entry, only its feed keeps the progress it had before, so the next run reads that feed again, and the other feeds keep theirs. Every request carries the `User-Agent` `MarfaRSS (+https://github.com/withmarfa/plugins)`, so a feed's owner can tell who is reading. A run reports its counts, such as `created 4, updated 0, archived 0, unchanged 0, skipped 0`, and the conditions it raised. Read them with `marfa connectors runs <connector-id>`; `marfa connectors list` shows the id.
+Each run fetches every feed in `rss_feeds`, reads the entries it finds, and writes the ones that are new or changed. A feed that has not changed since the last run, as its server says by answering 304, is not read again. That progress is saved for each feed once Marfa has taken all of that feed's entries. When Marfa refuses an entry, only its feed keeps the progress it had before, so the next run reads that feed again, and the other feeds keep theirs. Every request carries the `User-Agent` `MarfaRSS (+https://github.com/withmarfa/plugins)`, so a feed's owner can tell who is reading. A run reports its counts, such as `created 4, updated 0, archived 0, unchanged 0, skipped 0`, and the conditions it raised. Read them with `marfa connectors runs <connector-id>`; `marfa connectors list` shows the id.
 
 ## Set it up
 
@@ -19,46 +19,32 @@ You need a Marfa server, the CLI (`marfa`), a credential that can mint keys, and
    pnpm build
    ```
 
-2. Mint the connector's key, with `marfa` pointed at your server (`MARFA_API_URL`, and `MARFA_API_KEY` set to a key that holds `keys.mint` and the content permissions listed below):
+2. Install the plugin and assign its connector to a connector host, which mints the connector's key, as [the template's README](../../template/README.md#the-key) says:
 
    ```bash
-   marfa keys create --label rss --source rss --type-permission rss.entry=write --default-tier feed
+   marfa plugins install connectors/rss/plugin
+   marfa plugins assign rss --host "<machine>"
    ```
 
-   The answer shows the key once; keep it in your secret store.
-
-   - `--source rss`: the source every row the connector writes carries.
-   - `--type-permission rss.entry=write`: read and write on its one type, and on nothing else.
-   - `--default-tier feed`: puts what it writes in the feed.
-
-   To have the connector save pictures, set `RSS_PICTURES` to `save` or `save-in-library`, and mint the key with two more permissions:
-
-   ```bash
-   marfa keys create --label rss --source rss --type-permission rss.entry=write --type-permission rss.picture=write --edge-permission attached-to=write --default-tier feed
-   ```
-
-   - `--type-permission rss.picture=write`: read and write on the picture type, which the plugin installs.
-   - `--edge-permission attached-to=write`: lets it attach a picture to its entry. The connection type ships with Marfa, so the plugin does not install it.
-
-   The key holds no other permission, and the connector refuses to run on a key that holds more, or less, naming what is wrong. That includes the picture permissions: they belong on the key only when `RSS_PICTURES` is `save` or `save-in-library`, and a key that holds them is refused while it is `addresses`. Changing the setting therefore means a key of the other shape. Revoke such a key with `marfa keys revoke <key-id>` and mint another as above. [The template's README](../../template/README.md#the-key) says why the key has this shape, and how to give a second account's connector its own key.
+   The key holds write on `rss.entry`, `rss.picture` and `attached-to`, and nothing else. The connector refuses a key that holds more, or less, naming what is wrong.
 
 3. Set the connector's settings, below, and run it.
 
 ## Settings
 
-The connector reads its settings from the environment.
+The connector reads its settings from Marfa at the start of every run. Set them with `marfa plugins settings rss --set <name>=<value>`, and `rss_feeds`, a secret, with `marfa plugins secret rss rss_feeds`, which reads it from standard input.
 
-| Variable            | Required | What it holds                                                                                            |
+| Setting             | Required | What it holds                                                                                            |
 | ------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `MARFA_API_URL`     | yes      | The address of the Marfa server.                                                                         |
-| `MARFA_API_KEY`     | yes      | The connector's key from step 2.                                                                         |
-| `RSS_FEEDS`         | yes      | The feeds to read, as below. A secret.                                                                   |
-| `RSS_PRIVATE_HOSTS` | no       | Host names that may resolve to this machine or a private network, set apart by whitespace.               |
-| `RSS_PICTURES`      | no       | What to do with the pictures an entry points to: `addresses` (the default), `save` or `save-in-library`. |
+| `rss_feeds`         | yes      | The feeds to read, as below. A secret.                                                                   |
+| `rss_private_hosts` | no       | Host names that may resolve to this machine or a private network, set apart by whitespace.               |
+| `rss_pictures`      | no       | What to do with the pictures an entry points to: `addresses` (the default), `save` or `save-in-library`. |
 
-### `RSS_FEEDS`
+The environment holds only `MARFA_API_URL`, the address of the Marfa server, and `MARFA_API_KEY`, the key the connector's host minted.
 
-`RSS_FEEDS` holds one entry for each feed, set apart by whitespace, so one per line works. A comma is part of an address, not a separator. An entry is either:
+### `rss_feeds`
+
+`rss_feeds` holds one entry for each feed, set apart by whitespace, so one per line works. A comma is part of an address, not a separator. An entry is either:
 
 - an `http` or `https` address, such as `https://example.org/feed.xml`; or
 - `name=address`, such as `news=https://example.org/feed.xml?token=abc`. The name is any text without whitespace or `=`, and one name stands for one feed, so the same name on two different addresses stops the start.
@@ -71,13 +57,13 @@ An entry that is not an `http` or `https` address stops the start with exit code
 
 An address may carry credentials, as `https://reader:pass@example.org/feed.xml`. The connector sends them as Basic authorization to that address's own origin and to no other, a redirect included.
 
-### `RSS_PRIVATE_HOSTS`
+### `rss_private_hosts`
 
-The connector does not fetch from this machine or a private network, whether a feed names one, or redirects to one. An address that lists a private IP address itself is allowed. To read a feed at a host name that resolves to a private address, name the host in `RSS_PRIVATE_HOSTS`, such as `feeds.internal.example`. A host here is allowed for the feed listed at it, and its redirects to the same host, and is never allowed as another feed's redirect. An entry holds a host name only, with no port, path or credentials, or the start stops with exit code 2.
+The connector does not fetch from this machine or a private network, whether a feed names one, or redirects to one. An address that lists a private IP address itself is allowed. To read a feed at a host name that resolves to a private address, name the host in `rss_private_hosts`, such as `feeds.internal.example`. A host here is allowed for the feed listed at it, and its redirects to the same host, and is never allowed as another feed's redirect. An entry holds a host name only, with no port, path or credentials, or the start stops with exit code 2.
 
 For a picture the leave is narrower. A listed host is allowed for a picture only when the picture is on the same host as the feed its entry came from. A picture on any other private host is refused as `private_address`, whatever this setting lists, so one feed's text cannot make the connector fetch an internal host that is listed for another feed. A picture on a public host is unaffected.
 
-### `RSS_PICTURES`
+### `rss_pictures`
 
 - `addresses` (the default): the connector keeps the addresses of an entry's pictures in its text and `image_url`, and fetches nothing from them. The rows, the type and the key are exactly as they are without this setting.
 - `save`: the connector saves the pictures of every entry, whether it is in the feed or in the library, as files attached to the entry. A picture of an entry in the library is written at the library tier, and a picture of an entry in the feed at the feed tier.
@@ -90,14 +76,13 @@ Any other value stops the start with exit code 2. [Saving pictures](#saving-pict
 Run it once, then exit, from a scheduler such as cron or launchd:
 
 ```bash
+printf '%s\n' 'https://example.org/feed.xml' 'news=https://example.com/atom.xml?token=abc' | marfa plugins secret rss rss_feeds
 export MARFA_API_URL=https://marfa.example.com
-export MARFA_API_KEY=<the connector's key>
-export RSS_FEEDS='https://example.org/feed.xml
-news=https://example.com/atom.xml?token=abc'
+export MARFA_API_KEY=<the key its host minted>
 node connectors/rss/dist/main.js --once
 ```
 
-The exit code is `0` for a run that succeeded, `1` for a run that failed or a start that could not complete, and `2` for a missing or malformed setting.
+The exit code is `0` for a run that succeeded, `1` for a run that failed or a start that could not complete, `3` for a key Marfa or the connector refused, and `4` for a missing or malformed setting.
 
 Or leave it running, which checks every feed every 15 minutes:
 
@@ -105,9 +90,9 @@ Or leave it running, which checks every feed every 15 minutes:
 node connectors/rss/dist/main.js --every 15m
 ```
 
-[The template's README](../../template/README.md#run-it) says more about both schedules, including a launchd example and a container image: build one with `docker build -f template/Dockerfile --build-arg CONNECTOR=rss -t rss .` and pass the settings with `-e`. The connector keeps no file. Its state, which holds the validators it asks each feed with, the keys each feed's rows were written under, and whether a feed is gone or has moved, is on the instance, so a new process or container picks up where the last left off.
+[The template's README](../../template/README.md#run-it) says more about both schedules, including a launchd example and a container image: build one with `docker build -f template/Dockerfile --build-arg CONNECTOR=rss -t rss .` and pass `MARFA_API_URL` and `MARFA_API_KEY` with `-e`. The connector keeps no file. Its state, which holds the validators it asks each feed with, the keys each feed's rows were written under, and whether a feed is gone or has moved, is on the instance, so a new process or container picks up where the last left off.
 
-Keep `RSS_FEEDS` and `MARFA_API_KEY` in your secret store and start the connector under a tool that sets them, so neither is in a file in the checkout or in a launchd plist.
+Keep `MARFA_API_KEY` in your secret store and start the connector under a tool that sets it, so it is not in a file in the checkout or in a launchd plist. Marfa holds `rss_feeds` sealed, and opens it only to the connector's key.
 
 ## What lands in Marfa
 
@@ -172,7 +157,7 @@ An entry with an image enclosure takes it as `image_url`: an Atom `enclosure` li
 
 A `media:thumbnail` is held to the same rules, with its `url` for the `src`.
 
-Only the declared size is read, and one that is hidden by a style or sized by the stylesheet counts. A picture is fetched only when `RSS_PICTURES` is `save` or `save-in-library`, as [Saving pictures](#saving-pictures) says.
+Only the declared size is read, and one that is hidden by a style or sized by the stylesheet counts. A picture is fetched only when `rss_pictures` is `save` or `save-in-library`, as [Saving pictures](#saving-pictures) says.
 
 ### Dates
 
@@ -186,7 +171,7 @@ An entry is its feed's identity and its `entry_id`. A change to an entry's title
 
 ## Saving pictures
 
-With `RSS_PICTURES` set to `save` or `save-in-library`, the connector fetches the pictures an entry points to and saves each one as a file in Marfa. The entry's text is not changed: its `body` and `image_url` still hold the addresses the feed gave.
+With `rss_pictures` set to `save` or `save-in-library`, the connector fetches the pictures an entry points to and saves each one as a file in Marfa. The entry's text is not changed: its `body` and `image_url` still hold the addresses the feed gave.
 
 ### Choices that are easy to miss
 
@@ -201,7 +186,7 @@ With `RSS_PICTURES` set to `save` or `save-in-library`, the connector fetches th
 
 For each entry it is allowed to work on, the connector takes the entry's `image_url`, then the Markdown images in its `body`, in that order, each address once. Only an address that is `https` is fetched. An `http` address is never fetched and is recorded as not kept with the reason `not_https`; a redirect to an `http` address is refused for the same reason. A relative address, another scheme and an address longer than 2,048 characters are not addresses to save and are ignored.
 
-Every picture is fetched with the connector kit's picture fetch. It follows at most four redirects, each to an `https` address; refuses a private or local address unless `RSS_PRIVATE_HOSTS` names its host and the picture is on the same host as its entry's feed; refuses a known tracker; reads at most 25 MiB; and keeps only a PNG, JPEG, GIF, WebP, AVIF or HEIC file that is neither one pixel wide nor one pixel high and is not larger than 100 million pixels. An SVG file is refused.
+Every picture is fetched with the connector kit's picture fetch. It follows at most four redirects, each to an `https` address; refuses a private or local address unless `rss_private_hosts` names its host and the picture is on the same host as its entry's feed; refuses a known tracker; reads at most 25 MiB; and keeps only a PNG, JPEG, GIF, WebP, AVIF or HEIC file that is neither one pixel wide nor one pixel high and is not larger than 100 million pixels. An SVG file is refused.
 
 Each saved picture is an `rss.picture` row, a kind of `core.file.image`, with these fields:
 
@@ -265,10 +250,10 @@ A picture follows its entry out of use. When an entry is archived or trashed, or
 
 ## What stays
 
-The connector never trashes or removes a row. It archives a row only for a picture whose entry is archived, trashed or gone, and only when `RSS_PICTURES` is not `addresses`; it never archives an entry. It brings a picture back only as the section above says.
+The connector never trashes or removes a row. It archives a row only for a picture whose entry is archived, trashed or gone, and only when `rss_pictures` is not `addresses`; it never archives an entry. It brings a picture back only as the section above says.
 
 - An entry a feed drops stays in Marfa as it was last written. Feeds hold only their latest entries, so this is how the older ones are kept.
-- A feed taken out of `RSS_FEEDS` leaves its rows where they are, and stops being read. Put it back, under the same name or address, and it carries on from them. The connector remembers the last hundred feeds that left the list, so a feed that returns finds the rows it wrote before it left.
+- A feed taken out of `rss_feeds` leaves its rows where they are, and stops being read. Put it back, under the same name or address, and it carries on from them. The connector remembers the last hundred feeds that left the list, so a feed that returns finds the rows it wrote before it left.
 - A feed moved without a name, as above, leaves its old rows beside the new ones.
 
 To remove rows, trash or purge them in Marfa. A row you trash or purge stays gone: the connector does not write it back, however often the feed is read after.
@@ -281,12 +266,12 @@ A feed is skipped, and named in the run, when it:
 - carries more than 5,000 entries or 300,000 elements;
 - needs more memory to read than the connector allows, reads to more than 33,554,432 characters of entries, or takes more than 30 seconds to read;
 - is not Atom, RSS 2.0, RSS 1.0 or JSON Feed;
-- redirects more than five times, or to this machine or a private network that `RSS_PRIVATE_HOSTS` does not allow;
+- redirects more than five times, or to this machine or a private network that `rss_private_hosts` does not allow;
 - does not answer, or answers with a status other than 200 or 304, bar 410, below; or
-- answers 410 (gone). This one is not asked again while its address stays the same, and each run says so. Remove it from `RSS_FEEDS`, or give it its new address, which is read at once.
+- answers 410 (gone). This one is not asked again while its address stays the same, and each run says so. Remove it from `rss_feeds`, or give it its new address, which is read at once.
 
-A feed whose listed address answers with a permanent redirect (301 or 308) is still read, from where it moved to, and each run says that it has moved. Update its address in `RSS_FEEDS`; a feed listed without a name starts new rows at its new address, as above, so name it, with its address unchanged, before you change the address. The new address is not named, since it may carry a token. A temporary redirect (302, 303 or 307) raises nothing.
+A feed whose listed address answers with a permanent redirect (301 or 308) is still read, from where it moved to, and each run says that it has moved. Update its address in `rss_feeds`; a feed listed without a name starts new rows at its new address, as above, so name it, with its address unchanged, before you change the address. The new address is not named, since it may carry a token. A temporary redirect (302, 303 or 307) raises nothing.
 
-The other feeds are still read. A run fails for its feeds only when none of those in `RSS_FEEDS` could be read.
+The other feeds are still read. A run fails for its feeds only when none of those in `rss_feeds` could be read.
 
-A feed's address is a secret, since a private feed's address carries its token. The connector keeps it out of every log line and report, the rows and its state. A feed is named instead by its place in `RSS_FEEDS`, counted from 1, and its origin, such as `feed 2 in RSS_FEEDS (https://example.org)`, and its entries carry only its origin and the hash that identifies it, never its path or query.
+A feed's address is a secret, since a private feed's address carries its token. The connector keeps it out of every log line and report, the rows and its state. A feed is named instead by its place in `rss_feeds`, counted from 1, and its origin, such as `feed 2 in rss_feeds (https://example.org)`, and its entries carry only its origin and the hash that identifies it, never its path or query.

@@ -36,32 +36,33 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Mint a connector-scoped key using your existing Marfa administrative environment:
+Install the plugin and assign its connector to a connector host, which mints the connector's key, as [the template's README](../../template/README.md#the-key) says:
 
 ```bash
-marfa keys create --label readwise --source readwise --type-permission readwise.source=write --type-permission readwise.highlight=write --type-permission readwise.file=write --edge-permission excerpt-of=write --edge-permission references=write --edge-permission attached-to=write --default-tier feed
+marfa plugins install connectors/readwise/plugin
+marfa plugins assign readwise --host "<machine>"
 ```
 
-The built-in `excerpt-of`, `references` and `attached-to` definitions are never changed. The connector clears the `references` it once wrote from a highlight to its source, so a highlight synced before holds only `excerpt-of`; that is why the key holds write on `references`. Do not grant any metadata access or unrelated permissions: installing the plugin registers the types. Turning Reader on or off keeps the same key, registration, rows and progress.
+The key holds write on `readwise.source`, `readwise.highlight`, `readwise.file`, `excerpt-of`, `references` and `attached-to`, and nothing else.
 
-Supply these environment variables through your secret manager or process environment:
+The built-in `excerpt-of`, `references` and `attached-to` definitions are never changed. The connector clears the `references` it once wrote from a highlight to its source, so a highlight synced before holds only `excerpt-of`; that is why the key holds write on `references`. Installing the plugin registers the types. Turning Reader on or off keeps the same key, registration, rows and progress.
 
-| Variable                          | Meaning                                                                                                                                                                                                                                                                    |
+Set these settings in Marfa with `marfa plugins settings readwise --set <name>=<value>`, and the token with `marfa plugins secret readwise readwise_access_token`. The connector reads them at the start of every run. The environment holds only `MARFA_API_URL` and `MARFA_API_KEY`, the key its host minted.
+
+| Setting                           | Meaning                                                                                                                                                                                                                                                                    |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MARFA_API_URL`                   | Marfa instance address.                                                                                                                                                                                                                                                    |
-| `MARFA_API_KEY`                   | The scoped key created above.                                                                                                                                                                                                                                              |
-| `READWISE_ACCESS_TOKEN`           | Your Readwise access token, treated as a secret.                                                                                                                                                                                                                           |
-| `READWISE_ACCOUNT`                | Stable nonsecret account label, such as `primary`.                                                                                                                                                                                                                         |
-| `READWISE_CONTENT_MAX_BYTES`      | Remote resource limit in bytes, from 1 through 1073741824 (1 GiB). Default: 268435456 (256 MiB).                                                                                                                                                                           |
-| `READWISE_API_URL`                | Optional export API base for controlled testing. Default: `https://readwise.io/api/v2/`.                                                                                                                                                                                   |
-| `READWISE_READER`                 | `true` includes Readwise Reader. Default: `false`. Nothing is written to Readwise. A row Reader managed before is still refreshed from Reader with GET requests.                                                                                                           |
-| `READWISE_READER_INCLUDE_FEED`    | With Reader on, `true` includes feed documents. Default: `false`, saved library only.                                                                                                                                                                                      |
-| `READWISE_READER_INBOUND_ONLY`    | With Reader on, `true` sends no edits to Reader. Default: `false`.                                                                                                                                                                                                         |
-| `READWISE_READER_PROPAGATE_PURGE` | With Reader on, `true` lets a permanent purge in Marfa delete the Reader record. Default: `false`.                                                                                                                                                                         |
-| `READWISE_READER_PICTURES`        | Pictures hosted on other websites: `addresses` lists them in the manifest only, `save` saves them, and `save-in-library` saves them only for documents in the Marfa library tier. Default: `addresses`. See [Pictures from other websites](#pictures-from-other-websites). |
-| `READWISE_READER_API_URL`         | Optional Reader API base for controlled testing. Default: `https://readwise.io/api/v3/`.                                                                                                                                                                                   |
+| `readwise_access_token`           | Your Readwise access token, treated as a secret.                                                                                                                                                                                                                           |
+| `readwise_account`                | Stable nonsecret account label, such as `primary`.                                                                                                                                                                                                                         |
+| `readwise_content_max_bytes`      | Remote resource limit in bytes, from 1 through 1073741824 (1 GiB). Default: 268435456 (256 MiB).                                                                                                                                                                           |
+| `readwise_api_url`                | Optional export API base for controlled testing. Default: `https://readwise.io/api/v2/`.                                                                                                                                                                                   |
+| `readwise_reader`                 | `true` includes Readwise Reader. Default: `false`. Nothing is written to Readwise. A row Reader managed before is still refreshed from Reader with GET requests.                                                                                                           |
+| `readwise_reader_include_feed`    | With Reader on, `true` includes feed documents. Default: `false`, saved library only.                                                                                                                                                                                      |
+| `readwise_reader_inbound_only`    | With Reader on, `true` sends no edits to Reader. Default: `false`.                                                                                                                                                                                                         |
+| `readwise_reader_propagate_purge` | With Reader on, `true` lets a permanent purge in Marfa delete the Reader record. Default: `false`.                                                                                                                                                                         |
+| `readwise_reader_pictures`        | Pictures hosted on other websites: `addresses` lists them in the manifest only, `save` saves them, and `save-in-library` saves them only for documents in the Marfa library tier. Default: `addresses`. See [Pictures from other websites](#pictures-from-other-websites). |
+| `readwise_reader_api_url`         | Optional Reader API base for controlled testing. Default: `https://readwise.io/api/v3/`.                                                                                                                                                                                   |
 
-Boolean values must be `true` or `false`. API overrides require HTTPS, except HTTP on loopback; credentials, query strings, and fragments are rejected. The token is sent only to the configured API bases.
+API overrides require HTTPS, except HTTP on loopback; credentials, query strings, and fragments are rejected. The token is sent only to the configured API bases.
 
 Run once or poll with the kit's existing scheduler:
 
@@ -118,9 +119,9 @@ Listing and preservation have independent scopes, and the export and Reader shar
 
 Each retained HTML document, available original, Readwise-hosted image, overflow text, and resource manifest has its own `readwise.file` item with a `blob_ref`. Every file has an `attached-to` edge to its source or highlight. Trashing a source or highlight in Marfa puts its files in the bin with it, and restoring it brings them back. Original HTML bytes are retained without rewriting links.
 
-The manifest distinguishes kept, pending, unavailable, and deliberately unkept resources. A completed empty HTTP 200 download is recorded as unavailable without replacing any retained bytes; failed or incomplete downloads remain pending. Downloads accept only the verified HTTPS `readwise-assets.s3.amazonaws.com` host and validate each redirect. They never send API credentials to storage or fetch linked websites. Pictures hosted on other websites are fetched only when `READWISE_READER_PICTURES` asks for them. Transient signed URLs are excluded from checkpoint and manifest metadata; original HTML remains exact. A changed or expired source link is refreshed through Reader. Failed downloads retain the last acknowledged bytes.
+The manifest distinguishes kept, pending, unavailable, and deliberately unkept resources. A completed empty HTTP 200 download is recorded as unavailable without replacing any retained bytes; failed or incomplete downloads remain pending. Downloads accept only the verified HTTPS `readwise-assets.s3.amazonaws.com` host and validate each redirect. They never send API credentials to storage or fetch linked websites. Pictures hosted on other websites are fetched only when `readwise_reader_pictures` asks for them. Transient signed URLs are excluded from checkpoint and manifest metadata; original HTML remains exact. A changed or expired source link is refreshed through Reader. Failed downloads retain the last acknowledged bytes.
 
-Downloads stream through a private temporary file, removed after success, failure, or cancellation; upload retries reopen that file without buffering the whole resource in memory. A resource above `READWISE_CONTENT_MAX_BYTES` remains pending with its byte limit reported, and its last acknowledged copy remains available. Raising the limit lets existing pending jobs retry at their recorded deadlines without starting a metadata backfill.
+Downloads stream through a private temporary file, removed after success, failure, or cancellation; upload retries reopen that file without buffering the whole resource in memory. A resource above `readwise_content_max_bytes` remains pending with its byte limit reported, and its last acknowledged copy remains available. Raising the limit lets existing pending jobs retry at their recorded deadlines without starting a metadata backfill.
 
 Each content pass handles a bounded number of documents and resources; later runs resume pending work. A productive pass that stops at its resource budget remains ready for the next pass. Failed or stalled work keeps its retry delay. Stable resource keys and acknowledged manifests avoid repeat uploads and unchanged downloads. Text that exceeds the item field limit is retained in a referenced text blob before its final metadata is acknowledged. A purged content item is not silently recreated.
 
@@ -128,7 +129,7 @@ Each content pass handles a bounded number of documents and resources; later run
 
 A document's HTML often shows pictures hosted on other websites. Pictures on Readwise storage keep their own download path, whatever the setting. For a document that saves pictures, a picture is the absolute address in an `img` element's `src`, or in its `data-src` when it has no `src`, or the document's cover `image_url`. Each whole address is one picture, so two addresses that differ only in the query are two pictures. Other image references, such as `srcset` candidates and relative or `data:` addresses, stay listed as deliberately unkept, reason `third-party`, and are never fetched.
 
-`READWISE_READER_PICTURES` decides what happens to them:
+`readwise_reader_pictures` decides what happens to them:
 
 - `addresses` (the default): nothing from another website is fetched. The manifest lists each image on another website as deliberately unkept, reason `third-party`, one resource for each origin and path.
 - `save`: each HTTPS picture is fetched and saved. An `http:` address is never fetched and is listed as deliberately unkept, reason `not_https`.
@@ -153,12 +154,12 @@ Turning the setting on doesn't walk the Reader listing again. Picture work goes 
 Reader's archive and Marfa's `archived` state mean the same thing: finished with, but kept. With Reader on, the connector keeps the two in step for documents (`readwise.source`).
 
 - After a run, a document whose `reader_location` is `archive` is `archived` in Marfa. One that has moved out of Reader's archive, to `new`, `later` or `feed`, is `active` again.
-- Archiving a document's item in Marfa moves the document to Reader's archive. Restoring it to `active` moves the document to `later`. The connector stores no earlier location. If the document has already left Reader's archive, a restore changes nothing in Reader. `READWISE_READER_INBOUND_ONLY` turns this off, with the other edits to Reader.
+- Archiving a document's item in Marfa moves the document to Reader's archive. Restoring it to `active` moves the document to `later`. The connector stores no earlier location. If the document has already left Reader's archive, a restore changes nothing in Reader. `readwise_reader_inbound_only` turns this off, with the other edits to Reader.
 - Highlights keep their own state. Archiving a document leaves its highlights active, as Readwise does: its documentation says to keep annotated documents in the Reader archive to preserve their highlights. Saved pictures stay active too, and are never listed as deliberately unkept because their document was archived.
 - When both sides change in one run, the later change wins, as it does for other fields. A restore in Marfa is carried to Reader unless Reader changed the document after the restore, in which case Reader's change stands and the item is archived again.
 - Archiving many documents in Reader at once is not a deletion. Only a document confirmed missing counts toward the limit of 20 described under [Deletion and reconciliation](#deletion-and-reconciliation).
 
-A document that disappeared from Reader is archived too, but its `reader_location` is whatever Reader last reported, which is not `archive`. An archived item whose `reader_location` is `archive` is in Reader's archive, whichever side archived it; any other archived item is missing from Reader, was archived in Marfa before Reader took it over, or, with `READWISE_READER_INBOUND_ONLY` on, was archived in Marfa only.
+A document that disappeared from Reader is archived too, but its `reader_location` is whatever Reader last reported, which is not `archive`. An archived item whose `reader_location` is `archive` is in Reader's archive, whichever side archived it; any other archived item is missing from Reader, was archived in Marfa before Reader took it over, or, with `readwise_reader_inbound_only` on, was archived in Marfa only.
 
 ### Edit and create
 
