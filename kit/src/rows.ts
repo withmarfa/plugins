@@ -484,7 +484,8 @@ export class Rows {
       const properties = cleaned(entry.properties);
       const stray = [
         ...Object.keys(properties).filter(
-          (field) => field !== unwrittenKey && !this.kind.fields.includes(field),
+          (field) =>
+            field !== unwrittenKey && !this.kind.fields.includes(field),
         ),
         ...Object.keys(entry.connections ?? {}).filter(
           (type) => !this.kind.connections.has(type),

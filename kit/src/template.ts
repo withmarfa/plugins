@@ -58,18 +58,37 @@ export function render(
         : undefined;
     if (kind === "OutOfFuel")
       return {
-        fault: "the template did more work than a render may, so it was cut off",
+        fault:
+          "the template did more work than a render may, so it was cut off",
       };
     const message = error instanceof Error ? error.message : String(error);
     return { fault: message.split("\n")[0] ?? message };
   }
-  let characters = 0;
-  for (const _ of text) {
-    characters += 1;
-    if (characters > templateCharacters)
-      return {
-        fault: `the template gave more than ${templateCharacters.toLocaleString("en-US")} characters, so it was cut off`,
-      };
-  }
+  // A character is one or two UTF-16 code units, so only text between the
+  // bound and twice it needs counting.
+  const over =
+    text.length > templateCharacters &&
+    (text.length > 2 * templateCharacters ||
+      characters(text) > templateCharacters);
+  if (over)
+    return {
+      fault: `the template gave more than ${templateCharacters.toLocaleString("en-US")} characters, so it was cut off`,
+    };
   return { text };
+}
+
+/** Unicode characters, as Marfa counts a string's length: a surrogate pair
+ *  is one. */
+function characters(text: string): number {
+  let count = 0;
+  for (let at = 0; at < text.length; at += 1) {
+    const unit = text.charCodeAt(at);
+    const pair =
+      unit >= 0xd800 && unit <= 0xdbff && at + 1 < text.length
+        ? text.charCodeAt(at + 1)
+        : 0;
+    if (pair >= 0xdc00 && pair <= 0xdfff) at += 1;
+    count += 1;
+  }
+  return count;
 }

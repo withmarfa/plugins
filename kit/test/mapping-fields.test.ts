@@ -149,12 +149,12 @@ describe("a kind's fields mapped onto the target's", () => {
   });
 
   it("reads a field the entry does not hold as nothing, not as an undefined name", async () => {
-    mapFields({ ...standard, title: { template: "{{ title }}{{ link }}" } });
+    mapFields({ ...standard, title: { template: "{{ title }}!{{ link }}" } });
     const given = held([
       { ...one, properties: { title: "One", vendor_id: "v1" } },
     ]);
     expect(await harness.twoWay(given)).toBe(0);
-    expect(harness.server.row("a:1").properties["title"]).toBe("One");
+    expect(harness.server.row("a:1").properties["title"]).toBe("One!");
     expect(harness.problems()).not.toHaveProperty(
       "mapping-template:entry:title",
     );
@@ -164,7 +164,10 @@ describe("a kind's fields mapped onto the target's", () => {
     mapFields(standard);
     const given = held();
     expect(await harness.twoWay(given)).toBe(0);
-    mapFields({ ...standard, title: { template: "{{ nope }}" } }, { version: 2 });
+    mapFields(
+      { ...standard, title: { template: "{{ nope }}" } },
+      { version: 2 },
+    );
     given.entries = [{ ...one, properties: { ...one.properties, note: "1" } }];
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     const row = harness.server.row("a:1");
@@ -223,14 +226,16 @@ describe("a kind's fields mapped onto the target's", () => {
     // by the kind's field.
     harness.server.edit(row.id, { summary: "edited in Marfa" });
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
-    expect(given.changes.map((change) => [...change.changed])).toEqual([["note"]]);
+    expect(given.changes.map((change) => [...change.changed])).toEqual([
+      ["note"],
+    ]);
     expect(given.changes[0]?.item.properties["note"]).toBe("edited in Marfa");
     expect(given.changes[0]?.item.type).toBe(linkedType.id);
   });
 
   it("keeps a target field the mapping does not fill, which someone else wrote, through the kit's next write", async () => {
     mapFields({
-      title: { template: "{{ title }}" },
+      title: { template: "{{ title }}!" },
       status: { from: "status" },
     });
     const given = held();
@@ -241,9 +246,59 @@ describe("a kind's fields mapped onto the target's", () => {
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(given.changes).toEqual([]);
     expect(harness.server.row("a:1").properties).toMatchObject({
-      title: "1",
+      title: "1!",
       summary: "a note from an app",
     });
+  });
+  it("leaves a row written on the kind's own type before the mapping where it is, with no put-back and no write when nothing changed", async () => {
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const before = harness.server.row("a:1");
+    expect(before.type).toBe(ownType.id);
+    mapFields(standard);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const patches = harness.server.requestsTo("PATCH", `/items/${before.id}`);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.requestsTo("PATCH", `/items/${before.id}`)).toEqual(
+      patches,
+    );
+    expect(
+      Object.keys(harness.problems()).filter((key) =>
+        key.startsWith("put-back"),
+      ),
+    ).toEqual([]);
+    const after = harness.server.row("a:1");
+    expect(after.type).toBe(ownType.id);
+    expect(
+      Object.keys(after.properties).some((key) => key.startsWith("@")),
+    ).toBe(false);
+    expect(given.changes).toEqual([]);
+  });
+  it("moves a row to the target on a rewrite with its fields as the mapping lands them, clearing the kind's own", async () => {
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const before = harness.server.row("a:1");
+    mapFields(standard);
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T00:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    const after = harness.server.row("a:1");
+    expect([after.id, after.type]).toEqual([before.id, target]);
+    expect(after.properties).toEqual({
+      title: "One (v1)",
+      summary: "first",
+      label: "imported",
+      status: "in_progress",
+      vendor_id: "v1",
+    });
+    expect(given.changes).toEqual([]);
   });
 });
 
@@ -311,6 +366,23 @@ describe("status words carried back", () => {
     expect(given.changes).toEqual([]);
     expect(harness.server.row("a:1").properties["status"]).toBe("not_started");
   });
+  it("carries nothing back for such a word on a row the vendor does not send again", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(await quiet(given)).toBe(0);
+    given.entries = [];
+    harness.server.edit(harness.server.row("a:1").id, { status: "canceled" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+
+    // The witness: a word of a group the kind holds is carried on that path.
+    harness.server.edit(harness.server.row("a:1").id, { status: "backlog" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes.map((change) => [...change.changed])).toEqual([
+      ["status"],
+    ]);
+  });
 });
 
 describe("a preview of a kind's mapping", () => {
@@ -338,12 +410,10 @@ describe("a preview of a kind's mapping", () => {
     above: [],
     status: {
       field: "status",
-      words: targetType.fields.status.status_values.map(
-        ({ value, group }) => ({
-          value,
-          group: group as "not_started",
-        }),
-      ),
+      words: targetType.fields.status.status_values.map(({ value, group }) => ({
+        value,
+        group: group as "not_started",
+      })),
     },
     titleField: "title",
   };
@@ -411,7 +481,10 @@ describe("a preview of a kind's mapping", () => {
   it("names a template that fails among its conditions, and leaves the field out", async () => {
     const { result, conditions } = await previewOf({
       kind,
-      mapping: { ...mapping, fields: { ...standard, title: { template: "{{ nope }}" } } },
+      mapping: {
+        ...mapping,
+        fields: { ...standard, title: { template: "{{ nope }}" } },
+      },
       own,
       target: resolvedTarget,
       from: { entry: one },

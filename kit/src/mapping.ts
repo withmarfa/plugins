@@ -251,7 +251,7 @@ export class FieldMap {
     const properties: Record<string, unknown> = {};
     const unwritten: string[] = [];
     const faults: FieldFaults = new Map();
-    const where = id === undefined ? entry.source_id : id;
+    const where = id ?? entry.source_id;
     for (const field of this.carried) {
       if (!Object.hasOwn(given, field)) continue;
       const value = given[field];
@@ -324,7 +324,10 @@ export class FieldMap {
       } else view[own] = value;
       used.add(field);
     }
-    if (this.heldLink !== undefined && Object.hasOwn(properties, this.heldLink)) {
+    if (
+      this.heldLink !== undefined &&
+      Object.hasOwn(properties, this.heldLink)
+    ) {
       view[this.heldLink] = properties[this.heldLink];
       used.add(this.heldLink);
     }
@@ -448,7 +451,8 @@ export class TypeMap {
     this.served.set(item.id, item.type);
     const type = this.toOwn.get(item.type);
     const onTarget = this.onTarget.get(item.type);
-    const onOwn = onTarget === undefined ? this.onOwn.get(item.type) : undefined;
+    const onOwn =
+      onTarget === undefined ? this.onOwn.get(item.type) : undefined;
     if (type === undefined && onTarget === undefined && onOwn === undefined)
       return item;
     const properties =
@@ -466,8 +470,7 @@ export class TypeMap {
     view: Readonly<Record<string, unknown>>,
     at: { type: string } | { id: string },
   ): Record<string, unknown> {
-    const served =
-      "type" in at ? this.out(at.type) : this.served.get(at.id);
+    const served = "type" in at ? this.out(at.type) : this.served.get(at.id);
     const fields = served === undefined ? undefined : this.onTarget.get(served);
     return fields === undefined ? unviewed(view) : fields.write(view);
   }
@@ -684,7 +687,8 @@ export async function planKinds<E extends SettingsDeclaration>(
       });
       continue;
     }
-    const entry = kind.name === undefined ? undefined : mapping.kinds[kind.name];
+    const entry =
+      kind.name === undefined ? undefined : mapping.kinds[kind.name];
     if (target === own) {
       const shaped = await shapeFields({
         label,
@@ -923,8 +927,7 @@ export async function previewOf(input: {
   );
   const properties = map.write({ ...kept, ...shaped.entry.properties });
   const titleField = target.titleField;
-  const title =
-    titleField === undefined ? undefined : properties[titleField];
+  const title = titleField === undefined ? undefined : properties[titleField];
   return {
     result: {
       type: targetType,

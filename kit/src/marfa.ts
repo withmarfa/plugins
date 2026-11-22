@@ -1322,8 +1322,7 @@ export class Marfa {
           source,
           source_id: row.source_id,
           properties:
-            this.types?.properties(row.properties, { type }) ??
-            row.properties,
+            this.types?.properties(row.properties, { type }) ?? row.properties,
           ...(row.occurred_at !== undefined && {
             occurred_at: row.occurred_at,
           }),
