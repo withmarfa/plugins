@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector, type SettingsDeclaration } from "../src/define.js";
+import { SettingsRefused } from "../src/environment.js";
 import { exitCode } from "../src/exit.js";
 import { start } from "./installed.js";
 import {
@@ -502,5 +503,69 @@ describe("exit codes", () => {
       ),
     ).toBe(exitCode.definition);
     expect(harness.server.requests).toEqual([]);
+  });
+});
+
+describe("a run only the owner can mend", () => {
+  const owed = new SettingsRefused(
+    "sign in again with `marfa plugins sign-in test`",
+  );
+
+  function refusing(error: Error, runs: { count: number }) {
+    return defineConnector({
+      name: "test",
+      source: "test",
+      types: [{ type: testType, fields: testFields }],
+      run() {
+        runs.count += 1;
+        return Promise.reject(error);
+      },
+    });
+  }
+
+  it("exits 4 once it fails with SettingsRefused, reporting what the owner is to do", async () => {
+    const runs = { count: 0 };
+    expect(await start(refusing(owed, runs), harness.runtime(["--once"]))).toBe(
+      exitCode.settings,
+    );
+    expect(runs.count).toBe(1);
+    const run = harness.lastRun();
+    expect(run.outcome).toBe("failed");
+    expect(run.error).toContain("marfa plugins sign-in test");
+  });
+
+  it("stops under --every instead of running again, even when the error is what a failure was caused by", async () => {
+    const runs = { count: 0 };
+    const caused = new Error("the run failed", { cause: owed });
+    const exit = start(
+      refusing(caused, runs),
+      harness.runtime(["--every", "15m"]),
+    );
+    expect(await exit).toBe(exitCode.settings);
+    expect(runs.count).toBe(1);
+  });
+
+  it("is the error's own doing: an ordinary failure exits 1, and under --every the connector keeps running", async () => {
+    const runs = { count: 0 };
+    expect(
+      await start(
+        refusing(new Error("the vendor answered 502"), runs),
+        harness.runtime(["--once"]),
+      ),
+    ).toBe(exitCode.failed);
+
+    const every = start(
+      refusing(new Error("the vendor answered 502"), runs),
+      harness.runtime(["--every", "15m"]),
+    );
+    const pause = new Promise<string>((resolve) => {
+      setTimeout(() => {
+        resolve("still running");
+      }, 300);
+    });
+    expect(await Promise.race([every, pause])).toBe("still running");
+    expect(runs.count).toBe(2);
+    harness.stop();
+    expect(await every).toBe(exitCode.stopped);
   });
 });

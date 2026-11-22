@@ -18,7 +18,9 @@ import {
   eventType,
   inCalendar,
   needs,
+  name,
   settings,
+  signIn,
   source,
 } from "./config.js";
 import { calendarChecks, readCalendars } from "./read.js";
@@ -60,7 +62,7 @@ export function connector(options?: GoogleOptions) {
   const now = options?.now ?? Date.now;
   const writing: Writing = { options, base };
   return defineConnector({
-    name: "google-calendar",
+    name,
     title: "Google Calendar",
     mark: "simple-icons:googlecalendar",
     maker: "WithMarfa",
@@ -89,6 +91,7 @@ export function connector(options?: GoogleOptions) {
     carries: () => [eventType],
     connections,
     settings,
+    signIn,
     async run(context) {
       const google = connectGoogle(context, needs, options);
       const access = await google.ready();

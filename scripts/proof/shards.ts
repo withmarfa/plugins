@@ -19,7 +19,13 @@ export type Instance =
    * a source or a fixture no other group has held, or that installs what
    * another group's connector registers.
    */
-  | "own";
+  | "own"
+  /**
+   * A server of its own, empty when the group starts and built with test
+   * hooks, for a group that arms a fault, such as the address a connector's
+   * sign-in reaches its provider at.
+   */
+  | "hooks";
 
 export interface Group {
   name: string;
@@ -68,6 +74,7 @@ export const GROUPS = [
   { name: "inbound-retry", instance: "shared", statements: 6, seconds: 9 },
   { name: "retry-archive", instance: "shared", statements: 1, seconds: 1 },
   { name: "plugins", instance: "own", statements: 4, seconds: 2 },
+  { name: "google-sign-in", instance: "hooks", statements: 5, seconds: 2 },
   {
     name: "readwise-with-reader",
     instance: "own",

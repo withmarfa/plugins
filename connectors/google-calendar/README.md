@@ -1,6 +1,6 @@
 # Google Calendar
 
-Reads the calendars and events of a Google account into Marfa, and carries changes made to events in Marfa back to Google Calendar. It never invites anyone and never has Google email anyone. It signs in through the shared [Google sign-in](../../shared/google/README.md), so it uses the same OAuth client and refresh token as any other Google connector.
+Reads the calendars and events of a Google account into Marfa, and carries changes made to events in Marfa back to Google Calendar. It never invites anyone and never has Google email anyone. It signs in to Google through Marfa, as the shared [Google sign-in](../../shared/google/README.md) describes.
 
 On every start the connector gives its source `google-calendar` the name Google Calendar and the mark `simple-icons:googlecalendar`, so apps show them instead of the code, and sets only what the source does not already have, so a name or mark an owner chose in an app is kept.
 
@@ -50,14 +50,31 @@ marfa plugins assign google-calendar --host "<machine>"
 
 The key holds write on `google.calendar.calendar`, `google.calendar.event`, `google.calendar.in-calendar` and `parent-of`, and nothing else. Writing `parent-of` is what lets a changed occurrence sit beneath its series. Installing the plugin registers the types and connection types.
 
-Then give it a Google sign-in. Create a Desktop app OAuth client in your own Google Cloud project, turn on the Google Calendar API, and set `google_client_id` and `google_client_secret`. The connector's own setup is gone, and signing in through Marfa comes in a later version, so until then the connector starts only with a refresh token you already hold for that client, set with `marfa plugins secret google-calendar google_refresh_token`, as [the shared page](../../shared/google/README.md#signing-in) says.
+Then sign it in to Google:
+
+1. In your own Google Cloud project, turn on the Google Calendar API and configure the OAuth consent screen first, then create an OAuth client of the type **Web application**. While the consent screen is in Testing, add your Google account as a test user; Google then ends the sign-in after 7 days for an External app, so publish the app for a lasting one.
+2. Add `<sign-in address>/connect/oauth/callback` as an authorized redirect URI, where `<sign-in address>` is the address Marfa's owner signs in at, such as `https://marfa.example.com`. Google accepts only an HTTPS address on a domain name, not an IP address; `localhost` is the one exception and may use HTTP.
+3. Set the client's ID and secret in Marfa:
+
+   ```bash
+   marfa plugins settings google-calendar --set google_client_id=<client ID>
+   marfa plugins secret google-calendar google_client_secret
+   ```
+
+4. Start the sign-in, open the address it prints in a browser, and choose the Google account:
+
+   ```bash
+   marfa plugins sign-in google-calendar --wait
+   ```
+
+Marfa keeps the refresh token it gets as `google_refresh_token`, and you never handle it. Until you have signed in, the connector stops at the start of a run with exit code 4 and the condition `google:sign-in`.
 
 The grant needs these scopes:
 
 - `https://www.googleapis.com/auth/calendar.events`
 - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
 
-Without the calendar list scope, the connector reads nothing and raises a scope condition. Without the events scope, it writes the calendar rows and no events. [The shared page](../../shared/google/README.md) describes the conditions and what to do when Google asks you to sign in again.
+Without the calendar list scope, the connector reads nothing and raises a scope condition. Without the events scope, it writes the calendar rows and no events. [The shared page](../../shared/google/README.md) describes the conditions. When Google ends the grant, the connector stops with exit code 4 until you run `marfa plugins sign-in google-calendar` again.
 
 ## Configure
 
@@ -65,9 +82,9 @@ Set these in Marfa with `marfa plugins settings google-calendar --set <name>=<va
 
 | Setting                               | Meaning                                                                                                                    |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `google_client_id`                    | The ID of your Desktop app OAuth client.                                                                                   |
+| `google_client_id`                    | The ID of your Web application OAuth client.                                                                               |
 | `google_client_secret`                | That client's secret.                                                                                                      |
-| `google_refresh_token`                | The refresh token of the Google account's grant to that client.                                                            |
+| `google_refresh_token`                | Set by `marfa plugins sign-in`, never by hand: the refresh token of the Google account's grant to that client.             |
 | `google_calendar_read_only_calendars` | Optional. Calendar IDs, separated by commas or spaces, of read-only calendars to read, such as a shared holidays calendar. |
 | `google_calendar_confirm_deletes`     | Optional. Lets one held batch of deletions through; see [The safety stop](#the-safety-stop).                               |
 

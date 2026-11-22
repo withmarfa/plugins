@@ -1,5 +1,4 @@
 export interface GoogleEndpoints {
-  readonly authorization: string;
   readonly token: string;
   readonly userinfo: string;
   /** An origin besides Google's own that may receive an access token, which
@@ -8,7 +7,6 @@ export interface GoogleEndpoints {
 }
 
 export const googleEndpoints: GoogleEndpoints = {
-  authorization: "https://accounts.google.com/o/oauth2/v2/auth",
   token: "https://oauth2.googleapis.com/token",
   userinfo: "https://openidconnect.googleapis.com/v1/userinfo",
 };
@@ -23,13 +21,20 @@ export interface GoogleOptions {
 }
 
 export interface Settings {
+  /** The connector's plugin name, which the conditions tell the owner to
+   *  sign in. */
+  readonly plugin: string;
   readonly endpoints: GoogleEndpoints;
   readonly now: () => number;
   readonly timeoutMs: number;
 }
 
-export function settings(options: GoogleOptions = {}): Settings {
+export function settings(
+  plugin: string,
+  options: GoogleOptions = {},
+): Settings {
   return {
+    plugin,
     endpoints: { ...googleEndpoints, ...options.endpoints },
     now: options.now ?? Date.now,
     timeoutMs: options.timeoutMs ?? 30_000,

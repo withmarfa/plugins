@@ -156,6 +156,18 @@ function manifestOf(connector: Connector): Record<string, unknown> {
           ? {}
           : { choices: [...setting.choices] }),
       })),
+      ...(connector.signIn === undefined
+        ? {}
+        : {
+            sign_in: {
+              kind: connector.signIn.kind,
+              provider: connector.signIn.provider,
+              scopes: [...connector.signIn.scopes],
+              client_id_setting: connector.signIn.clientIdSetting,
+              client_secret_setting: connector.signIn.clientSecretSetting,
+              token_setting: connector.signIn.tokenSetting,
+            },
+          }),
       runs: { on: "host" },
     },
   };

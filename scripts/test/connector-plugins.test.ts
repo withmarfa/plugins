@@ -103,6 +103,7 @@ function manifest(text: string | undefined): {
     kinds: { name: string; type: string; direction: string }[];
     edge_types?: string[];
     settings: Record<string, unknown>[];
+    sign_in?: Record<string, unknown>;
   };
   [key: string]: unknown;
 } {
@@ -220,6 +221,39 @@ describe("the generated plugin folder of each connector", () => {
     expect(bare.connector).not.toHaveProperty("source_mark");
     expect(bare.connector).not.toHaveProperty("edge_types");
     expect(bare.connector.settings).toEqual([]);
+  });
+
+  it("writes a connector's sign-in as the manifest's sign_in, and none for a connector without one", async () => {
+    const place = await repository({
+      signing: [
+        "signing",
+        {
+          extra: `settings: [
+            { name: "g_client", label: "Client ID", kind: "text", required: true },
+            { name: "g_secret", label: "Client secret", kind: "text", secret: true, required: true },
+            { name: "g_token", label: "Token", kind: "text", secret: true },
+          ], signIn: {
+            kind: "oauth2", provider: "google", scopes: ["openid", "https://example.test/scope"],
+            clientIdSetting: "g_client", clientSecretSetting: "g_secret", tokenSetting: "g_token",
+          }`,
+        },
+      ],
+      plain: ["plain"],
+    });
+    const made = await written(place);
+    expect(
+      manifest(made.get("connectors/signing/plugin/plugin.json")).connector,
+    ).toHaveProperty("sign_in", {
+      kind: "oauth2",
+      provider: "google",
+      scopes: ["openid", "https://example.test/scope"],
+      client_id_setting: "g_client",
+      client_secret_setting: "g_secret",
+      token_setting: "g_token",
+    });
+    expect(
+      manifest(made.get("connectors/plain/plugin/plugin.json")).connector,
+    ).not.toHaveProperty("sign_in");
   });
 
   it("writes a type for each kind, an edge type for each connection Marfa does not ship, and names every connection in the connector's edge_types", async () => {
@@ -544,6 +578,40 @@ describe("the plugins the real connectors are published as", () => {
     expect(own).toEqual(
       (expected ?? []).filter((id) => id.includes(".")).sort(),
     );
+  });
+
+  it("signs Google Calendar in through Marfa, naming three settings it declares, two of them secrets, and asks for no scope beyond the calendar and the account", async () => {
+    const { connector } = manifest(
+      (await folderOf("google-calendar")).get("plugin.json"),
+    );
+    const signIn = connector.sign_in ?? {};
+    expect(signIn).toEqual({
+      kind: "oauth2",
+      provider: "google",
+      scopes: [
+        "openid",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly",
+      ],
+      client_id_setting: "google_client_id",
+      client_secret_setting: "google_client_secret",
+      token_setting: "google_refresh_token",
+    });
+    const named = (name: unknown) =>
+      connector.settings.find((setting) => setting["name"] === name);
+    expect(named(signIn["client_id_setting"])).toMatchObject({
+      kind: "text",
+      required: true,
+    });
+    expect(named(signIn["client_id_setting"])).not.toHaveProperty("secret");
+    expect(named(signIn["client_secret_setting"])).toMatchObject({
+      secret: true,
+      required: true,
+    });
+    expect(named(signIn["token_setting"])).toMatchObject({
+      secret: true,
+      required: false,
+    });
   });
 
   it("declares each setting as the contract takes it, and names every secret", async () => {

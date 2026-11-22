@@ -163,17 +163,17 @@ export async function requestTokens(
       throw new GoogleError(`Google refused the grant (${said})`, "reconnect", {
         status: response.status,
         reason: code,
-        condition: reconnectCondition(),
+        condition: reconnectCondition(settings.plugin),
       });
     }
-    if (code === "invalid_client") {
+    if (code === "invalid_client" || code === "unauthorized_client") {
       throw new GoogleError(
-        `Google does not know the OAuth client (${said})`,
+        `Google does not accept the OAuth client (${said})`,
         "client",
         {
           status: response.status,
           reason: code,
-          condition: clientCondition(),
+          condition: clientCondition(settings.plugin, code),
         },
       );
     }

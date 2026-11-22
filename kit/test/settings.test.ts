@@ -179,6 +179,69 @@ describe("the settings a connector declares", () => {
   });
 });
 
+describe("the sign-in a connector declares", () => {
+  const client = { name: "g_client", label: "Client", kind: "text" } as const;
+  const secret = {
+    name: "g_secret",
+    label: "Secret",
+    kind: "text",
+    secret: true,
+  } as const;
+  const kept = {
+    name: "g_token",
+    label: "Token",
+    kind: "text",
+    secret: true,
+  } as const;
+  const signIn = {
+    kind: "oauth2",
+    provider: "google",
+    scopes: ["openid"],
+    clientIdSetting: "g_client",
+    clientSecretSetting: "g_secret",
+    tokenSetting: "g_token",
+  } as const;
+
+  it("takes a sign-in naming a setting for the client ID and two secrets for the client secret and the token", () => {
+    expect(refusal([client, secret, kept], { signIn })).toBeUndefined();
+  });
+
+  it("refuses a sign-in whose setting is not declared, naming the field", () => {
+    expect(refusal([secret, kept], { signIn })).toMatch(
+      /clientIdSetting is a setting it declares, where g_client is not/,
+    );
+    expect(refusal([client, kept], { signIn })).toMatch(
+      /clientSecretSetting is a setting it declares, where g_secret is not/,
+    );
+    expect(refusal([client, secret], { signIn })).toMatch(
+      /tokenSetting is a setting it declares, where g_token is not/,
+    );
+  });
+
+  it("refuses a client secret or token that is not a secret, and takes a client ID that is not", () => {
+    const open = { ...kept, secret: false };
+    expect(refusal([client, secret, open], { signIn })).toMatch(
+      /tokenSetting is a secret setting, where g_token is not/,
+    );
+    expect(
+      refusal([client, { ...secret, secret: false }, kept], { signIn }),
+    ).toMatch(/clientSecretSetting is a secret setting, where g_secret is not/);
+    expect(
+      refusal([{ ...client, secret: true }, secret, kept], { signIn }),
+    ).toBeUndefined();
+  });
+
+  it("refuses a sign-in that asks for no scope or an empty one", () => {
+    const settings = [client, secret, kept];
+    expect(refusal(settings, { signIn: { ...signIn, scopes: [] } })).toMatch(
+      /names each scope it asks for/,
+    );
+    expect(refusal(settings, { signIn: { ...signIn, scopes: [""] } })).toMatch(
+      /names each scope it asks for/,
+    );
+  });
+});
+
 describe("the settings a connector reads", () => {
   const settings = [
     token,

@@ -77,8 +77,12 @@ function alive(pid: number): boolean {
 export class ProofServer {
   /** `connectorHoldMs` shortens the window a connector's hold lasts, which only
    *  a server built with test hooks allows; the released one refuses to start
-   *  asked for it. */
-  constructor(private readonly connectorHoldMs?: number) {}
+   *  asked for it. `hooks` boots the server with test hooks and no tuning, for
+   *  a proof that arms a fault. */
+  constructor(
+    private readonly connectorHoldMs?: number,
+    private readonly hooks = connectorHoldMs !== undefined,
+  ) {}
   private dir: string | undefined;
   private controlDir: string | undefined;
   private socketPath: string | undefined;
@@ -157,7 +161,7 @@ export class ProofServer {
    *  `MARFA_HOOKS_SERVER_BIN` names, or the build `scripts/monorepo.sh hooks`
    *  made. */
   private async program(): Promise<string> {
-    const hooks = this.connectorHoldMs !== undefined;
+    const hooks = this.hooks;
     const named =
       process.env[hooks ? "MARFA_HOOKS_SERVER_BIN" : "MARFA_SERVER_BIN"];
     const fetched = hooks ? hooked : release;
@@ -189,8 +193,8 @@ export class ProofServer {
     env["MARFA_PORT"] = "0";
     env["MARFA_LISTEN_HOST"] = "127.0.0.1";
     env["MARFA_CONTROL_SOCKET"] = this.socketPath;
+    if (this.hooks) env["MARFA_TEST_HOOKS"] = "true";
     if (this.connectorHoldMs !== undefined) {
-      env["MARFA_TEST_HOOKS"] = "true";
       env["MARFA_TEST_TUNING"] =
         `connector_hold_ms=${String(this.connectorHoldMs)}`;
     }
@@ -268,8 +272,15 @@ export class ProofServer {
     await this.overSocket("PATCH", `/keys/${encodeURIComponent(id)}`, body);
   }
 
+  /** Arms a fault of a server built with test hooks, such as
+   *  `sign-in-provider`, which points a connector's sign-in at an address of
+   *  the proof's own. */
+  async armFault(name: string, arg: string): Promise<void> {
+    await this.overSocket("PUT", "/_control/test/faults", { name, arg });
+  }
+
   private async overSocket(
-    method: "POST" | "PATCH",
+    method: "POST" | "PATCH" | "PUT",
     path: string,
     body: Record<string, unknown>,
   ): Promise<unknown> {

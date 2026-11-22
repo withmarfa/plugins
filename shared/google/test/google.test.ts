@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Refused, Unreachable } from "@withmarfa/connector";
+import { Refused, SettingsRefused, Unreachable } from "@withmarfa/connector";
 import {
   connectGoogle,
   GoogleError,
@@ -37,7 +37,7 @@ const rowType = "google.test.entry";
 const source = "google-test";
 
 function needs(scopes: string[]) {
-  return { source, scopes, types: [rowType] };
+  return { plugin: source, source, scopes, types: [rowType] };
 }
 
 /** Rows of the connector's own source, by `source_id`. */
@@ -62,12 +62,30 @@ function watch(token: string, state = new Map<string, unknown>()) {
   );
 }
 
-async function failure(promise: Promise<unknown>): Promise<GoogleError> {
-  const error = await promise.then(
+async function thrown(promise: Promise<unknown>): Promise<unknown> {
+  return promise.then(
     () => undefined,
-    (thrown: unknown) => thrown,
+    (error: unknown) => error,
   );
+}
+
+/** What a failed call threw, as Google's error: a grant or client Google
+ *  refuses is thrown as a `SettingsRefused` caused by it. */
+async function failure(promise: Promise<unknown>): Promise<GoogleError> {
+  const error = await thrown(promise);
+  if (error instanceof SettingsRefused && error.cause instanceof GoogleError) {
+    return error.cause;
+  }
   if (!(error instanceof GoogleError)) throw new Error("it did not fail");
+  return error;
+}
+
+/** What a failed call threw where only the owner can mend it. */
+async function refusal(promise: Promise<unknown>): Promise<SettingsRefused> {
+  const error = await thrown(promise);
+  if (!(error instanceof SettingsRefused)) {
+    throw new Error("it did not stop for the settings");
+  }
   return error;
 }
 
@@ -197,20 +215,21 @@ describe("a grant Google no longer accepts", () => {
     });
     const seen = run(token);
     const google = connectGoogle(seen.context, needs([A]), options());
-    const error = await failure(google.ready());
-    expect(error.kind).toBe("reconnect");
+    const refused = await refusal(google.ready());
+    expect(refused.cause).toBeInstanceOf(GoogleError);
+    expect((refused.cause as GoogleError).kind).toBe("reconnect");
     expect([...seen.conditions.keys()]).toEqual(["google:reconnect"]);
     const text = seen.conditions.get("google:reconnect") ?? "";
-    expect(text).toMatch(/reconnect/i);
-    expect(text).toContain("as the connector's README says");
+    expect(refused.message).toBe(text);
+    expect(text).toContain("`marfa plugins sign-in google-test`");
     expect(stub.token).toHaveLength(1);
 
     // Under --every, each later run fails fast with the same condition.
     for (let again = 0; again < 3; again += 1) {
       const later = run(token);
       const handle = connectGoogle(later.context, needs([A]), options());
-      const same = await failure(handle.ready());
-      expect(same.kind).toBe("reconnect");
+      const same = await refusal(handle.ready());
+      expect((same.cause as GoogleError).kind).toBe("reconnect");
       expect(later.conditions.get("google:reconnect")).toBe(text);
       await failure(handle.json(`${stub.url}/things`));
       time += 15 * 60_000;
@@ -262,8 +281,37 @@ describe("a grant Google no longer accepts", () => {
     const text = seen.conditions.get("google:client") ?? "";
     expect(text).toContain("google_client_id");
     expect(text).toContain("google_client_secret");
+    expect(text).toContain("Web application client");
+    expect(text).not.toContain("Desktop");
     expect(text).not.toMatch(/reconnect/i);
+    await refusal(
+      connectGoogle(run(token).context, needs([A]), options()).ready(),
+    );
     await failure(
+      connectGoogle(run(token).context, needs([A]), options()).ready(),
+    );
+    expect(stub.token).toHaveLength(1);
+  });
+
+  it("treats unauthorized_client as the client condition too, and stops calling Google", async () => {
+    const token = freshToken();
+    stub.onToken = () => ({
+      status: 400,
+      json: {
+        error: "unauthorized_client",
+        error_description: "Client is unauthorized to retrieve access tokens.",
+      },
+    });
+    const seen = run(token);
+    const error = await failure(
+      connectGoogle(seen.context, needs([A]), options()).ready(),
+    );
+    expect(error.kind).toBe("client");
+    expect([...seen.conditions.keys()]).toEqual(["google:client"]);
+    expect(seen.conditions.get("google:client")).toContain(
+      "unauthorized_client",
+    );
+    await refusal(
       connectGoogle(run(token).context, needs([A]), options()).ready(),
     );
     expect(stub.token).toHaveLength(1);
@@ -353,8 +401,8 @@ describe("a refresh that answers more than an access token", () => {
     const google = connectGoogle(seen.context, needs([A]), options());
     await google.ready();
     const text = seen.conditions.get("google:refresh-token-changed") ?? "";
-    expect(text).toContain("as the connector's README says");
-    expect(text).toContain("google_refresh_token");
+    expect(text).toContain("`marfa plugins sign-in google-test`");
+    expect(text).toContain("new refresh token");
     expect(seen.secrets).toContain(issued);
 
     time += 3600_000;
@@ -376,7 +424,7 @@ describe("a refresh that answers more than an access token", () => {
     const text = seen.conditions.get("google:refresh-token-expires") ?? "";
     expect(text).toContain("2026-10-30 at 09:00 UTC");
     expect(text).toMatch(/ongoing access/);
-    expect(text).toContain("as the connector's README says");
+    expect(text).toContain("`marfa plugins sign-in google-test`");
   });
 });
 
@@ -392,7 +440,7 @@ describe("the scopes granted", () => {
     expect([...seen.conditions.keys()]).toEqual([`google:scope:${B}`]);
     const text = seen.conditions.get(`google:scope:${B}`) ?? "";
     expect(text).toContain(B);
-    expect(text).toContain("as the connector's README says");
+    expect(text).toContain("`marfa plugins sign-in google-test`");
   });
 
   it("raises none where every wanted scope was granted", async () => {
@@ -754,7 +802,7 @@ describe("what Google answers to an API call", () => {
     ).toBeInstanceOf(Unreachable);
     expect(toChangeError(new Error("not Google's"))).toBeUndefined();
     stub.onToken = () => ({ status: 400, json: { error: "invalid_grant" } });
-    const reconnect = await failure(
+    const reconnect = await refusal(
       connectGoogle(run(freshToken()).context, needs([A]), options()).ready(),
     );
     expect(toChangeError(reconnect)).toBeUndefined();

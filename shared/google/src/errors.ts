@@ -2,7 +2,8 @@ import { Refused, Unreachable } from "@withmarfa/connector";
 
 /**
  * - `reconnect`: Google no longer accepts the grant (`invalid_grant`).
- * - `client`: Google does not know the OAuth client (`invalid_client`).
+ * - `client`: Google does not accept the OAuth client (`invalid_client` or
+ *   `unauthorized_client`).
  * - `account`: the grant belongs to another Google account than the rows.
  * - `passing`: a rate limit, a server error or no answer; it can pass.
  * - `quota`: the usage limit, which lasts until Google resets it.

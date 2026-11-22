@@ -1,6 +1,6 @@
 # @withmarfa/google
 
-The Google sign-in that every Google connector shares. A connector built on it signs in to Google once, with one OAuth client and one refresh token, and the person never signs in again for each connector. This package is private to the workspace and is never published.
+The Google sign-in that every Google connector shares. Marfa signs the owner in to Google and keeps the refresh token; a connector built on this package reads it, exchanges it for access tokens and says what to do when Google stops accepting it. This package is private to the workspace and is never published.
 
 This page is reference. It describes what the package does, the conditions a person can meet and what to do about each. The setup steps for a person belong in the Marfa docs.
 
@@ -8,31 +8,46 @@ This page is reference. It describes what the package does, the conditions a per
 
 Every Google connector declares the same three settings, exported as `googleSettings`. Marfa holds them, and the kit reads them at the start of every run.
 
-| Setting                | Holds                                                                      |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `google_client_id`     | The ID of a Desktop app OAuth client in the person's Google Cloud project. |
-| `google_client_secret` | That client's secret. A secret, and required.                              |
-| `google_refresh_token` | The one grant. A secret.                                                   |
+| Setting                | Holds                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------- |
+| `google_client_id`     | The ID of a Web application OAuth client in the owner's Google Cloud project. Required. |
+| `google_client_secret` | That client's secret. A secret, and required.                                           |
+| `google_refresh_token` | The grant, set by `marfa plugins sign-in`. A secret, and not required to start a run.   |
 
-The owner sets each with `marfa plugins settings <connector> --set google_client_id=<id>` and `marfa plugins secret <connector> <setting>`. A Google connector reads all three and writes none of them.
+The owner sets the first two with `marfa plugins settings <connector> --set google_client_id=<id>` and `marfa plugins secret <connector> google_client_secret`. A Google connector reads all three and writes none of them.
 
 ## Signing in
 
-The package no longer signs the account in itself. Signing in through Marfa, which seals the refresh token into `google_refresh_token`, comes with the `sign_in` section of a Google connector's plugin in a later version. Until then, a Google connector starts only with a refresh token the owner already holds for the client, set with `marfa plugins secret <connector> google_refresh_token`; without one, it stops naming the setting.
+A Google connector declares `signIn: googleSignIn(scopes)`, which the generator writes as the plugin's `connector.sign_in`: `kind` `oauth2`, `provider` `google`, the scopes, and the names of the three settings. The scopes are the connector's own beside `openid`, which gives the account's identity for [one account per instance](#one-account-per-instance).
+
+To sign in, the owner makes a **Web application** OAuth client, adds `<sign-in address>/connect/oauth/callback` as its authorized redirect URI, sets the client ID and secret, and runs `marfa plugins sign-in <connector>`. Marfa sends the owner's browser to Google, exchanges the code it gets back and keeps the refresh token as `google_refresh_token`. The connector never sees a code, and the owner never sees the token.
+
+Where the token is not set, `connectGoogle` raises the condition `google:sign-in` and throws `SettingsRefused`, so the process exits with code 4 and waits for the settings to change. It calls Google for nothing.
+
+## Stopping for the owner
+
+Google ends a grant with `invalid_grant` and refuses a client it does not know or has not authorized with `invalid_client` or `unauthorized_client`. A grant that belongs to another Google account than the connector's rows is refused by the connector itself. Only the owner can mend any of these, so the connector raises the condition and throws `SettingsRefused` with the condition's message, caused by the `GoogleError`. The kit fails the run and exits with code 4, and the connector's host waits for the settings to change instead of restarting it.
 
 ## Use in a connector
 
 ```ts
-import { connectGoogle, googleSettings } from "@withmarfa/google";
+import { connectGoogle, googleSettings, googleSignIn } from "@withmarfa/google";
 
 const scopes = ["https://www.googleapis.com/auth/calendar.readonly"];
 const source = "google-calendar";
-const needs = { source, scopes, types: ["google.calendar.event"] };
+const needs = {
+  plugin: "google-calendar",
+  source,
+  scopes,
+  types: ["google.calendar.event"],
+};
 
 export default defineConnector({
   // ...
+  name: needs.plugin,
   source,
   settings: googleSettings,
+  signIn: googleSignIn(scopes),
   async run(context) {
     const google = connectGoogle(context, needs);
     const access = await google.ready();
@@ -47,7 +62,7 @@ export default defineConnector({
 });
 ```
 
-- `connectGoogle(context, { source, scopes, types }, options?)` returns a `Google` for one run, `onChange`, `remake` or `preflight`. It takes the context the kit hands each of them, never a context from the run's `forScope`, which cannot keep the account: passing one throws. `source` is the connector's own `source`. `scopes` lists every scope the connector needs. `types` lists the connector's own types, whose rows hold the account in their `source_id`; see [One account per instance](#one-account-per-instance). An empty `source`, `scopes` or `types` throws.
+- `connectGoogle(context, { plugin, source, scopes, types }, options?)` returns a `Google` for one run, `onChange`, `remake` or `preflight`. It takes the context the kit hands each of them, never a context from the run's `forScope`, which cannot keep the account: passing one throws. `plugin` is the connector's name, which its conditions tell the owner to sign in with. `source` is the connector's own `source`. `scopes` lists every scope the connector needs. `types` lists the connector's own types, whose rows hold the account in their `source_id`; see [One account per instance](#one-account-per-instance). An empty `plugin`, `source`, `scopes` or `types` throws.
 - `options` can replace the Google endpoints, the clock and the request timeout. Tests use it to point a connector at a local stub.
 
 ### `google.ready()`
@@ -91,25 +106,26 @@ If Google's answer has no `scope` field at all, the connector proceeds, `missing
 
 A condition appears on the connector in Marfa until a run no longer raises it. Each has a key, and each message names what to do.
 
-| Key                            | Raised when                                                                                                                | What the person does                                                                                  |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `google:reconnect`             | Google answers `invalid_grant`: access was revoked, went unused for six months, ended, or the project is still in Testing. | Sign in again, set the new `google_refresh_token` for every Google connector, restart.                |
-| `google:client`                | Google answers `invalid_client`.                                                                                           | Check `google_client_id` and `google_client_secret` are those of the Desktop app client, restart.     |
-| `google:scope:<scope>`         | The grant lacks a scope the connector needs. One condition per scope.                                                      | Sign in again, leave every permission ticked, set the new token for every Google connector.           |
-| `google:account`               | The grant belongs to another account than the one the connector keeps, or than the connector's rows came from.             | Sign in again with the original account, or use another instance.                                     |
-| `google:refresh-token-changed` | Google issued a new refresh token during a run. The connector keeps it in memory only.                                     | Sign in again before the connector restarts, then set the new token for every Google connector.       |
-| `google:refresh-token-expires` | Google granted time-based access, which ends on a stated date.                                                             | Before that date, sign in again, choose ongoing access, set the new token for every Google connector. |
+| Key                            | Raised when                                                                                                                | What the person does                                                                                |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `google:sign-in`               | No token is kept: the owner has not signed in. The process exits with code 4.                                              | Set the client ID and secret, then run `marfa plugins sign-in <connector>`.                         |
+| `google:reconnect`             | Google answers `invalid_grant`: access was revoked, went unused for six months, ended, or the project is still in Testing. | Run `marfa plugins sign-in <connector>` again. The process exits with code 4.                       |
+| `google:client`                | Google answers `invalid_client` or `unauthorized_client`.                                                                  | Check `google_client_id` and `google_client_secret` are those of a Web application client, sign in. |
+| `google:scope:<scope>`         | The grant lacks a scope the connector needs. One condition per scope.                                                      | Sign in again and leave every permission ticked.                                                    |
+| `google:account`               | The grant belongs to another account than the one the connector keeps, or than the connector's rows came from.             | Sign in again with the original account, or use another instance.                                   |
+| `google:refresh-token-changed` | Google issued a new refresh token during a run. The connector keeps it in memory only.                                     | Sign in again before the connector restarts.                                                        |
+| `google:refresh-token-expires` | Google granted time-based access, which ends on a stated date.                                                             | Before that date, sign in again and choose ongoing access.                                          |
 
-After `google:reconnect` or `google:client`, the connector makes no further Google calls in that process. It does not retry a grant Google has already refused.
+After `google:reconnect`, `google:client` or `google:account`, the connector stops with exit code 4 and makes no further Google calls. It does not retry a grant Google has already refused.
 
 ## How errors are classified
 
-`google.json` and `google.fetch` callers see `GoogleError`, with a `kind`:
+`google.json` and `google.fetch` callers see `GoogleError`, with a `kind`. The three kinds only the owner can mend, `reconnect`, `client` and `account`, arrive as a `SettingsRefused` whose `cause` is the `GoogleError`:
 
 | Kind        | Google answered                                                                                                      | Meaning                                                        |
 | ----------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `reconnect` | `invalid_grant`                                                                                                      | The grant is over. Raises `google:reconnect`.                  |
-| `client`    | `invalid_client`                                                                                                     | The client is wrong. Raises `google:client`.                   |
+| `client`    | `invalid_client` or `unauthorized_client`                                                                            | The client is wrong. Raises `google:client`.                   |
 | `account`   | (not an answer)                                                                                                      | The grant belongs to another account. Raises `google:account`. |
 | `passing`   | `429`, any `5xx`, a `403` with `rateLimitExceeded` or `userRateLimitExceeded`, no answer, or a body that is not JSON | It can pass. Try again later.                                  |
 | `quota`     | A `403` with `quotaExceeded` or `dailyLimitExceeded`                                                                 | The usage limit holds until Google resets it.                  |

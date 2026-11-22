@@ -88,6 +88,23 @@ export interface Setting {
 
 export type SettingsDeclaration = readonly Setting[];
 
+/**
+ * How the connector signs in to its service through Marfa, as the manifest's
+ * `connector.sign_in` declares it. The owner sets the client's ID and secret
+ * as the two settings named here, then runs `marfa plugins sign-in <name>`,
+ * and Marfa keeps the token it gets as the third. The client secret and the
+ * token are secrets.
+ */
+export interface SignIn {
+  readonly kind: "oauth2";
+  readonly provider: "google";
+  /** The scopes the sign-in asks the service for. */
+  readonly scopes: readonly string[];
+  readonly clientIdSetting: string;
+  readonly clientSecretSetting: string;
+  readonly tokenSetting: string;
+}
+
 /** What a setting of a kind holds when it reaches the connector: `boolean`
  *  a boolean, `number` a number, `text` and `choice` text. */
 type ValueOfKind<K extends SettingKind> = K extends "boolean"
@@ -561,35 +578,15 @@ export interface WatchContext<E extends SettingsDeclaration> {
   readonly setLink: (item: Item, value: string) => Promise<void>;
 }
 
-export interface ListenOptions {
-  /**
-   * Also takes the redirect from an address pasted into the terminal, for a
-   * browser on another machine, whose redirect to this one cannot load.
-   * Answers, from the callback, the address that browser opens to begin,
-   * such as the vendor's consent page, which the log names beside the
-   * instruction to paste. Only for a vendor whose flow can begin away from
-   * the local page; without it, setup reads nothing from the terminal.
-   */
-  readonly paste?: ((callback: string) => string) | undefined;
-}
-
 export interface LocalCallback {
   readonly url: string;
   readonly callback: string;
-  /**
-   * Resolves with the query of the vendor's redirect to `callback`, from the
-   * browser on this machine or, where `listen` was asked to take a paste,
-   * whichever comes first of that and the address the person pastes into
-   * the terminal. A pasted address counts when its path is the callback's;
-   * its host and port are ignored, since the other browser shows them as
-   * they were.
-   */
+  /** Resolves with the query of the vendor's redirect to `callback`, from the browser on this machine. */
   readonly redirected: Promise<URLSearchParams>;
   /**
    * Throws when asked before the redirect arrives. A browser not sent on is
    * told when setup ends that it is done, or that it failed. The callback
-   * answers once. After a redirect that arrived by paste there is no
-   * browser to send on, so the address is logged for the person to open.
+   * answers once.
    */
   readonly onward: (address: string) => void;
 }
@@ -606,7 +603,6 @@ export interface SetupContext<E extends SettingsDeclaration> {
    */
   readonly listen: (
     page?: string | ((callback: string) => string),
-    options?: ListenOptions,
   ) => Promise<LocalCallback>;
   /**
    * Makes an inbound endpoint for the connector: its path in full this once,
@@ -797,6 +793,9 @@ export interface Connector<
   readonly carries?: (env: SettingValues<E>) => readonly string[];
   /** The settings the connector reads, as its manifest declares them. */
   readonly settings?: E;
+  /** How Marfa signs the connector in to its service, naming three of
+   *  `settings`. */
+  readonly signIn?: SignIn;
   /**
    * Refuses, by throwing, settings the connector can tell on sight it cannot
    * run with, such as a malformed address list. Asked at the start of every

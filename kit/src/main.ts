@@ -10,6 +10,7 @@ import type {
 } from "./define.js";
 import {
   checkDefinition,
+  settingsRefused,
   ConfigurationError,
   readEnvironment,
   type Environment,
@@ -487,7 +488,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
-    "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing or a value is invalid.",
+    "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing, a value is invalid, or a run found settings only the owner can mend (SettingsRefused).",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
 }
@@ -603,7 +604,6 @@ interface Shared<E extends SettingsDeclaration> {
   readonly clock: Runtime["clock"];
   readonly random: () => number;
   readonly stop: AbortController;
-  readonly stdin: () => Runtime["stdin"];
   readonly print: (text: string) => void;
   readonly telemetry: Telemetry;
 }
@@ -676,7 +676,6 @@ export async function start<E extends SettingsDeclaration>(
     clock,
     random: runtime.random,
     stop: new AbortController(),
-    stdin: () => runtime.stdin,
     print: (text) => {
       (runtime.print ?? runtime.write)(text);
     },
@@ -757,7 +756,6 @@ async function serve<E extends SettingsDeclaration>(
     clock,
     random,
     stop,
-    stdin,
     print,
     telemetry,
   } = shared;
@@ -894,7 +892,6 @@ async function serve<E extends SettingsDeclaration>(
       stop.signal,
       print,
       clock.now().toISOString(),
-      stdin,
     );
   }
 
@@ -1170,6 +1167,8 @@ async function serve<E extends SettingsDeclaration>(
         ? { ...ran, cause: hold.fencedBy }
         : ran;
     if (run.cause !== undefined && ends(run.cause)) end(run.cause);
+    // Only the owner can mend it, so trying again would mend nothing.
+    else if (settingsRefused(run.failure)) end("settings", run.failure);
     return run;
   };
   // Asks Marfa, the cheapest way it can be asked, until it answers: not

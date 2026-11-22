@@ -37,7 +37,7 @@
         "label": "Google refresh token",
         "kind": "text",
         "secret": true,
-        "required": true
+        "required": false
       },
       {
         "name": "google_calendar_read_only_calendars",
@@ -52,6 +52,18 @@
         "required": false
       }
     ],
+    "sign_in": {
+      "kind": "oauth2",
+      "provider": "google",
+      "scopes": [
+        "openid",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar.calendarlist.readonly"
+      ],
+      "client_id_setting": "google_client_id",
+      "client_secret_setting": "google_client_secret",
+      "token_setting": "google_refresh_token"
+    },
     "runs": { "on": "host" }
   }
 }

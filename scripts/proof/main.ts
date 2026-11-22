@@ -13,6 +13,7 @@ import {
 import { witnessTypeAnswers } from "./connector.js";
 import { proveAdoption } from "./adoption.js";
 import { proveRetryArchive } from "./retry-archive.js";
+import { proveGoogleSignIn } from "./google-sign-in.js";
 import { provePlugins } from "./plugins.js";
 import { proveInboundRetry } from "./inbound-retry.js";
 import { proveWatchCheckpoint, proveOutbound } from "./watch-checkpoint.js";
@@ -46,6 +47,7 @@ interface Context {
   manager: MarfaClient;
   mintKey: ProofServer["mintKey"];
   updateKey: ProofServer["updateKey"];
+  armFault: ProofServer["armFault"];
 }
 
 // A group in `shards.ts` without a runner here, or the reverse, does not
@@ -71,6 +73,7 @@ const runners: Record<GroupName, (c: Context) => Promise<void>> = {
   "inbound-retry": (c) => proveInboundRetry(c.url, c.marfa),
   "retry-archive": (c) => proveRetryArchive(c.marfa, c.url),
   plugins: (c) => provePlugins(c.url, c.mintKey),
+  "google-sign-in": (c) => proveGoogleSignIn(c.url, c.armFault),
   "readwise-with-reader": (c) =>
     proveReadwiseWithReader(c.marfa, c.url, c.mintKey),
 };
@@ -116,8 +119,10 @@ const onSignal = (signal: NodeJS.Signals): void => {
 process.on("SIGINT", onSignal);
 process.on("SIGTERM", onSignal);
 
-async function boot(): Promise<{ server: ProofServer; booted: Booted }> {
-  const server = new ProofServer();
+async function boot(
+  hooks = false,
+): Promise<{ server: ProofServer; booted: Booted }> {
+  const server = new ProofServer(undefined, hooks);
   servers.push(server);
   const starting = server.boot();
   booting = starting;
@@ -134,6 +139,7 @@ function contextOf(server: ProofServer, booted: Booted): Context {
     }),
     mintKey: (body) => server.mintKey(body),
     updateKey: (id, body) => server.updateKey(id, body),
+    armFault: (name, arg) => server.armFault(name, arg),
   };
 }
 
@@ -153,7 +159,7 @@ async function runGroups(groups: Group[], context: Context): Promise<void> {
 try {
   const groups = chosen();
   const shared = groups.filter((group) => group.instance === "shared");
-  const own = groups.filter((group) => group.instance === "own");
+  const own = groups.filter((group) => group.instance !== "shared");
   console.log(`running ${groups.map((group) => group.name).join(", ")}`);
   if (shared.length > 0) {
     let started: { server: ProofServer; booted: Booted } | undefined;
@@ -191,7 +197,7 @@ try {
     await runGroups(shared, context);
   }
   for (const group of own) {
-    const { server, booted } = await boot();
+    const { server, booted } = await boot(group.instance === "hooks");
     console.log(`${group.name} proof server ${booted.server}`);
     await runGroups([group], contextOf(server, booted));
     await server.stop();
