@@ -80,7 +80,12 @@ const githubSettings = [
     kind: "boolean",
     default: true,
   },
-  { name: "github_api_url", label: "GitHub API address", kind: "text" },
+  {
+    name: "github_api_url",
+    label: "GitHub API address",
+    kind: "text",
+    default: defaultBase,
+  },
   {
     name: "github_request_spacing_ms",
     label: "Spacing between requests in milliseconds",

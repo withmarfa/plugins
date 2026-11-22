@@ -105,6 +105,7 @@
         "name": "github_api_url",
         "label": "GitHub API address",
         "kind": "text",
+        "default": "https://api.github.com",
         "required": false
       },
       {
