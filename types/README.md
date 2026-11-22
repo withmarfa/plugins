@@ -14,5 +14,4 @@ The families:
 
 - [Tickets](./tickets/README.md): `common.ticket` and its kinds, epic, feature, spike and task.
 
-
 Connectors, the other kind of plugin in this repository, live in [`connectors/`](../connectors).
