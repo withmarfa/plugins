@@ -1,7 +1,7 @@
 {
   "id": "common.ticket.task",
   "label": "Task",
-  "description": "Work that is neither a feature nor a question, such as upkeep, set-up or a fix.",
+  "description": "Work that is neither a feature nor a question, such as upkeep, setup or a fix.",
   "version": 0,
   "parent": "common.ticket",
   "fields": {},

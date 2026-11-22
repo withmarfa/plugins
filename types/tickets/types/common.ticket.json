@@ -7,7 +7,7 @@
   "fields": {
     "status": {
       "type": "status",
-      "description": "Where the ticket stands. Adds backlog to the task's words, in the not started group.",
+      "description": "Where the ticket stands, from backlog to completed or canceled.",
       "status_values": [
         {
           "value": "backlog",
