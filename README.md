@@ -11,7 +11,7 @@ A connector is a small process that holds a key to a Marfa instance. It register
 - [`types/`](./types/README.md): the common type families, one folder each, starting with Tickets.
 - [`kit/`](./kit): the package `@withmarfa/connector`, which makes a connector a page of code.
 - [`shared/`](./shared): private packages that related connectors share, today the Google sign-in in [`shared/google`](./shared/google/README.md). They are never published.
-- [`template/`](./template): what a new connector starts from. Its [README](./template/README.md) is the guide to writing one, minting its key, running it, and deploying it with launchd or Docker.
+- [`template/`](./template): what a new connector starts from. Its [README](./template/README.md) is the guide to writing one and running it under a connector host.
 - [`connectors/`](./connectors): the connectors, one folder each, run and never published.
   - [`github`](./connectors/github/README.md): repositories, issues, discussions, comments, read-only pull requests and retained issue/comment files from a personal token or GitHub App, with relations, closing issues and checks; App runs carry issue, discussion and comment edits back.
   - [`todoist`](./connectors/todoist/README.md): a Todoist account's tasks, with changes carried back.
@@ -40,7 +40,7 @@ A release server is built without test hooks, so it cannot shorten the connector
 
 To run a connector against a server of your own, follow the Quick start in the Marfa repository's README, and use the `marfa` command line from the same release so its commands match the server.
 
-Install the connector's plugin, assign it to a connector host, and set its settings, as [the template's README](./template/README.md#the-key) describes. The host mints the connector's key. Then run the connector once with that key:
+Install the connector's plugin, assign it to a connector host, and set its settings, as [the template's README](./template/README.md#run-it-under-a-host) describes. The host mints the connector's key. Then run the connector once with that key:
 
 ```bash
 marfa plugins install connectors/<name>/plugin
