@@ -14,7 +14,7 @@ export interface SetupEnv {
   readonly github_private_key?: string | undefined;
   readonly github_webhook_secret?: string | undefined;
   readonly github_api_url?: string | undefined;
-  readonly github_request_spacing_ms?: string | undefined;
+  readonly github_request_spacing_ms?: number | undefined;
   readonly github_public_url?: string | undefined;
   readonly github_organization?: string | undefined;
   readonly github_read_only?: string | undefined;
@@ -83,14 +83,6 @@ export function readOnly(value: string | undefined, kind?: string): boolean {
   return kind === undefined
     ? ["issue", "comment", "discussion"].every((one) => kinds.includes(one))
     : kinds.includes(kind);
-}
-
-/** Whether this process lists the person's stars: on unless GITHUB_STARS is
- *  `false`. */
-export function starsOn(value: string | undefined): boolean {
-  if (value === undefined || value === "true") return true;
-  if (value === "false") return false;
-  throw new Error("GITHUB_STARS must be true or false");
 }
 
 export function manifest(options: {

@@ -3,7 +3,7 @@ import {
   type ConnectionDefinition,
   type TypeDefinition,
 } from "@withmarfa/connector";
-import { connectGoogle, signIn, type GoogleOptions } from "@withmarfa/google";
+import { connectGoogle, type GoogleOptions } from "@withmarfa/google";
 import { CalendarApi } from "./api.js";
 import {
   calendarDefinition,
@@ -18,7 +18,6 @@ import {
   eventType,
   inCalendar,
   needs,
-  scopes,
   settings,
   source,
 } from "./config.js";
@@ -90,7 +89,6 @@ export function connector(options?: GoogleOptions) {
     carries: () => [eventType],
     connections,
     settings,
-    setup: (context) => signIn(context, scopes, options),
     async run(context) {
       const google = connectGoogle(context, needs, options);
       const access = await google.ready();

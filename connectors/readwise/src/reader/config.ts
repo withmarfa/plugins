@@ -17,11 +17,6 @@ export interface ReaderConfig {
   contentMaxBytes: number;
   pictures: PicturesSetting;
 }
-function flag(value: string | undefined, name: string): boolean {
-  if (value === undefined || value === "false") return false;
-  if (value === "true") return true;
-  throw new Error(`${name} must be true or false`);
-}
 /**
  * What the connector does with the pictures a document's HTML draws from
  * other websites: `addresses` keeps only the addresses, in the HTML; `save`
@@ -32,7 +27,7 @@ export function picturesSetting(value: string | undefined): PicturesSetting {
   if (value === undefined || value === "addresses") return "addresses";
   if (value === "save" || value === "save-in-library") return value;
   throw new Error(
-    "READWISE_READER_PICTURES must be addresses, save or save-in-library",
+    "readwise_reader_pictures must be addresses, save or save-in-library",
   );
 }
 export function parseConfig(
@@ -41,24 +36,13 @@ export function parseConfig(
   identity(values.readwise_account, "source", 1);
   return {
     account: values.readwise_account,
-    reader: flag(values.readwise_reader, "READWISE_READER"),
+    reader: values.readwise_reader,
     contentMaxBytes: contentMaxBytes(values.readwise_content_max_bytes),
-    readerBase: endpoint(
-      values.readwise_reader_api_url ?? "https://readwise.io/api/v3/",
-    ),
+    readerBase: endpoint(values.readwise_reader_api_url),
     exportBase: endpoint(values.readwise_api_url),
-    includeFeed: flag(
-      values.readwise_reader_include_feed,
-      "READWISE_READER_INCLUDE_FEED",
-    ),
-    inboundOnly: flag(
-      values.readwise_reader_inbound_only,
-      "READWISE_READER_INBOUND_ONLY",
-    ),
+    includeFeed: values.readwise_reader_include_feed,
+    inboundOnly: values.readwise_reader_inbound_only,
     pictures: picturesSetting(values.readwise_reader_pictures),
-    propagatePurge: flag(
-      values.readwise_reader_propagate_purge,
-      "READWISE_READER_PROPAGATE_PURGE",
-    ),
+    propagatePurge: values.readwise_reader_propagate_purge,
   };
 }

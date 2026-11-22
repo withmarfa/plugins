@@ -190,12 +190,6 @@ export const clientSettings = {
   google_client_secret: "GOCSPX-client-secret-value",
 } as const;
 
-/** The same client as the environment variables of a process. */
-export const clientEnv = {
-  GOOGLE_CLIENT_ID: clientSettings.google_client_id,
-  GOOGLE_CLIENT_SECRET: clientSettings.google_client_secret,
-} as const;
-
 let counter = 0;
 /** A refresh token no earlier test used, so a test starts with a new grant,
  *  as a restarted connector does. */

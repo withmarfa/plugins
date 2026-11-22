@@ -1,10 +1,11 @@
 import type { Condition } from "./errors.js";
 
-/** The command that signs the person in again, as every message names it. */
-const setup = "run this connector with --setup <file>";
+/** What signs the person in again, as every message names it. */
+const setup =
+  "sign the Google account in again, as the connector's README says";
 
 const everywhere =
-  "put the new GOOGLE_REFRESH_TOKEN in the environment of every Google connector, since they share one grant";
+  "set the new token as google_refresh_token with `marfa plugins secret` for every Google connector, since they share one grant";
 
 /** At most 500 characters each, the longest the kit keeps. */
 
@@ -19,7 +20,7 @@ export function clientCondition(): Condition {
   return {
     key: "google:client",
     message:
-      "Google does not recognize this connector's OAuth client (invalid_client). Check that GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are those of the Desktop app client in your Google Cloud project, then restart. Until it restarts, this connector makes no Google calls.",
+      "Google does not recognize this connector's OAuth client (invalid_client). Check that google_client_id and google_client_secret are those of the Desktop app client in your Google Cloud project, then restart. Until it restarts, this connector makes no Google calls.",
   };
 }
 
@@ -33,7 +34,7 @@ export function scopeCondition(scope: string): Condition {
 export function accountCondition(): Condition {
   return {
     key: "google:account",
-    message: `The rows of this connector came from a different Google account than the one GOOGLE_REFRESH_TOKEN now signs in to, so nothing was read or written. ${capital(setup)} and sign in with the original account, or give the other account its own Marfa instance.`,
+    message: `The rows of this connector came from a different Google account than the one google_refresh_token now signs in to, so nothing was read or written. ${capital(setup)} and sign in with the original account, or give the other account its own Marfa instance.`,
   };
 }
 

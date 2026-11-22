@@ -1,4 +1,4 @@
-import { main, settingsFromEnvironment } from "@withmarfa/connector";
+import { main } from "@withmarfa/connector";
 import { connector } from "./definition.js";
 
-await main(connector(settingsFromEnvironment(process.env)));
+await main(connector);

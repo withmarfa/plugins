@@ -46,7 +46,7 @@ function undelivered(error: unknown, signal: AbortSignal): unknown {
 interface VendorEnv {
   readonly example_url: string;
   readonly example_token: string;
-  readonly example_timeout_ms?: string | undefined;
+  readonly example_timeout_ms: number;
 }
 
 // `new URL(path, base)` drops the base's last segment unless the base ends in
@@ -59,16 +59,14 @@ function address(base: string, path: string): URL {
 // fires after one millisecond.
 const longestTimeoutMs = 2_147_483_647;
 
-function timeoutOf(value: string | undefined): number {
-  if (value === undefined) return defaultTimeoutMs;
-  const milliseconds = Number(value);
+function timeoutOf(milliseconds: number): number {
   if (
     !Number.isInteger(milliseconds) ||
     milliseconds < 1 ||
     milliseconds > longestTimeoutMs
   ) {
     throw new Error(
-      `EXAMPLE_TIMEOUT_MS is not a whole number of milliseconds from 1 to ${String(longestTimeoutMs)}`,
+      `example_timeout_ms is not a whole number of milliseconds from 1 to ${String(longestTimeoutMs)}`,
     );
   }
   return milliseconds;
@@ -205,8 +203,9 @@ export function connector() {
         default: defaultTimeoutMs,
       },
     ],
-    // Refuses on start what can be told wrong on sight, naming the setting and
-    // never its value.
+    // Refuses, at the start of each run, settings that can be told wrong on
+    // sight, naming the setting and never its value. The run stops and the
+    // process exits 4.
     checkEnv(env) {
       checkAddress(env.example_url);
       timeoutOf(env.example_timeout_ms);

@@ -2,6 +2,7 @@ import {
   defineConnector,
   verifyHmac,
   type SettingsDeclaration,
+  type SettingValues,
   type TypeDefinition,
 } from "@withmarfa/connector";
 import {
@@ -36,7 +37,7 @@ import {
   repositoryFileType,
 } from "./repository-files.js";
 import { scopeOf } from "./scope.js";
-import { readOnly, setUp, starsOn } from "./setup.js";
+import { readOnly, setUp } from "./setup.js";
 import { carry, remake } from "./write.js";
 import comment from "./github.comment.json" with { type: "json" };
 import discussion from "./github.discussion.json" with { type: "json" };
@@ -101,8 +102,8 @@ const githubSettings = [
 function appOf(values: {
   github_app_id: string | undefined;
   github_private_key: string | undefined;
-  github_api_url: string | undefined;
-  github_request_spacing_ms: string | undefined;
+  github_api_url: string;
+  github_request_spacing_ms: number | undefined;
 }): App {
   if (
     values.github_app_id === undefined ||
@@ -114,21 +115,20 @@ function appOf(values: {
   return {
     appId: values.github_app_id,
     privateKey: values.github_private_key,
-    base: values.github_api_url ?? defaultBase,
+    base: values.github_api_url,
     spacingMs: spacingOf(values),
   };
 }
 
-type Settings = Readonly<Record<string, string | undefined>>;
+type Settings = Readonly<Partial<SettingValues<typeof githubSettings>>>;
 
-/** The connector for the settings a process holds, which `main.ts` reads from
- *  its environment. */
-export function connector(settings: Settings) {
+/** The connector for the settings a run reads, which the kit builds again at
+ *  the start of each run. With none, it is in its widest shape. */
+export function connector(settings: Settings = {}) {
   // A process that reads no stars holds no star field, so it never writes or
-  // puts back the marks another process sets on the rows it syncs. A value
-  // checkEnv refuses holds them here; the start stops before any row is read.
+  // puts back the marks another process sets on the rows it syncs.
   const starFields =
-    settings["github_stars"] === "false" ? [] : ["starred", "starred_at"];
+    settings.github_stars === false ? [] : ["starred", "starred_at"];
   return defineConnector<typeof githubSettings>({
     name: "github",
     title: "GitHub",
@@ -524,7 +524,6 @@ export function connector(settings: Settings) {
       scopeOf(values.github_repositories);
       filesOf(values.github_files);
       readOnly(values.github_read_only);
-      starsOn(values.github_stars);
       spacingOf(values);
       const app = [
         values.github_app_id,
@@ -552,7 +551,7 @@ export function connector(settings: Settings) {
           ? appOf(context.env)
           : {
               token: context.env.github_personal_token,
-              base: context.env.github_api_url ?? defaultBase,
+              base: context.env.github_api_url,
               spacingMs: spacingOf(context.env),
             },
         scopeOf(context.env.github_repositories),
@@ -560,7 +559,7 @@ export function connector(settings: Settings) {
           token: context.env.github_notifications_token,
           scopeText: context.env.github_repositories,
         },
-        starsOn(context.env.github_stars),
+        context.env.github_stars,
         filesOf(context.env.github_files),
       );
     },
@@ -578,7 +577,7 @@ export function connector(settings: Settings) {
         remake(change, context, app)
       );
     },
-    ...(settings["github_personal_token"]?.trim()
+    ...(settings.github_personal_token !== undefined
       ? {}
       : {
           inbound: {
