@@ -13,6 +13,7 @@ import {
 import { witnessTypeAnswers } from "./connector.js";
 import { proveAdoption } from "./adoption.js";
 import { proveRetryArchive } from "./retry-archive.js";
+import { provePlugins } from "./plugins.js";
 import { proveInboundRetry } from "./inbound-retry.js";
 import { proveWatchCheckpoint, proveOutbound } from "./watch-checkpoint.js";
 import { proveCheckpoint } from "./checkpoint.js";
@@ -70,12 +71,24 @@ const runners: Record<GroupName, (c: Context) => Promise<void>> = {
   outbound: (c) => proveOutbound(c.marfa, c.url),
   "inbound-retry": (c) => proveInboundRetry(c.url, c.marfa),
   "retry-archive": (c) => proveRetryArchive(c.marfa, c.url),
+  plugins: (c) => provePlugins(c.url, c.mintKey),
   "readwise-reader": (c) =>
     proveReadwiseReader(c.marfa, c.url, c.mintKey, c.updateKey),
 };
 
-/** `--shard 2/3` runs the second of three shards; no argument runs every group. */
+/**
+ * `--shard 2/3` runs the second of three shards, and `--group plugins` runs
+ * that one group, which is how a release proves its plugins; no argument runs
+ * every group.
+ */
 function chosen(): Group[] {
+  const named = process.argv.indexOf("--group");
+  if (named !== -1) {
+    const name = process.argv[named + 1];
+    const group = GROUPS.find((one) => one.name === name);
+    if (group === undefined) throw new Error(`${String(name)} is not a group`);
+    return [group];
+  }
   const at = process.argv.indexOf("--shard");
   if (at === -1) return [...GROUPS];
   const value = process.argv[at + 1];

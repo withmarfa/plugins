@@ -38,6 +38,7 @@ jobs:
       tests: ${{ steps.classify.outputs.tests }}
       proof: ${{ steps.classify.outputs.proof }}
       image: ${{ steps.classify.outputs.image }}
+      plugins: ${{ steps.classify.outputs.plugins }}
       full: ${{ steps.classify.outputs.full }}
       scope: ${{ steps.classify.outputs.scope }}
     steps:
@@ -109,6 +110,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      - run: scripts/monorepo.sh
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - env:
@@ -147,6 +149,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm proof --shard ${{ matrix.shard }}/${{ strategy.job-total }}
+
+  # Judges each plugin's source folder as installing it will, with the pinned
+  # `marfa` and no server. It needs no dependencies, so it installs none.
+  plugins:
+    name: Plugins
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.plugins != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: scripts/monorepo.sh
+      - run: node --experimental-strip-types scripts/check-plugins.ts
 
   # Nothing else builds the image or reads the launchd example, so a change to
   # either, or to what the image copies, runs this.
@@ -207,7 +225,7 @@ jobs:
   # still runs then, and fails, so `Full CI` is red and not cancelled.
   gate:
     name: ${{ github.event.pull_request.draft && 'Draft CI' || 'Full CI' }}
-    needs: [changes, checks, tests, proof, image]
+    needs: [changes, checks, tests, proof, image, plugins]
     if: ${{ !cancelled() || needs.checks.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

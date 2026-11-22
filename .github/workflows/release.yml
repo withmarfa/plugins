@@ -1,0 +1,98 @@
+name: Release
+
+# A pushed tag `v<version>` publishes a GitHub Release holding the bundle of
+# every plugin at that version, `plugins.json` listing them and a checksums
+# file, which `marfa plugins install <name>` reads. A manual run builds all of
+# it and publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to build the bundles at; nothing is published
+        default: 0.0.0
+        required: true
+        type: string
+
+# A release is built and published by one run at a time, and a run that has
+# started is never cancelled halfway through publishing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  # Builds every plugin and proves that none narrows what the latest release
+  # published, against a throwaway server, before anything is published.
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Stop when the tag already has a release
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: node --experimental-strip-types scripts/release/release.ts absent --tag "${TAG}"
+      - run: scripts/monorepo.sh
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Build the bundles, the index and the checksums
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          if [ "${EVENT}" = push ]; then version="${TAG#v}"; else version="${REQUESTED}"; fi
+          node --experimental-strip-types scripts/release/release.ts build --version "${version}" --out release-assets
+      - name: Prove that no plugin narrows the latest release
+        run: pnpm proof --group plugins
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish
+    needs: build
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: release-assets/*
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: node --experimental-strip-types scripts/release/release.ts publish --tag "${TAG}" --dir release-assets

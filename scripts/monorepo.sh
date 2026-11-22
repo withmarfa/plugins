@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Fetches the `marfa-server` of the marfa release whose tag names the commit in
-# scripts/monorepo.commit, from that release's archive, into vendor/marfa-server.
+# Fetches the `marfa-server` and the `marfa` command line of the marfa release
+# whose tag names the commit in scripts/monorepo.commit, from that release's
+# archive, into vendor/marfa-server and vendor/marfa.
 # `scripts/monorepo.sh hooks` instead builds that commit's server with test
 # hooks, which a release is built without, into vendor/marfa-server-hooks.
 set -euo pipefail
@@ -9,7 +10,10 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 commit="$(tr -d '[:space:]' <"${root}/scripts/monorepo.commit")"
 mode="${1:-release}"
 case "${mode}" in
-  release) dir="${root}/vendor/marfa-server" ;;
+  release)
+    dir="${root}/vendor/marfa-server"
+    cli_dir="${root}/vendor/marfa"
+    ;;
   hooks) dir="${root}/vendor/marfa-server-hooks" ;;
   *) echo "usage: scripts/monorepo.sh [hooks]" >&2; exit 2 ;;
 esac
@@ -19,8 +23,14 @@ die() {
   exit 1
 }
 
-if [[ -x "${dir}/marfa-server" && "$(cat "${dir}/commit" 2>/dev/null || true)" == "${commit}" ]]; then
-  exit 0
+held() {
+  [[ -x "$1/$2" && "$(cat "$1/commit" 2>/dev/null || true)" == "${commit}" ]]
+}
+
+if [[ "${mode}" == hooks ]]; then
+  held "${dir}" marfa-server && exit 0
+else
+  held "${dir}" marfa-server && held "${cli_dir}" marfa && exit 0
 fi
 
 if [[ "${mode}" == hooks ]]; then
@@ -67,10 +77,14 @@ actual="$(shasum -a 256 "${work}/${archive}" | awk '{ print $1 }')"
 [[ "${actual}" == "${expected}" ]] || die "${archive} has the checksum ${actual}, and ${checksums} gives ${expected}"
 
 mkdir "${work}/unpacked"
-tar -xzf "${work}/${archive}" -C "${work}/unpacked" marfa-server
-rm -rf "${dir}"
-mkdir -p "${dir}"
-mv "${work}/unpacked/marfa-server" "${dir}/marfa-server"
-chmod +x "${dir}/marfa-server"
-echo "${commit}" >"${dir}/commit"
+tar -xzf "${work}/${archive}" -C "${work}/unpacked" marfa-server marfa
+for pair in "${dir}:marfa-server" "${cli_dir}:marfa"; do
+  target="${pair%%:*}"
+  program="${pair##*:}"
+  rm -rf "${target}"
+  mkdir -p "${target}"
+  mv "${work}/unpacked/${program}" "${target}/${program}"
+  chmod +x "${target}/${program}"
+  echo "${commit}" >"${target}/commit"
+done
 echo "monorepo.sh: ${tag} ${platform}"
