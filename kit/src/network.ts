@@ -158,7 +158,7 @@ export function guardHost(
  * Hosts an owner allows to resolve to this machine or a private network,
  * separated by whitespace, each read as a URL reads its host: lowercased,
  * an international name in its ASCII form, an IPv6 address in brackets or
- * bare. `setting` names the environment variable the value came from, for the
+ * bare. `setting` names the setting the value came from, for the
  * error. An entry holds a host name only, with no port, path or credentials.
  */
 export function privateHostSet(

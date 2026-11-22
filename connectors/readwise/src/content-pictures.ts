@@ -35,7 +35,7 @@ import { mapReaderSource } from "./reader.js";
 import type { ReaderReader } from "./reader-client.js";
 
 /** What the connector does with the pictures a document's HTML draws from
- *  other websites, as `READWISE_READER_PICTURES` names it. */
+ *  other websites, as `readwise_reader_pictures` names it. */
 export type PicturesSetting = "addresses" | "save" | "save-in-library";
 
 /** At most this many pictures are fetched in one run. */

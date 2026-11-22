@@ -301,7 +301,7 @@ describe("a declaration of parent-of", () => {
 
   it("is refused where the key may not write parent-of, naming it", async () => {
     harness.server.grants = { type_permissions: { "test.entry": "write" } };
-    expect(await harness.twoWay(calendar([]))).toBe(1);
+    expect(await harness.twoWay(calendar([]))).toBe(3);
     expect(harness.lastRun().error).toContain("may not write edge parent-of");
   });
 
@@ -311,7 +311,7 @@ describe("a declaration of parent-of", () => {
       edge_permissions: { "parent-of": "write" },
       metadata_permissions: { edge_types: "write" },
     };
-    expect(await harness.twoWay(calendar([]))).toBe(1);
+    expect(await harness.twoWay(calendar([]))).toBe(3);
     expect(harness.lastRun().error).toContain("metadata edge_types=write");
   });
 

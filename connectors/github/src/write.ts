@@ -261,7 +261,7 @@ function answerOf(context: Context, comment: Comment): Entry {
 
 function paused(node: string, kept: Kept): Unreachable {
   return new Unreachable(
-    `${kept.name} is left out by GITHUB_REPOSITORIES until it is named again`,
+    `${kept.name} is left out by github_repositories until it is named again`,
     { scope: node },
   );
 }
@@ -663,7 +663,7 @@ async function relations(
         continue;
       }
       if (kept.paused === true) {
-        takenBack(what, `${kept.name} is left out by GITHUB_REPOSITORIES`);
+        takenBack(what, `${kept.name} is left out by github_repositories`);
         continue;
       }
       if (holds(type, other) === (side === "added")) {

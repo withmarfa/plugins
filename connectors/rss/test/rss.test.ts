@@ -487,7 +487,7 @@ describe("reading a feed", () => {
     expect(plain?.key).toBe(feedKey("https://b.example.com/q?x=1"));
     expect(() =>
       feedList("news=https://a.example.com/1 news=https://a.example.com/2"),
-    ).toThrow("RSS_FEEDS gives entries 1 and 2 one name");
+    ).toThrow("rss_feeds gives entries 1 and 2 one name");
     expect(
       feedList(
         "news=https://a.example.com/1 news=https://www.a.example.com/1/",
@@ -506,7 +506,7 @@ describe("reading a feed", () => {
     ]);
   });
 
-  it("reads RSS_PRIVATE_HOSTS as a URL reads a host, and refuses what is not one", () => {
+  it("reads rss_private_hosts as a URL reads a host, and refuses what is not one", () => {
     expect([
       ...privateHosts(" LOCALHOST.  bücher.example\n[::1] fd00::1 10.0.0.2 "),
     ]).toEqual([
@@ -524,7 +524,7 @@ describe("reading a feed", () => {
       "nas.example#top",
     ]) {
       expect(() => privateHosts(bad)).toThrow(
-        "RSS_PRIVATE_HOSTS holds an entry that is not a host name",
+        "rss_private_hosts holds an entry that is not a host name",
       );
     }
   });
@@ -1995,7 +1995,10 @@ describe("the connector, run as a process", () => {
   let asked: { path: string; headers: IncomingHttpHeaders; answered: number }[];
 
   beforeEach(async () => {
-    marfa = await new ScriptedServer("rss", { types: ["rss.entry"] }).start();
+    marfa = await new ScriptedServer("rss", {
+      types: ["rss.entry", "rss.picture"],
+      edges: ["attached-to"],
+    }).start();
     served = {
       "/atom.xml": { body: fixture("atom.xml"), etag: '"atom-1"' },
       "/rss.xml": {
@@ -2072,17 +2075,17 @@ describe("the connector, run as a process", () => {
     paths = ["/atom.xml", "/rss.xml"],
     argv = ["--once"],
     feedList = paths.map((path) => `${base}${path}`).join("\n"),
-    env: Record<string, string> = {},
+    env: Record<string, unknown> = {},
   ): Promise<{ code: number | null; output: string }> {
     try {
       const { stderr } = await run("node", [built, ...argv], {
-        env: {
+        env: marfa.processEnv({
           PATH: process.env["PATH"],
           MARFA_API_URL: marfa.url,
           MARFA_API_KEY: marfa.key,
-          RSS_FEEDS: feedList,
+          rss_feeds: feedList,
           ...env,
-        },
+        }),
         timeout: 15_000,
       });
       return { code: 0, output: stderr };
@@ -2120,7 +2123,7 @@ describe("the connector, run as a process", () => {
       "2026-09-18T09:00:00.000Z",
     );
     expect(marfa.runs.at(-1)?.summary).toMatch(
-      /^created 4, updated 0, archived 0, unchanged 0, skipped 0\. an entry in feed 2 in RSS_FEEDS \(http:\/\/127\.0\.0\.1:\d+\) has no id or link to be known by/,
+      /^created 4, updated 0, archived 0, unchanged 0, skipped 0\. an entry in feed 2 in rss_feeds \(http:\/\/127\.0\.0\.1:\d+\) has no id or link to be known by/,
     );
   });
 
@@ -2328,7 +2331,7 @@ describe("the connector, run as a process", () => {
     expect(byFeed("/twin.xml")).toEqual(["Twin", "Twin too"]);
     expect(marfa.rows.every((candidate) => candidate.version === 1)).toBe(true);
     expect(marfa.runs[0]?.summary).toContain(
-      `feed 2 in RSS_FEEDS (${base}) declares the same feed id as feed 1 in RSS_FEEDS (${base}), and each keeps its own entries`,
+      `feed 2 in rss_feeds (${base}) declares the same feed id as feed 1 in rss_feeds (${base}), and each keeps its own entries`,
     );
   });
 
@@ -2380,13 +2383,13 @@ describe("the connector, run as a process", () => {
       feed_origin: base,
       feed_hash: hash,
     });
-    expect(reported).toContain(`an entry in feed 1 in RSS_FEEDS (${base})`);
-    expect(reported).toContain(`feed 2 in RSS_FEEDS (${base}) answered 404`);
+    expect(reported).toContain(`an entry in feed 1 in rss_feeds (${base})`);
+    expect(reported).toContain(`feed 2 in rss_feeds (${base}) answered 404`);
     expect(reported).toContain(
-      `feed 3 in RSS_FEEDS (${base}) is not an Atom, RSS or JSON feed`,
+      `feed 3 in rss_feeds (${base}) is not an Atom, RSS or JSON feed`,
     );
     expect(reported).toContain(
-      "feed 4 in RSS_FEEDS (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
+      "feed 4 in rss_feeds (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
     );
     expect(stored).toContain(`unkeyed:${hash}`);
   });
@@ -2411,17 +2414,17 @@ describe("the connector, run as a process", () => {
     }
   });
 
-  it("refuses a feed list it cannot read at start, under --every as under --once", async () => {
+  it("refuses a feed list it cannot read before the first run, under --every as under --once", async () => {
     const bad = `${base}/atom.xml ftp://feeds.example.com/private/f7p-t0ken`;
     for (const argv of [["--once"], ["--every", "1m"]]) {
       const { code, output } = await once([], argv, bad);
-      expect(code).toBe(2);
+      expect(code).toBe(4);
       expect(output).toContain(
-        "RSS_FEEDS holds an entry that is not an http or https address",
+        "rss_feeds holds an entry that is not an http or https address",
       );
       expect(output).not.toContain("f7p-t0ken");
     }
-    expect(marfa.requests).toEqual([]);
+    expect(marfa.rows).toEqual([]);
     expect((await once(["/atom.xml"])).code).toBe(0);
     expect(marfa.rows).toHaveLength(2);
   });
@@ -2495,9 +2498,9 @@ describe("the connector, run as a process", () => {
       const last = marfa.runs.at(-1);
       expect(last?.outcome).toBe("succeeded");
       for (const text of [last?.summary ?? "", output]) {
-        expect(text).toContain(`feed 2 in RSS_FEEDS (${base}) answered 404`);
+        expect(text).toContain(`feed 2 in rss_feeds (${base}) answered 404`);
         expect(text).toContain(
-          "feed 3 in RSS_FEEDS (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
+          "feed 3 in rss_feeds (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
         );
         expect(text).not.toContain("gone.xml");
         expect(text).not.toContain("/private/");
@@ -2513,18 +2516,18 @@ describe("the connector, run as a process", () => {
     const last = marfa.runs.at(-1);
     expect(last?.outcome).toBe("failed");
     expect(last?.error).toContain(
-      "none of the 2 feeds in RSS_FEEDS could be read, so this run read nothing",
+      "none of the 2 feeds in rss_feeds could be read, so this run read nothing",
     );
     expect(last?.summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) answered 404`,
+      `feed 1 in rss_feeds (${base}) answered 404`,
     );
     expect(last?.summary).toContain(
-      "feed 2 in RSS_FEEDS (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
+      "feed 2 in rss_feeds (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
     );
     expect(output).toContain("run failed");
     expect((await once(["/gone.xml"])).code).toBe(1);
     expect(marfa.runs.at(-1)?.error).toContain(
-      "the feed in RSS_FEEDS could not be read, so this run read nothing",
+      "the feed in rss_feeds could not be read, so this run read nothing",
     );
   });
 
@@ -2533,7 +2536,7 @@ describe("the connector, run as a process", () => {
     served[`/private/${token}/feed.xml`] = { body: "", status: 410 };
     const gone = `/private/${token}/feed.xml`;
     expect((await once(["/rss.xml", gone])).code).toBe(0);
-    const said = `feed 2 in RSS_FEEDS (${base}) answered 410, so it is not read again while its address stays the same; remove it from RSS_FEEDS, or change its address if the feed has a new one`;
+    const said = `feed 2 in rss_feeds (${base}) answered 410, so it is not read again while its address stays the same; remove it from rss_feeds, or change its address if the feed has a new one`;
     expect(marfa.runs.at(-1)?.summary).toContain(said);
     for (let run = 0; run < 2; run += 1) {
       expect((await once(["/rss.xml", gone])).code).toBe(0);
@@ -2602,10 +2605,10 @@ describe("the connector, run as a process", () => {
       const summary = marfa.runs.at(-1)?.summary ?? "";
       for (const position of [1, 2]) {
         expect(summary).toContain(
-          `feed ${String(position)} in RSS_FEEDS (${base}) has moved permanently, and is followed; update its address in RSS_FEEDS`,
+          `feed ${String(position)} in rss_feeds (${base}) has moved permanently, and is followed; update its address in rss_feeds`,
         );
       }
-      expect(summary).not.toContain(`feed 3 in RSS_FEEDS (${base}) has moved`);
+      expect(summary).not.toContain(`feed 3 in rss_feeds (${base}) has moved`);
     }
     expect(marfa.rows).toHaveLength(6);
     expect(asked.map((request) => request.answered).slice(6)).toEqual([
@@ -2628,7 +2631,7 @@ describe("the connector, run as a process", () => {
     const summary = marfa.runs.at(-1)?.summary ?? "";
     expect(summary).toContain("could not be fetched");
     expect(summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) has moved permanently, and is followed; update its address in RSS_FEEDS`,
+      `feed 1 in rss_feeds (${base}) has moved permanently, and is followed; update its address in rss_feeds`,
     );
   });
 
@@ -2714,7 +2717,7 @@ describe("the connector, run as a process", () => {
     expect(asked[2]?.headers["if-none-match"]).toBeUndefined();
     expect(marfa.rows).toHaveLength(3);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) is read again next run, since its reading progress was not saved (row-refused)`,
+      `feed 1 in rss_feeds (${base}) is read again next run, since its reading progress was not saved (row-refused)`,
     );
     marfa.entryRefusals.delete(entryKey);
     expect((await once()).code).toBe(0);
@@ -2793,7 +2796,7 @@ describe("the connector, run as a process", () => {
     const summary = marfa.runs.at(-1)?.summary ?? "";
     for (const position of [1, 3]) {
       expect(summary).toContain(
-        `feed ${String(position)} in RSS_FEEDS (${base}) is larger than 24 MiB, so it is skipped`,
+        `feed ${String(position)} in rss_feeds (${base}) is larger than 24 MiB, so it is skipped`,
       );
     }
   });
@@ -2803,7 +2806,7 @@ describe("the connector, run as a process", () => {
     expect((await once(["/rss.xml", "/many.xml"])).code).toBe(0);
     expect(marfa.rows).toHaveLength(2);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 2 in RSS_FEEDS (${base}) carries more than 5000 entries, so it is skipped`,
+      `feed 2 in rss_feeds (${base}) carries more than 5000 entries, so it is skipped`,
     );
   });
 
@@ -2828,12 +2831,12 @@ describe("the connector, run as a process", () => {
     const summary = marfa.runs.at(-1)?.summary ?? "";
     targets.forEach((_, at) => {
       expect(summary).toContain(
-        `feed ${String(at + 1)} in RSS_FEEDS (${base}) redirected to an address on this machine or a private network, which is not followed`,
+        `feed ${String(at + 1)} in rss_feeds (${base}) redirected to an address on this machine or a private network, which is not followed`,
       );
     });
   });
 
-  it("reads a feed whose host resolves to this machine only when RSS_PRIVATE_HOSTS names it, and follows its redirects there", async () => {
+  it("reads a feed whose host resolves to this machine only when rss_private_hosts names it, and follows its redirects there", async () => {
     const port = new URL(base).port;
     served["/via-name"] = {
       body: "",
@@ -2843,12 +2846,12 @@ describe("the connector, run as a process", () => {
     expect((await once([], ["--once"], listed)).code).toBe(1);
     expect(asked).toHaveLength(0);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in RSS_FEEDS (http://localhost:${port}) is on this machine or a private network, which is read only when RSS_PRIVATE_HOSTS names its host`,
+      `feed 1 in rss_feeds (http://localhost:${port}) is on this machine or a private network, which is read only when rss_private_hosts names its host`,
     );
     expect(
       (
         await once([], ["--once"], listed, {
-          RSS_PRIVATE_HOSTS: "nas.example LOCALHOST",
+          rss_private_hosts: "nas.example LOCALHOST",
         })
       ).code,
     ).toBe(0);
@@ -2856,7 +2859,7 @@ describe("the connector, run as a process", () => {
     expect(marfa.rows).toHaveLength(2);
   });
 
-  it("lets a host named in RSS_PRIVATE_HOSTS through only for the feed listed at it, never as another feed's redirect", async () => {
+  it("lets a host named in rss_private_hosts through only for the feed listed at it, never as another feed's redirect", async () => {
     const port = new URL(base).port;
     served["/onto-named"] = {
       body: "",
@@ -2868,7 +2871,7 @@ describe("the connector, run as a process", () => {
           [],
           ["--once"],
           `${base}/onto-named\nhttp://localhost.:${port}/atom.xml`,
-          { RSS_PRIVATE_HOSTS: "localhost" },
+          { rss_private_hosts: "localhost" },
         )
       ).code,
     ).toBe(0);
@@ -2878,7 +2881,7 @@ describe("the connector, run as a process", () => {
     ]);
     expect(marfa.rows).toHaveLength(2);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) redirected to an address on this machine or a private network, which is not followed`,
+      `feed 1 in rss_feeds (${base}) redirected to an address on this machine or a private network, which is not followed`,
     );
   });
 
@@ -2894,7 +2897,7 @@ describe("the connector, run as a process", () => {
     expect(asked).toHaveLength(6);
     expect(marfa.rows).toHaveLength(0);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) redirected more than 5 times, so it is skipped`,
+      `feed 1 in rss_feeds (${base}) redirected more than 5 times, so it is skipped`,
     );
   });
 
@@ -3105,7 +3108,7 @@ describe("the connector, run as a process", () => {
     const summary = marfa.runs.at(-1)?.summary ?? "";
     for (const position of [1, 2]) {
       expect(summary).toContain(
-        `rows written for feed ${String(position)} in RSS_FEEDS (${base}) before share their key with another feed's, so they are left as they are and its entries are written anew`,
+        `rows written for feed ${String(position)} in rss_feeds (${base}) before share their key with another feed's, so they are left as they are and its entries are written anew`,
       );
     }
   });
@@ -3179,7 +3182,7 @@ describe("the connector, run as a process", () => {
     expect((await once(["/heavy.xml", "/rss.xml"])).code).toBe(0);
     expect(marfa.rows).toHaveLength(2);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in RSS_FEEDS (${base}) needs more than 192 MB to read, so it is skipped`,
+      `feed 1 in rss_feeds (${base}) needs more than 192 MB to read, so it is skipped`,
     );
   }, 30_000);
 
@@ -3241,7 +3244,7 @@ describe("the connector, run as a process", () => {
     expect((await once(["/long-title.xml"])).code).toBe(0);
     expect(marfa.rows).toHaveLength(2);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `2 values in feed 1 in RSS_FEEDS (${base}) are longer than 100000 characters, and are left out`,
+      `2 values in feed 1 in rss_feeds (${base}) are longer than 100000 characters, and are left out`,
     );
   });
 
@@ -3272,7 +3275,7 @@ describe("the connector, run as a process", () => {
       type_permissions: { "rss.entry": "write" },
     };
     const { code } = await once();
-    expect(code).toBe(1);
+    expect(code).toBe(3);
     const error = marfa.runs.at(-1)?.error ?? "";
     expect(error).toContain("as connectors/rss/README.md says");
     expect(error).not.toContain("template's README");
@@ -3281,6 +3284,6 @@ describe("the connector, run as a process", () => {
         resolve(import.meta.dirname, "../../..", "connectors/rss/README.md"),
         "utf8",
       ),
-    ).toContain("marfa keys create");
+    ).toContain("marfa plugins assign rss --host");
   });
 });

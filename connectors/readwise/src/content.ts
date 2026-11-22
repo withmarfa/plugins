@@ -6,18 +6,11 @@ import type { ReaderDocument, TextFilePlan } from "./reader.js";
 export const digest = (value: string | Uint8Array): string =>
   createHash("sha256").update(value).digest("hex");
 const storageHosts = new Set(["readwise-assets.s3.amazonaws.com"]);
-export function contentMaxBytes(value?: string | number): number {
-  const bytes =
-    value === undefined
-      ? 256 * 1024 * 1024
-      : typeof value === "string"
-        ? /^\d+$/.test(value)
-          ? Number(value)
-          : NaN
-        : value;
+export function contentMaxBytes(value?: number): number {
+  const bytes = value ?? 256 * 1024 * 1024;
   if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > 1024 * 1024 * 1024)
     throw new Error(
-      "READWISE_CONTENT_MAX_BYTES must be a decimal integer from 1 to 1073741824 bytes",
+      "readwise_content_max_bytes must be a whole number from 1 to 1073741824 bytes",
     );
   return bytes;
 }

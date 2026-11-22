@@ -1,6 +1,9 @@
 import { defineConnector, main, type Entry } from "@withmarfa/connector";
 import { isProgram } from "./program.js";
 
+/** Where the proof tells the connector what to do. */
+const controlUrl = process.env["PROOF_CONTROL_URL"] ?? "";
+
 export interface Action {
   scope: string;
   type?: "proof.checkpoint.issue" | "proof.checkpoint.comment";
@@ -43,17 +46,9 @@ export const connector = defineConnector({
       to_type_constraints: ["proof.checkpoint.issue"],
     },
   ],
-  settings: [
-    {
-      name: "proof_control_url",
-      label: "Proof control url",
-      kind: "text",
-      required: true,
-    },
-  ],
   async run(context) {
     const actions = (await (
-      await fetch(context.env.proof_control_url, { signal: context.signal })
+      await fetch(controlUrl, { signal: context.signal })
     ).json()) as Action[];
     for (const action of actions) {
       const scope = context.forScope(action.scope);
@@ -86,7 +81,7 @@ export const connector = defineConnector({
         }
       }
       if (action.observe !== undefined) {
-        const answer = await fetch(context.env.proof_control_url, {
+        const answer = await fetch(controlUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

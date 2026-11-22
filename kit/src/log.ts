@@ -8,7 +8,10 @@ function lowered(text: string): string {
 function spelledAs(secret: string): string[] {
   const encoded = encodeURIComponent(secret);
   const form = new URLSearchParams({ s: secret }).toString().slice(2);
-  return [secret, encoded, lowered(encoded), form, lowered(form)];
+  // As a JSON string holds it, for a secret with a quote, a backslash or a
+  // line break that a message quoting a body would escape.
+  const json = JSON.stringify(secret).slice(1, -1);
+  return [secret, encoded, lowered(encoded), form, lowered(form), json];
 }
 
 export type Level = "info" | "warn" | "error";

@@ -77,14 +77,14 @@ function fixture() {
     env: {
       readwise_account: "primary",
       readwise_access_token: "token",
-      readwise_api_url: undefined,
-      readwise_content_max_bytes: undefined,
-      readwise_reader_api_url: undefined,
-      readwise_reader: undefined,
-      readwise_reader_include_feed: undefined,
-      readwise_reader_pictures: undefined,
-      readwise_reader_inbound_only: undefined,
-      readwise_reader_propagate_purge: undefined,
+      readwise_api_url: "https://readwise.io/api/v2/",
+      readwise_content_max_bytes: 268435456,
+      readwise_reader_api_url: "https://readwise.io/api/v3/",
+      readwise_reader: false,
+      readwise_reader_include_feed: false,
+      readwise_reader_pictures: "addresses",
+      readwise_reader_inbound_only: false,
+      readwise_reader_propagate_purge: false,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),
@@ -153,12 +153,12 @@ function fixture() {
 }
 
 describe("Readwise export checkpoints", () => {
-  it.each(["0", "1073741825", "not-a-number"])(
+  it.each([0, 1073741825, Number.NaN])(
     "rejects invalid content limit %s before contacting the provider",
     async (maximum) => {
       const f = fixture();
       f.context.env = { ...f.context.env, readwise_content_max_bytes: maximum };
-      await expect(f.run()).rejects.toThrow("READWISE_CONTENT_MAX_BYTES");
+      await expect(f.run()).rejects.toThrow("readwise_content_max_bytes");
       expect(f.requests).toEqual([]);
     },
   );

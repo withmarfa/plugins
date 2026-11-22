@@ -9,7 +9,7 @@ export function endpoint(value = "https://readwise.io/api/v2/"): string {
     (url.protocol !== "https:" && !(local && url.protocol === "http:"))
   ) {
     throw new Error(
-      "READWISE_API_URL must use HTTPS (or local HTTP for tests), without credentials, query or fragment",
+      "readwise_api_url must use HTTPS (or local HTTP for tests), without credentials, query or fragment",
     );
   }
   if (!url.pathname.endsWith("/")) url.pathname += "/";

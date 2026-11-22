@@ -1797,13 +1797,13 @@ describe("in-thread", () => {
       edge_permissions: { "in-thread": "write" },
       metadata_permissions: { edge_types: "write" },
     };
-    expect(await harness.twoWay(threaded([]))).toBe(1);
+    expect(await harness.twoWay(threaded([]))).toBe(3);
     expect(harness.lastRun().error).toContain("metadata edge_types=write");
   });
 
   it("is refused where the key may not write it, or it differs from the instance's", async () => {
     harness.server.grants = { type_permissions: { "test.entry": "write" } };
-    expect(await harness.twoWay(threaded([]))).toBe(1);
+    expect(await harness.twoWay(threaded([]))).toBe(3);
     expect(harness.lastRun().error).toContain("may not write edge in-thread");
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
@@ -1839,7 +1839,7 @@ describe("a connection type", () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
     };
-    expect(await harness.twoWay(connected([]))).toBe(1);
+    expect(await harness.twoWay(connected([]))).toBe(3);
     expect(harness.lastRun().error).toContain("may not write edge test.blocks");
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },

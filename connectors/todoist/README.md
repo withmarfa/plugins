@@ -28,10 +28,12 @@ A trash in Marfa deletes the task in Todoist; closing it would not do, since Tod
 
 One Todoist account per instance for two-way sync. A second account's connector would create in its own account any row of the type without a link, and could not tell that account's task from one gone.
 
-## Environment
+## Settings
 
-- `TODOIST_API_TOKEN`: the account's API token, a secret.
-- `TODOIST_API_URL`: optional, for a stub of the API; the real one otherwise.
-- `TODOIST_READ_ONLY`: `true` for a read-only connector, optional. Nothing goes back to Todoist, and a change made in Marfa to a synced field is put back and named. A Todoist token cannot be narrowed to reading, so this is the only guard for a trial against a real account.
+Set each in Marfa with `marfa plugins settings todoist --set <name>=<value>`, and the token with `marfa plugins secret todoist todoist_api_token`. The connector reads them at the start of every run.
 
-The key holds read and write on `todoist.task` and no permission beside it. Installing the plugin registers the type; when a newer build declares a field the installed type lacks, the connector runs without it and says to update the plugin with `marfa plugins install todoist`. The key and the run are as `template/README.md` says.
+- `todoist_api_token`: the account's API token, a secret.
+- `todoist_api_url`: optional, for a stub of the API; the real one otherwise.
+- `todoist_read_only`: `true` for a read-only connector, optional. Nothing goes back to Todoist, and a change made in Marfa to a synced field is put back and named. A Todoist token cannot be narrowed to reading, so this is the only guard for a trial against a real account.
+
+The key its connector host mints holds write on `todoist.task` and nothing else. Installing the plugin registers the type; when a newer build declares a field the installed type lacks, the connector runs without it and says to update the plugin with `marfa plugins install todoist`. The key and the run are as `template/README.md` says.

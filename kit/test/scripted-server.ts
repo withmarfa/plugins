@@ -415,8 +415,23 @@ export class ScriptedServer {
   runs: Run[] = [];
   heartbeats = 0;
   registrations = 0;
+  /** The values the owner set for the connector's settings, by name, which
+   *  its own settings door answers. */
+  settings: Record<string, unknown> = {};
+  /** The secret settings whose stored value Marfa cannot open. */
+  unreadable = new Set<string>();
+  /** The settings Marfa holds as secret, beside those it cannot open. */
+  secrets = new Set<string>();
+  /** What the door names as missing, beyond what the kit finds itself. */
+  missing: string[] = [];
+  /** Whether the key is one a connector host minted, which alone reads the
+   *  settings door; any other gets `404`. */
+  hosted = true;
+  settingsReads = 0;
   /** The registration's `read_only_types`, replaced by each register call. */
   readOnlyTypes: string[] = [];
+  /** What the last registration named, and when. */
+  registered: { name: unknown; description: unknown; at: string } | undefined;
   requests: Request[] = [];
   readonly log: Event[] = [];
   readonly entryRefusals = new Map<string, Refusal>();
@@ -555,6 +570,24 @@ export class ScriptedServer {
    *  means the plugin not installed turns it off. */
   installs = true;
 
+  /** The registration, as the connector doors answer it. */
+  private connector(): Record<string, unknown> {
+    const at = this.registered?.at ?? this.now();
+    return {
+      id: "connector-1",
+      key_id: "key-1",
+      source: this.keySource,
+      name: this.registered?.name,
+      description: this.registered?.description ?? null,
+      registered_at: at,
+      updated_at: at,
+      last_heartbeat_at: null,
+      read_only_types: this.readOnlyTypes,
+      last_run: null,
+      problems: this.problems.get(this.keySource) ?? {},
+    };
+  }
+
   /** What installing a plugin registers: a type, as `POST /plugins` writes
    *  it, which an install never overwrites here. */
   installType(type: Record<string, unknown>): void {
@@ -627,6 +660,32 @@ export class ScriptedServer {
         resolve();
       });
     });
+  }
+
+  /**
+   * What a connector's process is started with, from one record: a name in
+   * capitals, such as `MARFA_API_URL` or `PATH`, is its environment, and a
+   * setting's own name, in lowercase, is set in this server for its settings
+   * door, which is where the connector reads it.
+   */
+  processEnv(
+    values: Readonly<Record<string, unknown>>,
+  ): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = {};
+    const settings: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(values)) {
+      if (/^[a-z]/.test(name)) {
+        if (value !== undefined) settings[name] = value;
+      } else
+        env[name] =
+          value === undefined
+            ? undefined
+            : typeof value === "string"
+              ? value
+              : JSON.stringify(value);
+    }
+    this.settings = settings;
+    return env;
   }
 
   refuseNext(
@@ -1354,6 +1413,50 @@ export class ScriptedServer {
       refuse(404, "connector_not_found");
       return;
     }
+    if (
+      method === "GET" &&
+      parts[0] === "connectors" &&
+      parts[2] === "settings" &&
+      parts.length === 3
+    ) {
+      if (!this.hosted) {
+        refuse(404, "connector_not_found");
+        return;
+      }
+      this.settingsReads += 1;
+      const names = [
+        ...new Set([...Object.keys(this.settings), ...this.unreadable]),
+      ];
+      send(200, {
+        plugin: this.source,
+        settings: names.map((name) => {
+          const unreadable = this.unreadable.has(name);
+          const value = unreadable ? null : (this.settings[name] ?? null);
+          return {
+            name,
+            kind:
+              typeof value === "boolean"
+                ? "boolean"
+                : typeof value === "number"
+                  ? "number"
+                  : "text",
+            secret: unreadable || this.secrets.has(name),
+            required: false,
+            value,
+            set: value !== null,
+            unreadable,
+          };
+        }),
+        missing: this.missing,
+      });
+      return;
+    }
+    if (method === "GET" && url.pathname === "/connectors") {
+      send(200, {
+        data: this.registrations === 0 || this.lost ? [] : [this.connector()],
+      });
+      return;
+    }
     if (method === "POST" && url.pathname === "/connectors") {
       this.installHeld();
       // A registration removed takes its hold with it.
@@ -1361,20 +1464,12 @@ export class ScriptedServer {
       this.lost = false;
       this.registrations += 1;
       this.readOnlyTypes = (input["read_only_types"] ?? []) as string[];
-      const at = this.now();
-      send(this.registrations === 1 ? 201 : 200, {
-        id: "connector-1",
-        key_id: "key-1",
-        source: this.keySource,
+      this.registered = {
         name: input["name"],
         description: input["description"] ?? null,
-        registered_at: at,
-        updated_at: at,
-        last_heartbeat_at: null,
-        read_only_types: this.readOnlyTypes,
-        last_run: null,
-        problems: this.problems.get(this.keySource) ?? {},
-      });
+        at: this.now(),
+      };
+      send(this.registrations === 1 ? 201 : 200, this.connector());
       return;
     }
     if (
@@ -1577,11 +1672,7 @@ export class ScriptedServer {
       parts.length === 2 &&
       method === "GET"
     ) {
-      send(200, {
-        id: parts[1],
-        source: this.keySource,
-        problems: this.problems.get(this.keySource) ?? {},
-      });
+      send(200, { ...this.connector(), id: parts[1] });
       return;
     }
     if (

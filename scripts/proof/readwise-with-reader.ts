@@ -8,6 +8,7 @@ import {
   type Item,
 } from "./connector.js";
 import { enrichmentPollMs, type ProofServer } from "./server.js";
+import { freshConnectorKey, type ConnectorKey } from "./host.js";
 import { readwiseVendor } from "./readwise-vendor.js";
 
 /**
@@ -66,33 +67,18 @@ export async function proveReadwiseWithReader(
     }
   };
   try {
-    const key = (source: string) =>
-      mint({
-        label: source,
-        source,
-        sources: ["readwise"],
-        default_tier: "feed",
-        type_permissions: {
-          "readwise.source": "write",
-          "readwise.highlight": "write",
-          "readwise.file": "write",
-        },
-        edge_permissions: {
-          "excerpt-of": "write",
-          references: "write",
-          "attached-to": "write",
-        },
-        permissions: [],
-        extension_permissions: {},
-        profile_permissions: {},
-      });
-    const readerKey = await key("reader-proof");
+    let current: ConnectorKey | undefined;
+    const key = async (): Promise<ConnectorKey> => {
+      current = await freshConnectorKey(url, "readwise");
+      return current;
+    };
+    const readerKey = await key();
     const options = (account: string, reader = true) => ({
-      READWISE_ACCOUNT: account,
-      READWISE_ACCESS_TOKEN: "reader-fixture-token",
-      READWISE_API_URL: `${vendor.base}/v2/`,
-      READWISE_READER_API_URL: `${vendor.base}/v3/`,
-      READWISE_READER: String(reader),
+      readwise_account: account,
+      readwise_access_token: "reader-fixture-token",
+      readwise_api_url: `${vendor.base}/v2/`,
+      readwise_reader_api_url: `${vendor.base}/v3/`,
+      readwise_reader: reader,
     });
     // One registration, run with Reader off and then on.
     const exportOnly = new ConnectorUnderProof(
@@ -112,9 +98,9 @@ export async function proveReadwiseWithReader(
       if (result.code !== 0) {
         const client = createClient({
           baseUrl: url,
-          credential: readerKey.key,
+          credential: current?.key ?? "",
         });
-        const found = await registration(client, readerKey.id);
+        const found = await registration(client, current?.id ?? "");
         const snapshot = await client.GET("/connectors/{id}/state", {
           params: { path: { id: found.id } },
         });
@@ -397,7 +383,7 @@ export async function proveReadwiseWithReader(
         );
         vendor.documents.delete("doc-1");
         vendor.documents.delete("hi-1");
-        const reconciliationKey = await key("reader-proof-reconciliation");
+        const reconciliationKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -459,7 +445,7 @@ export async function proveReadwiseWithReader(
           parent_id: "solo",
           content: "Reader-only passage",
         });
-        const firstKey = await key("reader-proof-first");
+        const firstKey = await key();
         const first = new ConnectorUnderProof(
           "readwise",
           url,
@@ -520,7 +506,7 @@ export async function proveReadwiseWithReader(
       async () => {
         vendor.sources.length = 0;
         vendor.documents.clear();
-        const createKey = await key("reader-proof-create");
+        const createKey = await key();
         const creating = new ConnectorUnderProof(
           "readwise",
           url,
@@ -578,14 +564,14 @@ export async function proveReadwiseWithReader(
     );
     const overtaken = async (
       account: string,
-      extra: Record<string, string>,
+      extra: Record<string, unknown>,
     ) => {
       vendor.sources.length = 0;
       vendor.documents.clear();
       const runner = new ConnectorUnderProof(
         "readwise",
         url,
-        (await key(`reader-proof-${account}`)).key,
+        (await key()).key,
         { ...options(account), ...extra },
       );
       await once(runner);
@@ -624,7 +610,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a trash over a lost create keeps the document, leaves it out of the import and a restore takes it back",
       async () => {
         const { runner, item, saves, imported } = await overtaken("overtrash", {
-          READWISE_READER_PROPAGATE_PURGE: "true",
+          readwise_reader_propagate_purge: true,
         });
         // The first run claims the document, its sync keeps the claim and
         // the second settles the trash; the third finds nothing to do.
@@ -660,7 +646,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a purge with propagation on over a lost create keeps the document and never imports it",
       async () => {
         const { runner, item, imported } = await overtaken("overpurge", {
-          READWISE_READER_PROPAGATE_PURGE: "true",
+          readwise_reader_propagate_purge: true,
         });
         const purged = await admin.POST("/items/{id}/purge", {
           params: { path: { id: item.id } },
@@ -689,7 +675,7 @@ export async function proveReadwiseWithReader(
             category: "article",
             title: "Deletion guard",
           });
-        const initialKey = await key("reader-proof-guard-initial");
+        const initialKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -703,7 +689,7 @@ export async function proveReadwiseWithReader(
         );
         assert.equal(expected.length, 21);
         vendor.documents.clear();
-        const missingKey = await key("reader-proof-guard-missing");
+        const missingKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -748,7 +734,7 @@ export async function proveReadwiseWithReader(
           content: "Fresh passage",
           updated_at: stamp,
         });
-        const freshKey = await key("reader-proof-fresh");
+        const freshKey = await key();
         const freshExport = new ConnectorUnderProof(
           "readwise",
           url,
@@ -759,7 +745,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           freshKey.key,
-          { ...options("fresh"), READWISE_READER_INBOUND_ONLY: "true" },
+          { ...options("fresh"), readwise_reader_inbound_only: true },
         );
         const freshRows = async () =>
           new Map(
@@ -849,7 +835,7 @@ export async function proveReadwiseWithReader(
           content: "Current Reader passage",
           updated_at: stamp,
         });
-        const lifecycleKey = await key("reader-proof-lifecycle");
+        const lifecycleKey = await key();
         const exportOnly = new ConnectorUnderProof(
           "readwise",
           url,
@@ -860,7 +846,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           lifecycleKey.key,
-          { ...options("lifecycle"), READWISE_READER_INBOUND_ONLY: "true" },
+          { ...options("lifecycle"), readwise_reader_inbound_only: true },
         );
         await once(exportOnly);
         const historical = await row("lifecycle:highlight:102");

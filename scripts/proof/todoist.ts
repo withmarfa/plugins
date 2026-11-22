@@ -8,9 +8,8 @@ import {
   fieldsOf,
   installedAsKindOf,
   item,
-  keyBody,
   lastRun,
-  mintWithTheReadmeKeyFlags,
+  hostMintedKey,
   moved,
   deriveAndFind,
   purge,
@@ -42,14 +41,10 @@ export async function proveTodoist(
   const todoist = await new TodoistStub("todoist-proof-token").start();
   const account = todoist.account;
   try {
-    const key = await mintWithTheReadmeKeyFlags(marfa, {
-      label: "todoist",
-      source: "todoist",
-      typePermission: "todoist.task",
-    });
+    const key = await hostMintedKey(url, "todoist");
     const runner = new ConnectorUnderProof("todoist", url, key.key, {
-      TODOIST_API_TOKEN: "todoist-proof-token",
-      TODOIST_API_URL: todoist.url,
+      todoist_api_token: "todoist-proof-token",
+      todoist_api_url: todoist.url,
     });
     const runOnce = async (): Promise<void> => {
       const { code, output } = await runner.once();
@@ -941,12 +936,12 @@ export async function proveTodoist(
     );
 
     await check(
-      "todoist: with TODOIST_READ_ONLY=true nothing goes back to Todoist, and an edit made in Marfa is put back",
+      "todoist: with todoist_read_only=true nothing goes back to Todoist, and an edit made in Marfa is put back",
       async () => {
         const readOnly = new ConnectorUnderProof("todoist", url, key.key, {
-          TODOIST_API_TOKEN: "todoist-proof-token",
-          TODOIST_API_URL: todoist.url,
-          TODOIST_READ_ONLY: "true",
+          todoist_api_token: "todoist-proof-token",
+          todoist_api_url: todoist.url,
+          todoist_read_only: true,
         });
         const before = await row("a");
         const held = todoist.tasks.get("a")?.content;
@@ -970,15 +965,14 @@ export async function proveTodoist(
     );
 
     await check(
-      "todoist: a key holding permissions beside its type, among them schema.write, is refused at start, before it checks the type or writes a row, naming every one",
+      "todoist: a key holding permissions beside its type, among them schema.write, is refused at start with exit 3, before it checks the type or writes a row, naming every one",
       async () => {
         const { data: wide, error } = await marfa.POST("/keys", {
           body: {
-            ...keyBody({
-              label: "todoist-wide",
-              source: "todoist-wide",
-              typePermission: "todoist.task",
-            }),
+            label: "todoist-wide",
+            source: "todoist-wide",
+            type_permissions: { "todoist.task": "write" },
+            default_tier: "feed",
             permissions: [
               "schema.write",
               "keys.mint",
@@ -995,14 +989,14 @@ export async function proveTodoist(
         const before = await rows();
         const sent = todoist.commands().length;
         const refused = new ConnectorUnderProof("todoist", url, wide.key, {
-          TODOIST_API_TOKEN: "todoist-proof-token",
-          TODOIST_API_URL: todoist.url,
+          todoist_api_token: "todoist-proof-token",
+          todoist_api_url: todoist.url,
         });
         const { code, output } = await refused.once();
         const changed = moved(before, await rows());
         const named = output.slice(output.indexOf("is refused:"));
         if (
-          code !== 1 ||
+          code !== 3 ||
           !output.includes("holds more than read and write on todoist.task") ||
           !named.includes("schema.write") ||
           !output.includes("keys.mint") ||
@@ -1018,7 +1012,7 @@ export async function proveTodoist(
         const line = output
           .split("\n")
           .find((l) => l.includes("holds more than"));
-        return `exit 1, nothing written or sent, while the connector's own key, holding the permissions beside its type, runs: ${String(line).slice(0, 300)}`;
+        return `exit 3, nothing written or sent, while the key its host minted runs: ${String(line).slice(0, 300)}`;
       },
     );
   } finally {

@@ -49,23 +49,23 @@ afterEach(async () => {
   await marfa.stop();
   await github.stop();
 });
-async function once(env: Record<string, string | undefined> = {}) {
+async function once(env: Record<string, unknown> = {}) {
   try {
     const result = await run(
       "node",
       [resolve(import.meta.dirname, "../dist/main.js"), "--once"],
       {
-        env: {
+        env: marfa.processEnv({
           PATH: process.env["PATH"],
           MARFA_API_URL: marfa.url,
           MARFA_API_KEY: marfa.key,
-          GITHUB_APP_ID: "12345",
-          GITHUB_PRIVATE_KEY: key,
-          GITHUB_WEBHOOK_SECRET: "test-secret",
+          github_app_id: "12345",
+          github_private_key: key,
+          github_webhook_secret: "test-secret",
           ...github.settings,
-          GITHUB_NOTIFICATIONS_TOKEN: token,
+          github_notifications_token: token,
           ...env,
-        },
+        }),
       },
     );
     return { code: 0, output: result.stderr };
@@ -74,7 +74,7 @@ async function once(env: Record<string, string | undefined> = {}) {
     return { code: result.code, output: result.stderr };
   }
 }
-async function ok(env: Record<string, string | undefined> = {}) {
+async function ok(env: Record<string, unknown> = {}) {
   const result = await once(env);
   expect(result.code, result.output).toBe(0);
   return result.output;
@@ -493,7 +493,7 @@ describe("notifications", () => {
       await ok();
       expect(conditions()).toHaveProperty(["notifications-refused"]);
       expect(conditions()["notifications-refused"]).toContain(
-        "GITHUB_NOTIFICATIONS_TOKEN",
+        "github_notifications_token",
       );
       if (fault === "scope")
         expect(conditions()["notifications-refused"]).toContain(
@@ -555,7 +555,7 @@ describe("notifications", () => {
     expect(held()).toHaveLength(1);
   });
 
-  it("reads only the repositories GITHUB_REPOSITORIES names, and the rest when it is widened", async () => {
+  it("reads only the repositories github_repositories names, and the rest when it is widened", async () => {
     const tracker = github.addRepository("someone/tracker");
     const other = github.addRepository("someone/other");
     const inside = github.notifications.add(tracker, {
@@ -576,19 +576,19 @@ describe("notifications", () => {
       title: "Elsewhere",
       number: 1,
     });
-    await ok({ GITHUB_REPOSITORIES: "someone/tracker" });
+    await ok({ github_repositories: "someone/tracker" });
     expect(held().map((one) => one.properties["github_id"])).toEqual([
       inside.id,
     ]);
     // Nothing changed on GitHub, yet the wider setting reads what it left out.
-    await ok({ GITHUB_REPOSITORIES: "someone/*, stranger/public" });
+    await ok({ github_repositories: "someone/*, stranger/public" });
     expect(
       held()
         .map((one) => one.properties["github_id"])
         .sort(),
     ).toEqual([inside.id, outside.id, elsewhere.id].sort());
     // Narrowed again, what was read is left as it is, not archived.
-    await ok({ GITHUB_REPOSITORIES: "someone/tracker" });
+    await ok({ github_repositories: "someone/tracker" });
     expect(held().every((one) => one.state === "active")).toBe(true);
     expect(held()).toHaveLength(3);
   });
@@ -597,7 +597,7 @@ describe("notifications", () => {
     const repo = github.addRepository("someone/tracker");
     github.addIssue(repo);
     github.notifications.add(repo, { type: "Issue", title: "T", number: 1 });
-    await ok({ GITHUB_NOTIFICATIONS_TOKEN: undefined });
+    await ok({ github_notifications_token: undefined });
     expect(listings()).toEqual([]);
     expect(held()).toEqual([]);
     expect(conditions()).toEqual({});
@@ -615,7 +615,7 @@ describe("notifications", () => {
     github.notifications.scopes = [];
     await ok();
     expect(conditions()).toHaveProperty(["notifications-refused"]);
-    await ok({ GITHUB_NOTIFICATIONS_TOKEN: undefined });
+    await ok({ github_notifications_token: undefined });
     expect(conditions()).toEqual({});
   });
 
@@ -671,11 +671,11 @@ describe("notifications", () => {
     github.notifications.remove(gone);
     await ok();
     expect(saved().missing).toEqual([gone.id]);
-    await ok({ GITHUB_REPOSITORIES: "someone/*" });
+    await ok({ github_repositories: "someone/*" });
     expect(row(gone.id).state).toBe("active");
     expect(saved().missing).toEqual([gone.id]);
     // The witness: a second listing under the same settings confirms it.
-    await ok({ GITHUB_REPOSITORIES: "someone/*" });
+    await ok({ github_repositories: "someone/*" });
     expect(row(gone.id).state).toBe("archived");
   });
 
@@ -824,10 +824,10 @@ describe("notifications", () => {
     });
     github.personalToken = "github_pat_notifications_test";
     await ok({
-      GITHUB_PERSONAL_TOKEN: github.personalToken,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
+      github_personal_token: github.personalToken,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
     });
     expect(links(thread.id, "about")).toEqual([issue.node]);
     expect(github.writes()).toEqual([]);
@@ -838,17 +838,17 @@ describe("notifications", () => {
     ).toBe(false);
   });
 
-  it("takes notification among the kinds GITHUB_READ_ONLY names", async () => {
+  it("takes notification among the kinds github_read_only names", async () => {
     const repo = github.addRepository("someone/tracker");
     const thread = github.notifications.add(repo, {
       type: "Issue",
       title: "T",
       number: 1,
     });
-    await ok({ GITHUB_READ_ONLY: "notification" });
+    await ok({ github_read_only: "notification" });
     expect(row(thread.id).state).toBe("active");
-    const refused = await once({ GITHUB_READ_ONLY: "issue,nonsense" });
-    expect(refused.code).toBe(2);
+    const refused = await once({ github_read_only: "issue,nonsense" });
+    expect(refused.code).toBe(4);
     expect(refused.output).toContain("notification");
   });
 });

@@ -202,7 +202,7 @@ describe("a grant Google no longer accepts", () => {
     expect([...seen.conditions.keys()]).toEqual(["google:reconnect"]);
     const text = seen.conditions.get("google:reconnect") ?? "";
     expect(text).toMatch(/reconnect/i);
-    expect(text).toContain("--setup <file>");
+    expect(text).toContain("as the connector's README says");
     expect(stub.token).toHaveLength(1);
 
     // Under --every, each later run fails fast with the same condition.
@@ -260,8 +260,8 @@ describe("a grant Google no longer accepts", () => {
     expect(error.kind).toBe("client");
     expect([...seen.conditions.keys()]).toEqual(["google:client"]);
     const text = seen.conditions.get("google:client") ?? "";
-    expect(text).toContain("GOOGLE_CLIENT_ID");
-    expect(text).toContain("GOOGLE_CLIENT_SECRET");
+    expect(text).toContain("google_client_id");
+    expect(text).toContain("google_client_secret");
     expect(text).not.toMatch(/reconnect/i);
     await failure(
       connectGoogle(run(token).context, needs([A]), options()).ready(),
@@ -353,8 +353,8 @@ describe("a refresh that answers more than an access token", () => {
     const google = connectGoogle(seen.context, needs([A]), options());
     await google.ready();
     const text = seen.conditions.get("google:refresh-token-changed") ?? "";
-    expect(text).toContain("--setup <file>");
-    expect(text).toContain("GOOGLE_REFRESH_TOKEN");
+    expect(text).toContain("as the connector's README says");
+    expect(text).toContain("google_refresh_token");
     expect(seen.secrets).toContain(issued);
 
     time += 3600_000;
@@ -376,7 +376,7 @@ describe("a refresh that answers more than an access token", () => {
     const text = seen.conditions.get("google:refresh-token-expires") ?? "";
     expect(text).toContain("2026-10-30 at 09:00 UTC");
     expect(text).toMatch(/ongoing access/);
-    expect(text).toContain("--setup <file>");
+    expect(text).toContain("as the connector's README says");
   });
 });
 
@@ -392,7 +392,7 @@ describe("the scopes granted", () => {
     expect([...seen.conditions.keys()]).toEqual([`google:scope:${B}`]);
     const text = seen.conditions.get(`google:scope:${B}`) ?? "";
     expect(text).toContain(B);
-    expect(text).toContain("--setup <file>");
+    expect(text).toContain("as the connector's README says");
   });
 
   it("raises none where every wanted scope was granted", async () => {

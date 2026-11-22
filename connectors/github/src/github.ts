@@ -39,24 +39,26 @@ export class PermissionRequired extends Error {
 
 const longestSpacing = 60_000;
 
-/** Reads `GITHUB_REQUEST_SPACING_MS` from the environment the kit has
- *  trimmed, where an empty value is unset. It is for a stub of the API: against
+/** Reads `github_request_spacing_ms`, which is for a stub of the API: against
  *  GitHub's own address a spacing below GitHub's minimum would be accepted. */
 export function spacingOf(values: {
-  readonly github_request_spacing_ms?: string | undefined;
+  readonly github_request_spacing_ms?: number | undefined;
   readonly github_api_url?: string | undefined;
 }): number | undefined {
   const value = values.github_request_spacing_ms;
   if (value === undefined) return undefined;
-  if (values.github_api_url === undefined)
+  if (
+    values.github_api_url === undefined ||
+    values.github_api_url === defaultBase
+  )
     throw new Error(
-      "GITHUB_REQUEST_SPACING_MS is for a stub of the API, so it needs GITHUB_API_URL",
+      "github_request_spacing_ms is for a stub of the API, so it needs github_api_url set to the stub",
     );
-  if (!/^\d+$/.test(value) || Number(value) > longestSpacing)
+  if (!Number.isInteger(value) || value < 0 || value > longestSpacing)
     throw new Error(
-      `GITHUB_REQUEST_SPACING_MS must be a whole number of milliseconds, at most ${String(longestSpacing)}`,
+      `github_request_spacing_ms must be a whole number of milliseconds, at most ${String(longestSpacing)}`,
     );
-  return Number(value);
+  return value;
 }
 
 let spaced:
@@ -402,7 +404,7 @@ export function asPersonalToken(
   origin: Origin,
   secret: Secret,
   signal: AbortSignal,
-  name = "GITHUB_PERSONAL_TOKEN",
+  name = "github_personal_token",
 ): Client {
   secret(token);
   const fingerprint = createHash("sha256").update(token).digest("hex");

@@ -180,17 +180,17 @@ describe("the pictures an entry points to", () => {
   function environment(
     setting: string | null,
     paths: string[],
-  ): Record<string, string | undefined> {
+  ): Record<string, unknown> {
     return {
       PATH: process.env["PATH"],
       MARFA_API_URL: marfa.url,
       MARFA_API_KEY: marfa.key,
-      RSS_FEEDS: paths
+      rss_feeds: paths
         .map((path) => (path.startsWith("http") ? path : `${base}${path}`))
         .join("\n"),
-      RSS_PRIVATE_HOSTS: "localhost",
+      rss_private_hosts: "localhost",
       NODE_EXTRA_CA_CERTS: certificate,
-      ...(setting !== null && { RSS_PICTURES: setting }),
+      ...(setting !== null && { rss_pictures: setting }),
     };
   }
 
@@ -200,7 +200,7 @@ describe("the pictures an entry points to", () => {
   ): Promise<{ code: number | null; output: string }> {
     try {
       const { stderr } = await run("node", [built, "--once"], {
-        env: environment(setting, paths),
+        env: marfa.processEnv(environment(setting, paths)),
         timeout: 60_000,
         maxBuffer: 16 * 1024 * 1024,
       });
@@ -237,9 +237,6 @@ describe("the pictures an entry points to", () => {
     };
 
   it("saves nothing and fetches nothing while the setting is addresses", async () => {
-    // A key for the entry type alone is all this setting needs.
-    await marfa.stop();
-    marfa = await new ScriptedServer("rss", { types: ["rss.entry"] }).start();
     pictures["/a.png"] = { body: png(1) };
     documents["/one.json"] = [
       { id: "e1", title: "One", content_html: img(at("/a.png")) },
@@ -254,27 +251,26 @@ describe("the pictures an entry points to", () => {
     expect(marfa.uploads).toBe(0);
   });
 
-  it("refuses a key whose permissions do not match the setting", async () => {
-    // A key for pictures, with the setting off.
-    const wide = await once("addresses");
-    expect(wide.code).toBe(1);
-    expect(wide.output).toContain("rss.picture");
-    expect(marfa.rows).toEqual([]);
+  it("takes the key its host mints, which writes the picture type whatever the setting, and refuses one that cannot", async () => {
+    documents["/one.json"] = [{ id: "e1", title: "One" }];
+    expect((await once("addresses")).code).toBe(0);
 
-    // A key for the entry type alone, with pictures on.
+    // A key for the entry type alone, whatever the setting.
     await marfa.stop();
     marfa = await new ScriptedServer("rss", { types: ["rss.entry"] }).start();
-    const narrow = await once("save");
-    expect(narrow.code).toBe(1);
-    expect(narrow.output).toContain("rss.picture");
+    for (const setting of ["addresses", "save"]) {
+      const narrow = await once(setting);
+      expect(narrow.code).toBe(3);
+      expect(narrow.output).toContain("rss.picture");
+    }
     expect(marfa.rows).toEqual([]);
   });
 
   it("refuses a setting it does not know, before any feed is read", async () => {
     const result = await once("everything");
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(4);
     expect(result.output).toContain(
-      "RSS_PICTURES must be addresses, save or save-in-library",
+      "Pictures (rss_pictures) is not one of its choices",
     );
     expect(marfa.rows).toEqual([]);
   });
@@ -699,7 +695,7 @@ describe("the pictures an entry points to", () => {
       },
     ];
     const child = spawn("node", [built, "--once"], {
-      env: environment("save", ["/one.json"]),
+      env: marfa.processEnv(environment("save", ["/one.json"])),
       stdio: "ignore",
     });
     const exited = new Promise<void>((done) =>

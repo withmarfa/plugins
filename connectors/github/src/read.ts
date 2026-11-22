@@ -253,7 +253,7 @@ function starReader(
   if (personal !== undefined)
     return {
       octokit: personal,
-      name: "GITHUB_PERSONAL_TOKEN",
+      name: "github_personal_token",
       publicOnly: false,
     };
   if (notificationsToken === undefined) return undefined;
@@ -292,7 +292,7 @@ export async function read(
   } catch (error) {
     if ("token" in app && status(error) === 401)
       throw new Error(
-        "GitHub rejected GITHUB_PERSONAL_TOKEN (401); existing rows and progress are kept",
+        "GitHub rejected github_personal_token (401); existing rows and progress are kept",
         { cause: error },
       );
     if (rateLimited(error)) {
@@ -457,11 +457,11 @@ async function readAll(
     for (const one of scope.unmatched(seen)) {
       log.condition(
         `repositories-unmatched:${one}`,
-        `GITHUB_REPOSITORIES names ${one}, which ${personal === undefined ? "no installation of the App shows" : "the personal token cannot see"}`,
+        `github_repositories names ${one}, which ${personal === undefined ? "no installation of the App shows" : "the personal token cannot see"}`,
       );
     }
   }
-  // Only a scheduled run lists the stars, and not where GITHUB_STARS turned
+  // Only a scheduled run lists the stars, and not where github_stars turned
   // them off; the rest keep each mark as it was.
   const scheduled = context.hints === undefined;
   const stars = await Stars.open(
@@ -629,7 +629,7 @@ async function readAll(
     if (left !== undefined) {
       if (repository.paused !== true) {
         log.info(
-          `${left.full_name} is left out by GITHUB_REPOSITORIES, so its rows are left as they are, bar the private marker, which follows its visibility, and changes made to them wait until it is named again`,
+          `${left.full_name} is left out by github_repositories, so its rows are left as they are, bar the private marker, which follows its visibility, and changes made to them wait until it is named again`,
         );
       }
       // Under the name its rows hold, which a rename meanwhile does not change.

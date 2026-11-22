@@ -70,17 +70,17 @@ afterEach(async () => {
 });
 
 async function exec(
-  env: Record<string, string>,
+  env: Record<string, unknown>,
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
         ...github.settings,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -89,17 +89,17 @@ async function exec(
   }
 }
 
-async function sync(extra: Record<string, string> = {}): Promise<string> {
-  const result = await exec({ GITHUB_PERSONAL_TOKEN: token, ...extra });
+async function sync(extra: Record<string, unknown> = {}): Promise<string> {
+  const result = await exec({ github_personal_token: token, ...extra });
   expect(result.code, result.output).toBe(0);
   return result.output;
 }
 
 async function syncWithApp(): Promise<string> {
   const result = await exec({
-    GITHUB_APP_ID: "12345",
-    GITHUB_PRIVATE_KEY: key,
-    GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
+    github_app_id: "12345",
+    github_private_key: key,
+    github_webhook_secret: "github-test-webhook-secret",
   });
   expect(result.code, result.output).toBe(0);
   return result.output;
@@ -159,7 +159,7 @@ function changes(since: number): string[] {
 }
 
 describe("starred repositories", () => {
-  it("leaves every mark and row alone, and asks for no star, where GITHUB_STARS is false", async () => {
+  it("leaves every mark and row alone, and asks for no star, where github_stars is false", async () => {
     const starred = starOnly("someone/starred");
     const tracker = listed("someone/tracker");
     github.star(tracker);
@@ -172,7 +172,7 @@ describe("starred repositories", () => {
     github.unstar(starred);
     github.unstar(tracker);
     const before = marfa.log.length;
-    for (let run = 0; run < 3; run += 1) await sync({ GITHUB_STARS: "false" });
+    for (let run = 0; run < 3; run += 1) await sync({ github_stars: false });
     expect(starRequests()).toBe(1);
     expect(checks("someone/starred")).toBe(0);
     expect(repositoryRow(starred).state).toBe("active");
@@ -192,7 +192,7 @@ describe("starred repositories", () => {
 
   it("only unmarks a repository another process syncs, and archives only a row nothing syncs", async () => {
     // Process B syncs the organization with its own token and reads no stars;
-    // process A reads the person's stars with a key that claims the source.
+    // process A reads the person's stars, each on a key of the source.
     const other = "github_pat_withmarfa_12345678";
     const synced = github.addRepository("org/x", { private: false });
     const issue = github.addIssue(synced);
@@ -207,24 +207,21 @@ describe("starred repositories", () => {
       github.personalToken = other;
       github.personalRepositories = new Set(bSyncs.map((one) => one.node));
       const result = await exec({
-        GITHUB_PERSONAL_TOKEN: other,
-        GITHUB_REPOSITORIES: bSyncs
+        github_personal_token: other,
+        github_repositories: bSyncs
           .map((one) => `${one.owner}/${one.name}`)
           .join(","),
-        GITHUB_STARS: "false",
+        github_stars: false,
       });
       expect(result.code, result.output).toBe(0);
     };
     const asA = async (): Promise<void> => {
-      marfa.keySource = "github-someone";
-      marfa.grants = {
-        sources: ["github"],
-      };
+      marfa.keySource = "github";
       github.personalToken = token;
       github.personalRepositories = new Set([own.node]);
       const result = await exec({
-        GITHUB_PERSONAL_TOKEN: token,
-        GITHUB_REPOSITORIES: "someone/own",
+        github_personal_token: token,
+        github_repositories: "someone/own",
       });
       expect(result.code, result.output).toBe(0);
     };
@@ -270,7 +267,7 @@ describe("starred repositories", () => {
 
   it("starts the count of misses again after a scheduled run that lists no stars", async () => {
     for (const between of [
-      { GITHUB_STARS: "false" },
+      { github_stars: false },
       { failing: "true" },
     ] as const) {
       const repository = starOnly(
@@ -295,13 +292,15 @@ describe("starred repositories", () => {
     }
   });
 
-  it("refuses a GITHUB_STARS that is not true or false", async () => {
+  it("refuses a github_stars that is not true or false", async () => {
     const result = await exec({
-      GITHUB_PERSONAL_TOKEN: token,
-      GITHUB_STARS: "no",
+      github_personal_token: token,
+      github_stars: "no",
     });
-    expect(result.code).not.toBe(0);
-    expect(result.output).toContain("GITHUB_STARS must be true or false");
+    expect(result.code).toBe(4);
+    expect(result.output).toContain(
+      "Read your stars (github_stars) is not true or false",
+    );
   });
 
   it("reads every page of stars, as repository rows marked starred and stamped", async () => {
@@ -672,8 +671,8 @@ describe("starred repositories", () => {
 
     const paused = async () => {
       const result = await exec({
-        GITHUB_PERSONAL_TOKEN: token,
-        GITHUB_REPOSITORIES: "someone/other",
+        github_personal_token: token,
+        github_repositories: "someone/other",
       });
       expect(result.code, result.output).toBe(0);
     };
@@ -794,13 +793,13 @@ describe("stars read with the notifications token", () => {
   });
 
   async function syncWithClassic(
-    env: Record<string, string> = {},
+    env: Record<string, unknown> = {},
   ): Promise<string> {
     const result = await exec({
-      GITHUB_APP_ID: "12345",
-      GITHUB_PRIVATE_KEY: key,
-      GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
-      GITHUB_NOTIFICATIONS_TOKEN: classic,
+      github_app_id: "12345",
+      github_private_key: key,
+      github_webhook_secret: "github-test-webhook-secret",
+      github_notifications_token: classic,
       ...env,
     });
     expect(result.code, result.output).toBe(0);
@@ -832,8 +831,8 @@ describe("stars read with the notifications token", () => {
     github.star(tracker);
     github.star(secret);
     await exec({
-      GITHUB_PERSONAL_TOKEN: token,
-      GITHUB_NOTIFICATIONS_TOKEN: classic,
+      github_personal_token: token,
+      github_notifications_token: classic,
     }).then((result) => {
       expect(result.code, result.output).toBe(0);
     });
@@ -965,10 +964,10 @@ describe("stars read with the notifications token", () => {
     github.star(tracker);
     github.notifications.token = classic;
     await syncWithClassic({
-      GITHUB_NOTIFICATIONS_TOKEN: "ghp_revoked_12345678",
+      github_notifications_token: "ghp_revoked_12345678",
     });
     expect(conditions()["stars-unreadable"]).toContain(
-      "GITHUB_NOTIFICATIONS_TOKEN",
+      "github_notifications_token",
     );
     expect(held(tracker)?.state).toBe("active");
   });

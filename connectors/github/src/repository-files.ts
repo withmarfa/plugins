@@ -29,7 +29,7 @@ type Context = Pick<
   "held" | "upsert" | "archive" | "derive" | "linked" | "log" | "signal"
 >;
 
-/** What GITHUB_FILES names in one repository. */
+/** What github_files names in one repository. */
 export interface FilesEntry {
   /** As owner/name, lowercase, since GitHub's names ignore case. */
   readonly repository: string;
@@ -67,7 +67,7 @@ export function filesOf(value: string | undefined): FilesEntry[] {
       );
     if (wrong)
       throw new Error(
-        `GITHUB_FILES holds ${one}, where each entry is owner/repo:path, with paths set apart by commas and entries by spaces or semicolons, and each path a directory or file in the repository, such as docs or docs/guide.md`,
+        `github_files holds ${one}, where each entry is owner/repo:path, with paths set apart by commas and entries by spaces or semicolons, and each path a directory or file in the repository, such as docs or docs/guide.md`,
       );
     const held = byName.get(name) ?? new Set<string>();
     for (const path of paths) held.add(path);
@@ -218,7 +218,7 @@ export interface Synced {
 export interface FilesRun {
   /** The repositories the run syncs, by lowercase full name. */
   readonly synced: ReadonlyMap<string, Synced>;
-  /** The repositories GITHUB_REPOSITORIES pauses, by lowercase full name. */
+  /** The repositories github_repositories pauses, by lowercase full name. */
   readonly paused: ReadonlySet<string>;
   /** Whether every listing of the run answered, without which a repository
    *  missing from it may still be there. */
@@ -229,7 +229,7 @@ export interface FilesRun {
 }
 
 /**
- * Mirrors the Markdown files under the paths GITHUB_FILES names, from each
+ * Mirrors the Markdown files under the paths github_files names, from each
  * repository's default branch, with a collection for each directory that
  * holds them. GitHub is the source: these kinds are read only, so the kit
  * puts back a change made in Marfa.
@@ -258,8 +258,8 @@ export async function syncFiles(
       context.log.condition(
         key,
         run.paused.has(entry.repository)
-          ? `GITHUB_FILES names ${entry.repository}, which GITHUB_REPOSITORIES leaves out, so its files are not read and their rows are left as they are, bar the private marker, which follows its visibility`
-          : `GITHUB_FILES names ${entry.repository}, which the run does not sync, so none of its files are read`,
+          ? `github_files names ${entry.repository}, which github_repositories leaves out, so its files are not read and their rows are left as they are, bar the private marker, which follows its visibility`
+          : `github_files names ${entry.repository}, which the run does not sync, so none of its files are read`,
       );
       continue;
     }
@@ -360,7 +360,7 @@ async function syncRepositoryFiles(
   if (missing.length > 0)
     context.log.condition(
       missingKey,
-      `GITHUB_FILES names ${missing.map((path) => `${name}:${path}`).join(", ")}, which ${missing.length === 1 ? "is" : "are"} not on ${branch}, so nothing under ${missing.length === 1 ? "it" : "them"} is archived`,
+      `github_files names ${missing.map((path) => `${name}:${path}`).join(", ")}, which ${missing.length === 1 ? "is" : "are"} not on ${branch}, so nothing under ${missing.length === 1 ? "it" : "them"} is archived`,
     );
   const skipped: string[] = [];
   const skippedPaths = new Set<string>();

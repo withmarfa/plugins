@@ -2,46 +2,12 @@ import { resolve } from "node:path";
 import { createClient, type MarfaClient } from "@withmarfa/client";
 import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
-import {
-  ConnectorUnderProof,
-  keyBody,
-  lastRun,
-  type Minted,
-} from "./connector.js";
+import { ConnectorUnderProof, hostMintedKey } from "./connector.js";
+import { connectorKey } from "./host.js";
 import { serveThings } from "./inbound.js";
 
 const entry = resolve(import.meta.dirname, "inbound-connector.js");
-
-/** A key for the inbound connector, whose source is `proof-inbound`. */
-async function mint(
-  marfa: MarfaClient,
-  source: string,
-  sources: string[],
-  label = source,
-): Promise<Minted> {
-  const { data, error } = await marfa.POST("/keys", {
-    body: {
-      ...keyBody({ label, source, typePermission: "proof.thing" }),
-      sources,
-    },
-  });
-  if (data === undefined)
-    throw new Error(`the key was refused: ${JSON.stringify(error)}`);
-  return data;
-}
-
-async function update(
-  marfa: MarfaClient,
-  id: string,
-  body: { sources?: string[]; metadata_permissions?: Record<string, "read"> },
-): Promise<void> {
-  const { error, response } = await marfa.PATCH("/keys/{id}", {
-    params: { path: { id } },
-    body,
-  });
-  if (!response.ok)
-    throw new Error(`the update was refused: ${JSON.stringify(error)}`);
-}
+const types = ["proof.thing"];
 
 export async function proveKeys(
   marfa: MarfaClient,
@@ -52,56 +18,140 @@ export async function proveKeys(
 ): Promise<void> {
   const vendor = await serveThings();
   try {
-    const runner = (key: Minted): ConnectorUnderProof =>
+    const runner = (key: string): ConnectorUnderProof =>
       new ConnectorUnderProof(
         "proof-inbound",
         url,
-        key.key,
+        key,
         {
-          PROOF_VENDOR_URL: vendor.url,
-          PROOF_WEBHOOK_SECRET: "proof-webhook-secret-value",
+          proof_vendor_url: vendor.url,
+          proof_webhook_secret: "proof-webhook-secret-value",
         },
         entry,
       );
 
-    // A source a connector registration names is held, and only local
-    // authority, or a credential holding `keys.manage` with `keys.mint`, mints
-    // a key that takes it as its own, so the key that may mint keys claiming it
-    // comes from the local command.
-    // The group mints its own, so it needs no other group to have run.
-    let minter = marfa;
-    let elsewhere = "";
+    const minted = await hostMintedKey(url, "proof-inbound", { entry, types });
+
     await check(
-      "keys: the connector's source is taken over by a key that may mint keys claiming it and one other source",
+      "keys: the key its connector host mints starts the connector, which reads its settings from Marfa",
       async () => {
-        const current = await marfa.GET("/keys/current");
-        if (current.data === undefined)
-          throw new Error("the boot key is not readable");
-        elsewhere = current.data.source;
-        const data = await mintKey({
-          ...keyBody({
-            label: "proof-inbound-minter",
-            source: "proof-inbound",
-            typePermission: "proof.thing",
-          }),
-          sources: [elsewhere],
-          permissions: ["keys.mint"],
-        });
-        minter = createClient({ baseUrl: url, credential: data.key });
-        return `${data.id} holds proof-inbound and claims ${elsewhere}`;
+        const { code, output } = await runner(minted.key).once();
+        if (code !== 0) throw new Error(`exited ${String(code)}: ${output}`);
+        return "exited 0";
       },
     );
 
     await check(
-      "keys: a key that may mint keys and holds no metadata entry mints a connector's key, which holds none either",
+      "keys: the host's key widened with a metadata entry, a claim or another type is refused at start with exit 3, naming each, and starts once put back",
+      async () => {
+        const current = await marfa.GET("/keys/current");
+        if (current.data === undefined)
+          throw new Error("the boot key is not readable");
+        const elsewhere = current.data.source;
+        // Widening a key takes the local authority, as the server's own
+        // console does.
+        await updateKey(minted.id, {
+          metadata_permissions: { types: "read" },
+          sources: [elsewhere],
+          type_permissions: { "proof.thing": "write", "core.note": "write" },
+        });
+        const refused = await runner(minted.key).once();
+        await updateKey(minted.id, {
+          metadata_permissions: {},
+          sources: [],
+          type_permissions: { "proof.thing": "write" },
+        });
+        const { code, output } = await runner(minted.key).once();
+        if (
+          refused.code !== 3 ||
+          !refused.output.includes("metadata types=read") ||
+          !refused.output.includes("type core.note=write") ||
+          !refused.output.includes(`refused: ${elsewhere}.`) ||
+          code !== 0
+        ) {
+          throw new Error(
+            `refused with ${String(refused.code)}: ${refused.output}; then exited ${String(code)}: ${output}`,
+          );
+        }
+        return `exited 3 naming metadata types=read, type core.note=write and the claim of ${elsewhere}; put back, exited 0`;
+      },
+    );
+
+    await check(
+      "keys: the API mints no key under the source of an installed plugin's connector",
+      async () => {
+        const { error, response } = await marfa.POST("/keys", {
+          body: {
+            label: "proof-inbound-by-hand",
+            source: "proof-inbound",
+            type_permissions: { "proof.thing": "write" },
+            default_tier: "feed",
+          },
+        });
+        if (response.ok)
+          throw new Error("the API minted a key under proof-inbound");
+        return `${String(response.status)} ${String(error?.error.code)}`;
+      },
+    );
+
+    await check(
+      "keys: a key the API mints, not the connector's host, is refused at start with exit 3, since it writes under a source of its own",
+      async () => {
+        const other = await mintKey({
+          label: "proof-inbound-other",
+          source: "proof-inbound-other",
+          type_permissions: { "proof.thing": "write" },
+          default_tier: "feed",
+          permissions: [],
+          edge_permissions: {},
+          extension_permissions: {},
+          metadata_permissions: {},
+          profile_permissions: {},
+        });
+        const { code, output } = await runner(other.key).once();
+        if (
+          code !== 3 ||
+          !output.includes(
+            "own source proof-inbound-other, not the connector's",
+          )
+        ) {
+          throw new Error(`exited ${String(code)}: ${output}`);
+        }
+        const line = output
+          .split("\n")
+          .find((one) => one.includes("own source proof-inbound-other"));
+        return `exited 3: ${String(line).slice(0, 300)}`;
+      },
+    );
+
+    await check(
+      "keys: minting the connector's key again revokes the one before, which then exits 3, and the new key starts",
+      async () => {
+        const next = await connectorKey(url, "proof-inbound", entry);
+        const revoked = await runner(minted.key).once();
+        const { code, output } = await runner(next.key).once();
+        if (
+          revoked.code !== 3 ||
+          !revoked.output.includes("401") ||
+          code !== 0
+        ) {
+          throw new Error(
+            `the revoked key exited ${String(revoked.code)}: ${revoked.output}; the new one ${String(code)}: ${output}`,
+          );
+        }
+        return "the revoked key exited 3 on a 401; the new key exited 0";
+      },
+    );
+
+    await check(
+      "keys: a key that may mint keys and holds no metadata entry mints a key that holds none either",
       async () => {
         const { data: narrow, error } = await marfa.POST("/keys", {
           body: {
-            ...keyBody({
-              label: "proof-mint-narrow",
-              source: "proof-mint-narrow",
-              typePermission: "proof.thing",
-            }),
+            label: "proof-mint-narrow",
+            source: "proof-mint-narrow",
+            type_permissions: { "proof.thing": "write" },
+            default_tier: "feed",
             permissions: ["keys.mint"],
           },
         });
@@ -111,150 +161,24 @@ export async function proveKeys(
           baseUrl: url,
           credential: narrow.key,
         });
-        const minted = await narrowMinter.POST("/keys", {
-          body: keyBody({
+        const child = await narrowMinter.POST("/keys", {
+          body: {
             label: "proof-mint-narrow-child",
             source: "proof-mint-narrow-child",
-            typePermission: "proof.thing",
-          }),
+            type_permissions: { "proof.thing": "write" },
+            default_tier: "feed",
+          },
         });
         await manager.DELETE("/keys/{id}", {
           params: { path: { id: narrow.id } },
         });
-        const held = JSON.stringify(minted.data?.metadata_permissions);
-        if (minted.response.status !== 201 || held !== "{}") {
+        const held = JSON.stringify(child.data?.metadata_permissions);
+        if (child.response.status !== 201 || held !== "{}") {
           throw new Error(
-            `answered ${String(minted.response.status)}, metadata ${held}: ${JSON.stringify(minted.error)}`,
+            `answered ${String(child.response.status)}, metadata ${held}: ${JSON.stringify(child.error)}`,
           );
         }
         return `201, metadata ${held}`;
-      },
-    );
-
-    let second: Minted | undefined;
-    await check(
-      "keys: a second account's key, of its own source and claiming the connector's, starts, and is told nothing to narrow, since it holds no metadata entry",
-      async () => {
-        second = await mint(minter, "proof-inbound-second", ["proof-inbound"]);
-        const { code, output } = await runner(second).once();
-        if (code !== 0 || output.includes("--metadata-permission")) {
-          throw new Error(`exited ${String(code)}: ${output}`);
-        }
-        return "exited 0, with no warning to narrow the key";
-      },
-    );
-
-    await check(
-      "keys: a key given a metadata entry is refused at start, naming it, and starts once the server has it hold none, its other reach kept",
-      async () => {
-        if (second === undefined) throw new Error("no second key");
-        // Widening a key takes the local authority, as the server's own
-        // console does.
-        await updateKey(second.id, { metadata_permissions: { types: "read" } });
-        const refused = await runner(second).once();
-        await update(manager, second.id, { metadata_permissions: {} });
-        const { data } = await manager.GET("/keys");
-        const held = data?.data.find((key) => key.id === second?.id);
-        const { code, output } = await runner(second).once();
-        if (
-          refused.code !== 1 ||
-          !refused.output.includes("metadata types=read") ||
-          code !== 0 ||
-          JSON.stringify(held?.metadata_permissions) !== "{}" ||
-          JSON.stringify(held?.type_permissions) !==
-            '{"proof.thing":"write"}' ||
-          JSON.stringify(held?.sources) !== '["proof-inbound"]'
-        ) {
-          throw new Error(
-            `refused with ${String(refused.code)}: ${refused.output}; then exited ${String(code)}, key ${JSON.stringify(held)}: ${output}`,
-          );
-        }
-        return `refused naming metadata types=read; then metadata ${JSON.stringify(held?.metadata_permissions)}, type ${JSON.stringify(held?.type_permissions)}, claims ${JSON.stringify(held?.sources)}, exited 0`;
-      },
-    );
-
-    await check(
-      "keys: a key claiming a source besides the connector's is refused at start, naming it and how to narrow, and starts once narrowed so",
-      async () => {
-        const wide = await mint(minter, "proof-inbound-wide", [
-          "proof-inbound",
-          elsewhere,
-        ]);
-        const refused = await runner(wide).once();
-        const error = (await lastRun(manager, wide.id)).error ?? "";
-        const narrow = `marfa keys update ${wide.id} --claim proof-inbound`;
-        if (
-          refused.code !== 1 ||
-          !error.includes(`refused: ${elsewhere}.`) ||
-          !error.includes(narrow)
-        ) {
-          throw new Error(
-            `exited ${String(refused.code)}, reported ${error}: ${refused.output}`,
-          );
-        }
-        await update(manager, wide.id, { sources: ["proof-inbound"] });
-        const narrowed = await runner(wide).once();
-        if (narrowed.code !== 0) {
-          throw new Error(
-            `narrowed, it exited ${String(narrowed.code)}: ${narrowed.output}`,
-          );
-        }
-        return `exited 1, reporting: ${error}; narrowed, exited 0`;
-      },
-    );
-
-    await check(
-      "keys: a key of another source claiming nothing is refused at start, saying how to claim the connector's, keys.manage alone cannot widen it and says keys.mint is needed, and it starts once a credential holding keys.mint and keys.manage grants the claim",
-      async () => {
-        const foreign = await mint(minter, "proof-foreign", []);
-        const refused = await runner(foreign).once();
-        const error = (await lastRun(manager, foreign.id)).error ?? "";
-        if (
-          refused.code !== 1 ||
-          !error.includes("own source proof-foreign") ||
-          !error.includes(
-            `marfa keys update ${foreign.id} --claim proof-inbound`,
-          )
-        ) {
-          throw new Error(
-            `exited ${String(refused.code)}, reported ${error}: ${refused.output}`,
-          );
-        }
-        const widened = await manager.PATCH("/keys/{id}", {
-          params: { path: { id: foreign.id } },
-          body: { sources: ["proof-inbound"] },
-        });
-        const said = JSON.stringify(widened.error);
-        if (
-          widened.response.status !== 403 ||
-          widened.error?.error.code !== "forbidden" ||
-          !said.includes("proof-inbound") ||
-          !said.includes("keys.mint")
-        ) {
-          throw new Error(
-            `keys.manage alone answered ${String(widened.response.status)}: ${said}`,
-          );
-        }
-        const owner = await mintKey({
-          ...keyBody({
-            label: "proof-claim-owner",
-            source: "proof-claim-owner",
-            typePermission: "proof.thing",
-          }),
-          permissions: ["keys.mint", "keys.manage"],
-        });
-        await update(
-          createClient({ baseUrl: url, credential: owner.key }),
-          foreign.id,
-          { sources: ["proof-inbound"] },
-        );
-        const claimed = await runner(foreign).once();
-        if (claimed.code !== 0) {
-          throw new Error(
-            `claiming it, it exited ${String(claimed.code)}: ${claimed.output}`,
-          );
-        }
-        return `exited 1, reporting: ${error}; keys.manage alone refused: ${said}; keys.mint with keys.manage granted the claim, exited 0`;
       },
     );
   } finally {

@@ -64,19 +64,19 @@ afterEach(async () => {
   await github.stop();
 });
 
-async function ok(env: Record<string, string> = {}): Promise<string> {
+async function ok(env: Record<string, unknown> = {}): Promise<string> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        GITHUB_APP_ID: String(github.appId),
-        GITHUB_PRIVATE_KEY: key,
-        GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
+        github_app_id: String(github.appId),
+        github_private_key: key,
+        github_webhook_secret: "github-test-webhook-secret",
         ...github.settings,
         ...env,
-      },
+      }),
     });
     return stderr;
   } catch (error) {
@@ -99,7 +99,7 @@ describe("per-kind read-only App runs", () => {
       await ok();
       marfa.edit(row(issue.node).id, { title: "New title" });
       marfa.edit(row(comment.node).id, { body: "New body" });
-      await ok({ GITHUB_READ_ONLY: readOnly });
+      await ok({ github_read_only: readOnly });
       expect(issue.title).toBe(readOnly === "issue" ? "Original" : "New title");
       expect(comment.body).toBe(
         readOnly === "comment" ? "Original comment" : "New body",
@@ -146,7 +146,7 @@ function writeMints(after: number): unknown[] {
     .map((one) => one.body);
 }
 
-async function settled(env: Record<string, string> = {}): Promise<string> {
+async function settled(env: Record<string, unknown> = {}): Promise<string> {
   const output = await ok(env);
   const before = github.writes().length;
   await ok(env);
@@ -216,7 +216,7 @@ describe("an issue changed in Marfa", () => {
     const child = github.addIssue(repository, { title: "Child" });
     const blocker = github.addIssue(other, { title: "Blocker" });
     await ok();
-    const only = { GITHUB_REPOSITORIES: "someone/tracker" };
+    const only = { github_repositories: "someone/tracker" };
     await ok(only);
     const before = github.asked.length;
     marfa.edit(row(child.node).id, { title: "Child, edited" });
@@ -228,7 +228,7 @@ describe("an issue changed in Marfa", () => {
     const output = await ok(only);
     expect(child.title).toBe("Child, edited");
     expect(child.blocked_by).toEqual([]);
-    expect(output).toContain("left out by GITHUB_REPOSITORIES");
+    expect(output).toContain("left out by github_repositories");
     expect(writeMints(before)).toEqual([
       {
         repository_ids: [repository.id],
@@ -320,9 +320,9 @@ describe("an issue changed in Marfa", () => {
 
   it("is put back and sent nowhere where the connector runs read only", async () => {
     const issue = github.addIssue(repository, { title: "Before" });
-    await ok({ GITHUB_READ_ONLY: "true" });
+    await ok({ github_read_only: "true" });
     marfa.edit(row(issue.node).id, { title: "From Marfa" });
-    const output = await ok({ GITHUB_READ_ONLY: "true" });
+    const output = await ok({ github_read_only: "true" });
     expect(github.writes()).toEqual([]);
     expect(row(issue.node).properties["title"]).toBe("Before");
     expect(output).toContain("put back");
@@ -1053,17 +1053,17 @@ describe("what the fix review found", () => {
   });
 });
 
-describe("a repository GITHUB_REPOSITORIES leaves out", () => {
+describe("a repository github_repositories leaves out", () => {
   it("holds a change made in Marfa to its rows until it is named again", async () => {
     const issue = github.addIssue(repository, { title: "Before" });
     await ok();
     marfa.edit(row(issue.node).id, { title: "Edited while left out" });
-    const output = await ok({ GITHUB_REPOSITORIES: "someone/other" });
+    const output = await ok({ github_repositories: "someone/other" });
     expect(output).toContain(
-      "1 change waits: someone/tracker is left out by GITHUB_REPOSITORIES",
+      "1 change waits: someone/tracker is left out by github_repositories",
     );
     expect(issue.title).toBe("Before");
-    await ok({ GITHUB_REPOSITORIES: "someone/tracker" });
+    await ok({ github_repositories: "someone/tracker" });
     expect(issue.title).toBe("Edited while left out");
   });
 
@@ -1073,12 +1073,12 @@ describe("a repository GITHUB_REPOSITORIES leaves out", () => {
     await ok();
     marfa.edit(row(first.node).id, { title: "First, edited" });
     marfa.edit(row(second.node).id, { title: "Second, edited" });
-    const output = await ok({ GITHUB_REPOSITORIES: "someone/other" });
+    const output = await ok({ github_repositories: "someone/other" });
     expect(output).toContain(
-      "2 changes wait: someone/tracker is left out by GITHUB_REPOSITORIES",
+      "2 changes wait: someone/tracker is left out by github_repositories",
     );
     expect(output.match(/changes? waits?:/g)).toHaveLength(1);
-    const back = await ok({ GITHUB_REPOSITORIES: "someone/tracker" });
+    const back = await ok({ github_repositories: "someone/tracker" });
     expect(back).toContain("cleared: 2 changes wait: someone/tracker");
     expect([first.title, second.title]).toEqual([
       "First, edited",
@@ -1091,7 +1091,7 @@ describe("a repository GITHUB_REPOSITORIES leaves out", () => {
     const child = github.addIssue(repository, { title: "Child" });
     const parent = github.addIssue(elsewhere, { title: "Parent" });
     await ok();
-    const only = { GITHUB_REPOSITORIES: "someone/tracker" };
+    const only = { github_repositories: "someone/tracker" };
     await ok(only);
     marfa.drawEdge(
       row(child.node).id,
@@ -1100,7 +1100,7 @@ describe("a repository GITHUB_REPOSITORIES leaves out", () => {
     );
     const output = await ok(only);
     expect(output).toContain(
-      "someone/elsewhere is left out by GITHUB_REPOSITORIES",
+      "someone/elsewhere is left out by github_repositories",
     );
     expect(child.parent).toBeNull();
     expect(marfa.targetsOf(row(child.node).id, "github.sub-issue-of")).toEqual(
@@ -1115,7 +1115,7 @@ describe("a repository left out and then renamed on GitHub", () => {
     const issue = github.addIssue(elsewhere, { title: "Before" });
     const child = github.addIssue(repository, { title: "Child" });
     await ok();
-    const only = { GITHUB_REPOSITORIES: "someone/tracker" };
+    const only = { github_repositories: "someone/tracker" };
     await ok(only);
     elsewhere.name = "renamed";
     await ok(only);
@@ -1127,11 +1127,11 @@ describe("a repository left out and then renamed on GitHub", () => {
     );
     const output = await ok(only);
     expect(output).toContain(
-      "1 change waits: someone/elsewhere is left out by GITHUB_REPOSITORIES",
+      "1 change waits: someone/elsewhere is left out by github_repositories",
     );
     expect(issue.title).toBe("Before");
     expect(child.parent).toBeNull();
-    await ok({ GITHUB_REPOSITORIES: "someone/tracker someone/renamed" });
+    await ok({ github_repositories: "someone/tracker someone/renamed" });
     expect(issue.title).toBe("Edited while left out");
   });
 });
@@ -1150,7 +1150,7 @@ describe("where a write lands", () => {
     const elsewhere = github.addRepository("someone/elsewhere");
     const outside = github.addIssue(elsewhere, { title: "Outside" });
     const child = github.addIssue(repository, { title: "Child" });
-    const only = { GITHUB_REPOSITORIES: "someone/tracker" };
+    const only = { github_repositories: "someone/tracker" };
     await ok(only);
     const named = byHand({
       github_id: outside.node,

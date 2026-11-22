@@ -227,8 +227,8 @@ export class GitHubStub {
   url = "";
   /** The settings that point a connector at this stub, with no pause between
    *  its writes, which a stub has no use for. */
-  get settings(): Record<string, string> {
-    return { GITHUB_API_URL: this.url, GITHUB_REQUEST_SPACING_MS: "0" };
+  get settings(): Record<string, string | number> {
+    return { github_api_url: this.url, github_request_spacing_ms: 0 };
   }
   personalToken: string | undefined;
   personalRepositories: ReadonlySet<string> | undefined;

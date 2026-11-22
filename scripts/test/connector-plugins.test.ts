@@ -345,17 +345,26 @@ describe("the generated plugin folder of each connector", () => {
     ).toEqual(["entry", "picture"]);
   });
 
-  it("refuses a widest that is not each setting with its text", async () => {
-    const place = await mkdtemp(join(tmpdir(), "connector-plugins-"));
-    places.push(place);
-    const dist = join(place, "connectors", "odd", "dist");
-    await mkdir(dist, { recursive: true });
-    await writeFile(
-      join(dist, "definition.js"),
-      `export const widest = { PICTURES: 1 };\n${definition("odd")}`,
-    );
-    await expect(plan(place)).rejects.toThrow(
-      /connectors\/odd\/src\/definition\.ts must export `widest`/,
+  it("takes a widest of text, numbers and booleans, and refuses any other value", async () => {
+    // Each in a folder of its own, since a module is imported once.
+    const placed = async (widest: string): Promise<string> => {
+      const place = await mkdtemp(join(tmpdir(), "connector-plugins-"));
+      places.push(place);
+      const dist = join(place, "connectors", "odd", "dist");
+      await mkdir(dist, { recursive: true });
+      await writeFile(
+        join(dist, "definition.js"),
+        `export const widest = ${widest};\n${definition("odd")}`,
+      );
+      return place;
+    };
+    await expect(
+      plan(await placed(`{ mode: "save", limit: 3, on: true }`)),
+    ).resolves.toBeDefined();
+    await expect(
+      plan(await placed(`{ mode: { save: true } }`)),
+    ).rejects.toThrow(
+      /connectors\/odd\/src\/definition\.ts must export `widest` as each setting's name with the value/,
     );
   });
 
@@ -397,8 +406,6 @@ describe("the generated plugin folder of each connector", () => {
   });
 
   it("is the same whatever settings the caller's environment holds", async () => {
-    // The generator is run as CI runs it, in a process of its own, with a
-    // setting that adds a type, one that removes fields and a token set.
     const done = await run(
       process.execPath,
       [
@@ -408,15 +415,7 @@ describe("the generated plugin folder of each connector", () => {
       ],
       {
         cwd: root,
-        env: {
-          ...process.env,
-          RSS_PICTURES: "addresses",
-          GITHUB_PERSONAL_TOKEN: "token",
-          GITHUB_STARS: "false",
-          GITHUB_READ_ONLY: "true",
-          TODOIST_READ_ONLY: "true",
-          READWISE_READER_INBOUND_ONLY: "true",
-        },
+        env: { ...process.env },
       },
     ).catch((error: unknown) => {
       throw new Error("the generator refused the folders", { cause: error });

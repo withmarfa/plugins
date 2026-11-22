@@ -160,13 +160,13 @@ function selection(
     if (!listed.onList.has(id)) {
       context.log.condition(
         `read-only-calendar-unknown:${id}`,
-        `GOOGLE_CALENDAR_READ_ONLY_CALENDARS names ${id}, which is not in the account's calendar list, so nothing is read for it.`,
+        `google_calendar_read_only_calendars names ${id}, which is not in the account's calendar list, so nothing is read for it.`,
       );
     }
   }
   if (left > 0) {
     context.log.info(
-      `${String(left)} calendar${left === 1 ? " is" : "s are"} read only for this account and not named in GOOGLE_CALENDAR_READ_ONLY_CALENDARS, so ${left === 1 ? "it is" : "they are"} not read`,
+      `${String(left)} calendar${left === 1 ? " is" : "s are"} read only for this account and not named in google_calendar_read_only_calendars, so ${left === 1 ? "it is" : "they are"} not read`,
     );
   }
   return listed;

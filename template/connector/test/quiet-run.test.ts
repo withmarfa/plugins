@@ -34,13 +34,13 @@ quietRun({
       marfa,
       async run() {
         await run("node", [built, "--once"], {
-          env: {
+          env: marfa.processEnv({
             PATH: process.env["PATH"],
             MARFA_API_URL: marfa.url,
             MARFA_API_KEY: marfa.key,
-            EXAMPLE_URL: url,
-            EXAMPLE_TOKEN: "example-vendor-token",
-          },
+            example_url: url,
+            example_token: "example-vendor-token",
+          }),
         });
       },
       async stop() {

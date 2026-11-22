@@ -12,7 +12,7 @@ import {
   installedAsKindOf,
   item,
   lastRun,
-  mintWithTheReadmeKeyFlags,
+  hostMintedKey,
   moved,
   deriveAndFind,
   registration,
@@ -121,13 +121,9 @@ export async function proveRss(
 ): Promise<void> {
   const served = await serveFeeds();
   try {
-    const key = await mintWithTheReadmeKeyFlags(marfa, {
-      label: "rss",
-      source: "rss",
-      typePermission: "rss.entry",
-    });
+    const key = await hostMintedKey(url, "rss");
     const runner = new ConnectorUnderProof("rss", url, key.key, {
-      RSS_FEEDS: `${served.url}/atom.xml\n${served.url}/rss.xml`,
+      rss_feeds: `${served.url}/atom.xml\n${served.url}/rss.xml`,
     });
     const runOnce = async (): Promise<void> => {
       const { code, output } = await runner.once();
@@ -356,7 +352,7 @@ export async function proveRss(
           redirect: `http://localhost:${port}/rss.xml`,
         };
         const hostile = new ConnectorUnderProof("rss", url, key.key, {
-          RSS_FEEDS: [
+          rss_feeds: [
             `${served.url}/bomb.xml`,
             `${served.url}/twin.xml`,
             `${served.url}/hop`,
@@ -376,11 +372,11 @@ export async function proveRss(
         );
         const { summary } = await lastRun(manager, key.id);
         const said = [
-          "feed 1 in RSS_FEEDS",
+          "feed 1 in rss_feeds",
           "is larger than 24 MiB, so it is skipped",
-          "feed 4 in RSS_FEEDS",
-          "declares the same feed id as feed 2 in RSS_FEEDS",
-          `feed 3 in RSS_FEEDS (${served.url}) redirected to an address on this machine or a private network`,
+          "feed 4 in rss_feeds",
+          "declares the same feed id as feed 2 in rss_feeds",
+          `feed 3 in rss_feeds (${served.url}) redirected to an address on this machine or a private network`,
         ];
         const missing = said.filter((text) => summary?.includes(text) !== true);
         if (
@@ -403,14 +399,14 @@ export async function proveRss(
 
     const refused = "http://127.0.0.1:1/private/feed.xml";
     const dead = [
-      `feed 2 in RSS_FEEDS (${served.url}) answered 404`,
-      "feed 3 in RSS_FEEDS (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
+      `feed 2 in rss_feeds (${served.url}) answered 404`,
+      "feed 3 in rss_feeds (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
     ];
     await check(
       "rss: a feed that keeps failing is named, with its cause, in the report of every run it fails, and the run still succeeds",
       async () => {
         const failing = new ConnectorUnderProof("rss", url, key.key, {
-          RSS_FEEDS: [
+          rss_feeds: [
             `${served.url}/atom.xml`,
             `${served.url}/dead.xml`,
             refused,
@@ -447,19 +443,19 @@ export async function proveRss(
       "rss: a run in which every feed failed is reported failed, naming each feed and why",
       async () => {
         const failing = new ConnectorUnderProof("rss", url, key.key, {
-          RSS_FEEDS: [`${served.url}/dead.xml`, refused].join("\n"),
+          rss_feeds: [`${served.url}/dead.xml`, refused].join("\n"),
         });
         const { code, output } = await failing.once();
         const last = await lastRun(manager, key.id);
         const named = [
-          `feed 1 in RSS_FEEDS (${served.url}) answered 404`,
-          "feed 2 in RSS_FEEDS (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
+          `feed 1 in rss_feeds (${served.url}) answered 404`,
+          "feed 2 in rss_feeds (http://127.0.0.1:1) could not be fetched: its server refused the connection (ECONNREFUSED)",
         ];
         if (
           code !== 1 ||
           last.outcome !== "failed" ||
           last.error?.includes(
-            "none of the 2 feeds in RSS_FEEDS could be read",
+            "none of the 2 feeds in rss_feeds could be read",
           ) !== true ||
           named.some((text) => last.summary?.includes(text) !== true)
         ) {
@@ -485,7 +481,7 @@ export async function proveRss(
           many.push(`${served.url}${path}`);
         }
         const heavy = new ConnectorUnderProof("rss", url, key.key, {
-          RSS_FEEDS: many.join("\n"),
+          rss_feeds: many.join("\n"),
         });
         const before = (await runsOf(manager, key.id)).length;
         const { code, output } = await heavy.once();
@@ -516,7 +512,7 @@ export async function proveRss(
         });
         served.feeds["/slow.xml"] = { body: "", etag: '"slow"', hang: arrived };
         const slow = new ConnectorUnderProof("rss", url, key.key, {
-          RSS_FEEDS: `${served.url}/atom.xml\n${served.url}/slow.xml`,
+          rss_feeds: `${served.url}/atom.xml\n${served.url}/slow.xml`,
         });
         const before = await runsOf(manager, key.id);
         const { code, output } = await slow.stopped(["--once"], () => fetching);

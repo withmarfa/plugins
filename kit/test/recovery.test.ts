@@ -136,7 +136,7 @@ describe("a call that gets no answer, by what the transport says", () => {
     }
   });
 
-  it("is a fault a start refuses and a running connector waits out, for a host not found, a certificate and a TLS error", async () => {
+  it("names a host not found, a certificate and a TLS error as a fault, and a refused connection as none", async () => {
     for (const code of [
       "ENOTFOUND",
       "DEPTH_ZERO_SELF_SIGNED_CERT",
@@ -179,7 +179,7 @@ describe("an address that cannot be used", () => {
     }
   });
 
-  it("refuses a start where the host is not found or the certificate is refused, under either schedule", async () => {
+  it("fails a start run once where the host is not found or the certificate is refused, so the host restarts it, exiting 1", async () => {
     for (const code of ["ENOTFOUND", "CERT_HAS_EXPIRED", "EPROTO"]) {
       vi.stubGlobal("fetch", () =>
         Promise.reject(
@@ -189,17 +189,49 @@ describe("an address that cannot be used", () => {
         ),
       );
       try {
-        for (const argv of [["--once"], ["--every", "5m"]]) {
-          harness.lines.length = 0;
-          expect(
-            await start(testConnector(vendor([one])), harness.runtime(argv)),
-          ).toBe(2);
-          expect(said()).toContain("MARFA_API_URL");
-          expect(said()).toContain(code);
-        }
+        harness.lines.length = 0;
+        expect(
+          await start(
+            testConnector(vendor([one])),
+            harness.runtime(["--once"]),
+          ),
+        ).toBe(1);
+        expect(said()).toContain("MARFA_API_URL");
+        expect(said()).toContain(code);
       } finally {
         vi.unstubAllGlobals();
       }
+    }
+  });
+
+  it("tries a start under --every again where the host is not found, as before the network is up, and runs once it is", async () => {
+    const real = fetch;
+    let down = true;
+    vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) =>
+      down
+        ? Promise.reject(
+            new TypeError("fetch failed", {
+              cause: Object.assign(new Error("ENOTFOUND"), {
+                code: "ENOTFOUND",
+              }),
+            }),
+          )
+        : real(...args),
+    );
+    try {
+      const held = vendor([one]);
+      const exit = every(held, "10m");
+      await until(() => said().includes("trying again"));
+      expect(said()).toContain("ENOTFOUND");
+      down = false;
+      const wait = harness.clock.requested.at(-1) ?? 0;
+      await harness.clock.wake(wait);
+      await harness.clock.sleeping(10 * minute);
+      expect(held.runs).toBe(1);
+      harness.stop();
+      expect(await exit).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 
@@ -234,7 +266,7 @@ describe("an address that cannot be used", () => {
 });
 
 describe("a key with whitespace around it", () => {
-  it("is trimmed, for Marfa's and the vendor's", async () => {
+  it("is trimmed", async () => {
     let token: string | undefined;
     const connector = testConnector(vendor([one]));
     const code = await start(
@@ -248,7 +280,6 @@ describe("a key with whitespace around it", () => {
       harness.runtime(["--once"], {
         MARFA_API_KEY: `\n${harness.server.key}\n`,
         MARFA_API_URL: ` ${harness.server.url} `,
-        TEST_TOKEN: "  tok_vendor_secret_value\t",
       }),
     );
     expect(code).toBe(0);
@@ -260,7 +291,7 @@ describe("a key with whitespace around it", () => {
 describe("a key the server refuses", () => {
   it("stops a start with a message that names MARFA_API_KEY and what to do", async () => {
     harness.server.revoked = true;
-    expect(await harness.once(vendor([one]))).toBe(1);
+    expect(await harness.once(vendor([one]))).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
     expect(said()).toContain("revoked");
     expect(said()).toContain("mint");
@@ -273,7 +304,7 @@ describe("a key the server refuses", () => {
     await harness.clock.sleeping(15 * minute);
     harness.server.revoked = true;
     await harness.clock.wake(minute);
-    expect(await exit).toBe(1);
+    expect(await exit).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
     expect(held.runs).toBe(1);
     expect(harness.clock.requested).not.toContain(30 * minute);
@@ -290,7 +321,7 @@ describe("a key the server refuses", () => {
     harness.server.revoked = true;
     await harness.clock.wake(minute);
     open();
-    expect(await exit).toBe(1);
+    expect(await exit).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
   });
 });

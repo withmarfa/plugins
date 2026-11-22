@@ -399,7 +399,9 @@ describe("secrets", () => {
     failing.fail = new Error(
       `GET https://vendor.example.com/?token=${encodeURIComponent(token)} answered 401`,
     );
-    expect(await harness.once(failing, { TEST_TOKEN: token })).toBe(1);
+    harness.server.settings = { test_token: token };
+
+    expect(await harness.once(failing)).toBe(1);
     const error = harness.lastRun().error ?? "";
     expect(error).toContain("?token=[redacted] answered 401");
     expect(error).not.toContain(encodeURIComponent(token));
@@ -413,7 +415,9 @@ describe("secrets", () => {
       "forbidden",
       `no types read for ?token=${encodeURIComponent(token)}`,
     );
-    expect(await harness.once(vendor([one]), { TEST_TOKEN: token })).toBe(1);
+    harness.server.settings = { test_token: token };
+
+    expect(await harness.once(vendor([one]))).toBe(1);
     const said = harness.lines.join("\n");
     expect(said).toContain("?token=[redacted]");
     expect(said).not.toContain(encodeURIComponent(token));
@@ -433,7 +437,9 @@ describe("secrets", () => {
     const token = `${harness.server.key}-and-more`;
     const leaky = vendor([one]);
     leaky.logs = [`using ${token} now`];
-    await harness.once(leaky, { TEST_TOKEN: token });
+    harness.server.settings = { test_token: token };
+
+    await harness.once(leaky);
     const said = harness.lines.join("\n");
     expect(said).toContain("using [redacted] now");
     expect(said).not.toContain("-and-more");
@@ -448,7 +454,9 @@ describe("secrets", () => {
     expect(form).not.toBe(encodeURIComponent(token));
     const leaky = vendor([one]);
     leaky.logs = [`GET /?a=${lower}`, `POST t=${form}`];
-    await harness.once(leaky, { TEST_TOKEN: token });
+    harness.server.settings = { test_token: token };
+
+    await harness.once(leaky);
     const said = harness.lines.join("\n");
     expect(said).toContain("GET /?a=[redacted]");
     expect(said).toContain("POST t=[redacted]");
@@ -467,7 +475,9 @@ describe("secrets", () => {
     leaky.fail = new Error(
       `https://feeds.example.com/private/first-token/a.xml answered 500`,
     );
-    await harness.once(leaky, { TEST_TOKEN: list });
+    harness.server.settings = { test_token: list };
+
+    await harness.once(leaky);
     const reported = harness.lastRun().error ?? "";
     for (const text of [...harness.lines, reported]) {
       expect(text).not.toContain("first-token");
@@ -481,9 +491,10 @@ describe("secrets", () => {
   it("are each redacted where a list is set apart by commas, down to eight characters", async () => {
     const leaky = vendor([one]);
     leaky.logs = ["first second-part-value", "code 12345678 used"];
-    await harness.once(leaky, {
-      TEST_TOKEN: "first-part-value,second-part-value, 12345678",
-    });
+    harness.server.settings = {
+      test_token: "first-part-value,second-part-value, 12345678",
+    };
+    await harness.once(leaky);
     const said = harness.lines.join("\n");
     expect(said).toContain("first [redacted]");
     expect(said).not.toContain("second-part-value");
@@ -497,7 +508,9 @@ describe("secrets", () => {
       `GET https://vendor.example.com/?token=${encodeURIComponent(token)}`,
     ];
     leaky.conditions = [["token", `the token ${token} is about to expire`]];
-    await harness.once(leaky, { TEST_TOKEN: token });
+    harness.server.settings = { test_token: token };
+
+    await harness.once(leaky);
     expect(JSON.stringify(harness.kept())).not.toContain(token);
     expect(JSON.stringify(harness.problems())).toContain(
       "[redacted] is about to expire",

@@ -217,10 +217,10 @@ function context(propagatePurge = false) {
       readwise_access_token: token,
       readwise_reader_api_url: base,
       readwise_reader_propagate_purge: String(propagatePurge),
-      readwise_reader: "true",
-      readwise_reader_include_feed: undefined,
-      readwise_reader_pictures: undefined,
-      readwise_reader_inbound_only: undefined,
+      readwise_reader: true,
+      readwise_reader_include_feed: false,
+      readwise_reader_pictures: "addresses",
+      readwise_reader_inbound_only: false,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.reject(new Error("unexpected rate-limit wait")),
@@ -336,10 +336,7 @@ it("sends only supported changed fields, including explicit note and tag clears,
   expect(c.intent()?.acknowledged).toBe(true);
   expect(c.answer()?.properties["description"]).toBe("Summary");
 });
-it.each([
-  { readwise_reader: "false" },
-  { readwise_reader_inbound_only: "true" },
-])(
+it.each([{ readwise_reader: false }, { readwise_reader_inbound_only: true }])(
   "keeps a write unsent and unacknowledged while Reader may not be written (%o)",
   async (paused) => {
     const c = context();

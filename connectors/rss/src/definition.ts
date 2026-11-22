@@ -69,7 +69,7 @@ interface FeedState {
    *  from an older one are not sent, so the feed is read whole. */
   render?: number;
   declared?: string;
-  /** When it left RSS_FEEDS, for a feed kept only so its earlier keys are
+  /** When it left rss_feeds, for a feed kept only so its earlier keys are
    *  named again if it returns. */
   left?: string;
   /** Set when its address answered 410: it is not read again while its
@@ -96,7 +96,7 @@ function refusal(error: unknown): string | undefined {
   }
   if (error instanceof RefusedAddress) {
     return error.hop === 0
-      ? "is on this machine or a private network, which is read only when RSS_PRIVATE_HOSTS names its host"
+      ? "is on this machine or a private network, which is read only when rss_private_hosts names its host"
       : "redirected to an address on this machine or a private network, which is not followed";
   }
   if (error instanceof TooManyRedirects) {
@@ -119,10 +119,11 @@ function refusal(error: unknown): string | undefined {
  *  the plugin's folder holds whatever a process is set to. */
 export const widest: Settings = { rss_pictures: "save" };
 
-// A process that saves no pictures declares no picture type, connection or
-// manifest field, so its key needs, and holds, nothing for them. A value
-// checkEnv refuses is read as the default here; the start stops before any
-// feed is read.
+// A run that saves no pictures declares no picture type, connection or
+// manifest field, so it writes and puts back nothing of them; its key holds
+// them all the same, as its host mints it for the widest shape. A value
+// checkEnv refuses is read as the default here; the run stops before any feed
+// is read.
 function savingOf(settings: Settings): PicturesSetting {
   try {
     return picturesSetting(settings["rss_pictures"]);
@@ -131,8 +132,8 @@ function savingOf(settings: Settings): PicturesSetting {
   }
 }
 
-/** The connector for the settings a process holds, which `main.ts` reads from
- *  its environment. */
+/** The connector for the settings a run reads, which the kit builds again at
+ *  the start of each run. */
 export function connector(settings: Settings) {
   const savesPictures = savingOf(settings) !== "addresses";
   return defineConnector({
@@ -267,13 +268,13 @@ export function connector(settings: Settings) {
         if (held.moved === true) {
           log.condition(
             `moved:${feed.key}`,
-            `${name} has moved permanently, and is followed; update its address in RSS_FEEDS`,
+            `${name} has moved permanently, and is followed; update its address in rss_feeds`,
           );
         }
         if (held.gone === true && held.address === feed.address) {
           log.condition(
             `gone:${feed.key}`,
-            `${name} answered 410, so it is not read again while its address stays the same; remove it from RSS_FEEDS, or change its address if the feed has a new one`,
+            `${name} answered 410, so it is not read again while its address stays the same; remove it from rss_feeds, or change its address if the feed has a new one`,
           );
         }
         const long = held.dropped ?? 0;
@@ -509,8 +510,8 @@ export function connector(settings: Settings) {
       if (feeds.length > 0 && read === 0) {
         throw new Error(
           feeds.length === 1
-            ? "the feed in RSS_FEEDS could not be read, so this run read nothing"
-            : `none of the ${String(feeds.length)} feeds in RSS_FEEDS could be read, so this run read nothing`,
+            ? "the feed in rss_feeds could not be read, so this run read nothing"
+            : `none of the ${String(feeds.length)} feeds in rss_feeds could be read, so this run read nothing`,
         );
       }
       state.set("feeds", { ...kept, ...Object.fromEntries(departed) });

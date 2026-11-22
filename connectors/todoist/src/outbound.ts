@@ -61,9 +61,9 @@ export const outboundSettings = [
 export type OutboundSettings = typeof outboundSettings;
 
 export function readOnly(env: {
-  todoist_read_only?: string | undefined;
+  todoist_read_only?: boolean | undefined;
 }): boolean {
-  return env.todoist_read_only === "true";
+  return env.todoist_read_only === true;
 }
 
 export const linkField = todoistTask.link_field;

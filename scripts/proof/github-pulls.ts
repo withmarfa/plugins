@@ -1,6 +1,6 @@
 import { createClient } from "@withmarfa/client";
-import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
+import { freshConnectorKey } from "./host.js";
 import {
   ConnectorUnderProof,
   edit,
@@ -11,10 +11,7 @@ import {
 } from "./connector.js";
 import { appKey, GitHubStub } from "./github-stub.js";
 
-export async function proveGitHubPullRequests(
-  url: string,
-  mintKey: ProofServer["mintKey"],
-): Promise<void> {
+export async function proveGitHubPullRequests(url: string): Promise<void> {
   const github = await new GitHubStub().start();
   github.appPem = appKey();
   try {
@@ -37,53 +34,14 @@ export async function proveGitHubPullRequests(
       },
     });
     issue.closed_by = pr.node;
-    const types = [
-      "github.repository",
-      "github.issue",
-      "github.comment",
-      "github.pull_request",
-      "github.discussion",
-      "github.notification",
-      "github.repository_file",
-      "github.directory",
-      "github.file",
-      "github.file.image",
-    ];
-    const connections = [
-      "github.in-repository",
-      "github.sub-issue-of",
-      "github.blocked-by",
-      "github.relates-to",
-      "github.duplicate-of",
-      "github.closes",
-      "github.closed-by",
-      "parent-of",
-      "references",
-      "in-thread",
-      "comments-on",
-      "about",
-      "in-collection",
-      "attached-to",
-    ];
-    const key = await mintKey({
-      label: "pull request proof",
-      source: "proof-github-pulls",
-      sources: ["github"],
-      type_permissions: Object.fromEntries(
-        types.map((type) => [type, "write"]),
-      ),
-      edge_permissions: Object.fromEntries(
-        connections.map((type) => [type, "write"]),
-      ),
-      default_tier: "feed",
-    });
+    const key = await freshConnectorKey(url, "github");
     const marfa = createClient({ baseUrl: url, credential: key.key });
     const run = async () => {
       const runner = new ConnectorUnderProof("github", url, key.key, {
-        GITHUB_APP_ID: "12345",
-        GITHUB_PRIVATE_KEY: github.appPem,
-        GITHUB_WEBHOOK_SECRET: "github-pull-proof-secret",
-        GITHUB_API_URL: github.url,
+        github_app_id: "12345",
+        github_private_key: github.appPem.trim(),
+        github_webhook_secret: "github-pull-proof-secret",
+        github_api_url: github.url,
       });
       const result = await runner.once();
       if (result.code !== 0)

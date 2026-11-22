@@ -9,9 +9,8 @@ import {
   checkDefinition,
   ConfigurationError,
   readEnvironment,
-  settingsFromEnvironment,
-  variableOf,
 } from "../src/environment.js";
+import { readSettings, secretsOf } from "../src/settings.js";
 
 const required = {
   MARFA_API_URL: "https://marfa.test",
@@ -180,59 +179,126 @@ describe("the settings a connector declares", () => {
   });
 });
 
-describe("the settings read from the environment, until Marfa holds them", () => {
+describe("the settings a connector reads", () => {
   const settings = [
     token,
     { name: "test_region", label: "Region", kind: "text" },
+    { name: "test_on", label: "On", kind: "boolean", default: false },
+    { name: "test_count", label: "Count", kind: "number" },
+    {
+      name: "test_mode",
+      label: "Mode",
+      kind: "choice",
+      choices: ["a", "b"],
+      default: "a",
+    },
   ] as const satisfies SettingsDeclaration;
 
-  it("reads each setting from the variable named in capitals, and keeps the setting's own name", () => {
-    expect(variableOf("github_token")).toBe("GITHUB_TOKEN");
-    const read = readEnvironment(connector(settings), {
-      ...required,
-      TEST_TOKEN: " a-secret-token ",
-      TEST_REGION: "north",
-      test_region: "ignored",
-    });
-    expect(read.values).toEqual({
-      test_token: "a-secret-token",
-      test_region: "north",
-    });
-    expect(read.secrets).toEqual([required.MARFA_API_KEY, "a-secret-token"]);
-  });
-
-  it("stops a start with a required setting unset, naming its variable and never a value", () => {
-    expect(() => readEnvironment(connector(settings), required)).toThrow(
-      "cannot start without TEST_TOKEN in the environment",
-    );
-    expect(() =>
-      readEnvironment(connector(settings), { ...required, TEST_TOKEN: "tiny" }),
-    ).toThrow("TEST_TOKEN is shorter than 8 characters");
-    expect(readEnvironment(connector(settings), required, true).values).toEqual(
-      { test_token: undefined, test_region: undefined },
-    );
-  });
-
-  it("builds a definition's settings from the environment's variables in lowercase, and from nothing else", () => {
-    expect(
-      settingsFromEnvironment({
-        RSS_PICTURES: "save",
-        PATH: "/bin",
-        Mixed_Case: "x",
-        EMPTY: undefined,
-      }),
-    ).toEqual({
-      rss_pictures: "save",
-      path: "/bin",
-      mixed_case: "x",
-      empty: undefined,
-    });
-  });
-
-  it("types a required setting as text and an optional one as text or undefined", () => {
+  it("types each by its kind, never undefined where it is required or has a default", () => {
     expectTypeOf<SettingValues<typeof settings>>().toEqualTypeOf<{
       readonly test_token: string;
       readonly test_region: string | undefined;
+      readonly test_on: boolean;
+      readonly test_count: number | undefined;
+      readonly test_mode: string;
     }>();
+    const read = readSettings(settings, {
+      plugin: "test",
+      settings: [{ name: "test_token", value: "a-secret-token", set: true }],
+      missing: [],
+    });
+    expect(read.values).toEqual({
+      test_token: "a-secret-token",
+      test_region: undefined,
+      test_on: false,
+      test_count: undefined,
+      test_mode: "a",
+    });
+  });
+});
+
+describe("the environment", () => {
+  it("holds only MARFA_API_URL and MARFA_API_KEY, trimmed", () => {
+    expect(
+      readEnvironment({
+        ...required,
+        MARFA_API_KEY: ` ${required.MARFA_API_KEY} `,
+        TEST_TOKEN: "a-secret-token",
+      }),
+    ).toEqual({ url: required.MARFA_API_URL, key: required.MARFA_API_KEY });
+  });
+
+  it("refuses a key too short to keep out of the logs", () => {
+    expect(() =>
+      readEnvironment({ ...required, MARFA_API_KEY: "tiny" }),
+    ).toThrow("MARFA_API_KEY is shorter than 8 characters");
+  });
+});
+
+describe("the settings Marfa answers", () => {
+  const settings = [
+    token,
+    { name: "test_key", label: "Key", kind: "text", secret: true },
+    { name: "test_on", label: "On", kind: "boolean", default: false },
+  ] as const satisfies SettingsDeclaration;
+  const held = (
+    entries: { name: string; value: unknown; unreadable?: boolean }[],
+    missing: string[] = [],
+  ) => ({
+    plugin: "test",
+    settings: entries.map((entry) => ({
+      set: entry.value !== null,
+      unreadable: false,
+      ...entry,
+    })),
+    missing,
+  });
+
+  it("reads an optional secret not set as undefined, and runs", () => {
+    const read = readSettings(
+      settings,
+      held([
+        { name: "test_token", value: "a-secret-token" },
+        { name: "test_key", value: null },
+      ]),
+    );
+    expect(read.values).toEqual({
+      test_token: "a-secret-token",
+      test_key: undefined,
+      test_on: false,
+    });
+  });
+
+  it("keeps every secret long enough to redact for the log, and none shorter", () => {
+    expect(
+      secretsOf(
+        settings,
+        held([
+          { name: "test_token", value: "a-secret-token" },
+          { name: "test_key", value: "tiny" },
+          { name: "test_on", value: true },
+        ]),
+      ),
+    ).toEqual(["a-secret-token"]);
+  });
+
+  it("names every problem at once, by label and name, and no value", () => {
+    const read = readSettings(
+      settings,
+      held(
+        [
+          { name: "test_token", value: null },
+          { name: "test_key", value: null, unreadable: true },
+          { name: "test_on", value: "yes-please" },
+        ],
+        ["test_token"],
+      ),
+    );
+    expect(read.problem).toContain(
+      "a required setting is not set: Token (test_token)",
+    );
+    expect(read.problem).toContain("cannot open for Key (test_key)");
+    expect(read.problem).toContain("On (test_on) is not true or false");
+    expect(read.problem).not.toContain("yes-please");
   });
 });

@@ -13,7 +13,8 @@ quietRun({
   sizes: [20, 420],
   async hold(size) {
     const marfa = await new ScriptedServer("rss", {
-      types: ["rss.entry"],
+      types: ["rss.entry", "rss.picture"],
+      edges: ["attached-to"],
     }).start();
     const items = Array.from(
       { length: size },
@@ -34,12 +35,12 @@ quietRun({
       marfa,
       async run() {
         await run("node", [built, "--once"], {
-          env: {
+          env: marfa.processEnv({
             PATH: process.env["PATH"],
             MARFA_API_URL: marfa.url,
             MARFA_API_KEY: marfa.key,
-            RSS_FEEDS: url,
-          },
+            rss_feeds: url,
+          }),
         });
       },
       async stop() {

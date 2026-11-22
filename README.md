@@ -34,25 +34,28 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-The proof server is independently pinned in `scripts/monorepo.commit`. Run `scripts/monorepo.sh` before `pnpm proof`. It downloads `marfa-server` from the Marfa release whose tag names that commit, checks it against the release's checksums and leaves it in `vendor/marfa-server`. The proof boots that server on a free port with a temporary database, claims the owner through its control socket, mints its keys there, uses the installed registry client against it, and stops it afterward. Set `MARFA_SERVER_BIN` to a `marfa-server` of your own to boot that instead.
+The proof server is independently pinned in `scripts/monorepo.commit`. Run `scripts/monorepo.sh` before `pnpm proof`. It downloads `marfa-server` from the Marfa release whose tag names that commit, checks it against the release's checksums and leaves it in `vendor/marfa-server`. The proof boots that server on a free port with a temporary database, claims the owner through its control socket, links a connector host that mints each plugin connector's key, uses the installed registry client against it, and stops it afterward. Set `MARFA_SERVER_BIN` to a `marfa-server` of your own to boot that instead.
 
 A release server is built without test hooks, so it cannot shorten the connector hold, which two proof groups need. Run `scripts/monorepo.sh hooks` to build the pinned commit's server with test hooks into `vendor/marfa-server-hooks`, or set `MARFA_HOOKS_SERVER_BIN` to one you built. This needs Rust.
 
 To run a connector against a server of your own, follow the Quick start in the Marfa repository's README, and use the `marfa` command line from the same release so its commands match the server.
 
-Mint the connector's own key with `marfa keys create`, as [the template's README](./template/README.md#the-key) describes. Then run the connector once with the connector's key:
+Install the connector's plugin, assign it to a connector host, and set its settings, as [the template's README](./template/README.md#the-key) describes. The host mints the connector's key. Then run the connector once with that key:
 
 ```bash
+marfa plugins install connectors/<name>/plugin
+marfa plugins settings <name> --set <setting>=<value>
+printf '%s' '<token>' | marfa plugins secret <name> <secret-setting>
 export MARFA_API_URL=<the server's address>
-export MARFA_API_KEY=<the connector's key>
+export MARFA_API_KEY=<the key its host minted>
 node connectors/<name>/dist/main.js --once
 ```
 
-A connector also reads the settings its own README names, such as a vendor token.
+The connector's README names its settings, such as a vendor token. The connector reads them from Marfa at the start of every run, so a change takes effect on the next run.
 
-The CLI and a connector read the server's address and the key from the same two settings, `MARFA_API_URL` and `MARFA_API_KEY`. A connector's key is its own, so set the connector's key in the connector's environment, not the one you use for the CLI.
+The CLI and a connector read the server's address and the key from the same two variables, `MARFA_API_URL` and `MARFA_API_KEY`. A connector's key is its own, so set the connector's key in the connector's environment, not the one you use for the CLI.
 
-A connector keeps no file and holds no secret of its own: its state is on the instance, and its secrets come from the environment.
+A connector keeps no file and holds no secret of its own: its state and its settings are on the instance.
 
 ## Check the repository
 

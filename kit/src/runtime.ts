@@ -9,6 +9,9 @@ export interface Runtime {
   readonly argv: readonly string[];
   readonly env: Readonly<Record<string, string | undefined>>;
   write(line: string): void;
+  /** Writes to standard output, which setup alone uses, for the commands
+   *  that give Marfa what it made; the log's `write` where none is given. */
+  print?(text: string): void;
   readonly clock: Clock;
   readonly requestTimeoutMs: number;
   /** A number from 0 up to, not including, 1. */
@@ -56,6 +59,9 @@ export function nodeRuntime(): Runtime {
     env: process.env,
     write: (line) => {
       process.stderr.write(`${line}\n`);
+    },
+    print: (text) => {
+      process.stdout.write(`${text}\n`);
     },
     clock: systemClock,
     requestTimeoutMs: 60_000,

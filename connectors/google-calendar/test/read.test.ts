@@ -3,7 +3,7 @@ import { start } from "../../../kit/test/installed.js";
 import { Harness } from "../../../kit/test/harness.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import {
-  clientEnv,
+  clientSettings,
   freshToken,
   GoogleStub,
 } from "../../../shared/google/test/stub.js";
@@ -77,7 +77,7 @@ function reader(): Record<string, unknown> {
 }
 
 async function once(
-  settings: Record<string, string> = {},
+  settings: Record<string, unknown> = {},
   token = freshToken(),
 ): Promise<number> {
   return start(
@@ -85,8 +85,8 @@ async function once(
       endpoints: { ...google.endpoints, api: calendar.url },
     }),
     harness.runtime(["--once"], {
-      ...clientEnv,
-      GOOGLE_REFRESH_TOKEN: token,
+      ...clientSettings,
+      google_refresh_token: token,
       ...settings,
     }),
   );
@@ -400,7 +400,7 @@ describe("a first read", () => {
 
     expect(
       await once({
-        GOOGLE_CALENDAR_READ_ONLY_CALENDARS: birthdays,
+        google_calendar_read_only_calendars: birthdays,
       }),
     ).toBe(0);
 
@@ -1180,7 +1180,7 @@ describe("read only calendars", () => {
 
     expect(
       await once({
-        GOOGLE_CALENDAR_READ_ONLY_CALENDARS: `${holidays}, ${team}`,
+        google_calendar_read_only_calendars: `${holidays}, ${team}`,
       }),
     ).toBe(0);
     expect(active()).toEqual([`${holidays}/bank`, `${me}/m`]);
@@ -1196,7 +1196,7 @@ describe("read only calendars", () => {
   it("names a calendar in the setting that the account does not have", async () => {
     expect(
       await once({
-        GOOGLE_CALENDAR_READ_ONLY_CALENDARS: "nobody@example.com",
+        google_calendar_read_only_calendars: "nobody@example.com",
       }),
     ).toBe(0);
     expect(conditions()).toContain(

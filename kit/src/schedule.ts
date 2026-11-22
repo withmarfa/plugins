@@ -4,7 +4,7 @@ import { ConfigurationError } from "./environment.js";
 export type Schedule =
   | { mode: "help" }
   | { mode: "once" }
-  | { mode: "setup"; file: string }
+  | { mode: "setup" }
   | {
       mode: "every";
       intervalMs: number;
@@ -15,7 +15,7 @@ export type Schedule =
 const units = { s: 1000, m: 60_000, h: 3_600_000 } as const;
 
 export const usage =
-  "run with --once, or with --every <interval> such as 30s, 15m or 1h, and --look-every <interval> after it to change how often the connector looks between runs, or with --setup <file> to set the connector up with its vendor, or with --help to see this again";
+  "run with --once, or with --every <interval> such as 30s, 15m or 1h, and --look-every <interval> after it to change how often the connector looks between runs, or with --setup to set the connector up with its vendor, or with --help to see this again";
 
 export const defaultLookMs = 10_000;
 
@@ -28,7 +28,7 @@ function interval(text: string | undefined): number | undefined {
 const flags = {
   help: { type: "boolean", short: "h" },
   once: { type: "boolean" },
-  setup: { type: "string" },
+  setup: { type: "boolean" },
   every: { type: "string" },
   "look-every": { type: "string" },
 } as const;
@@ -40,9 +40,7 @@ export function readSchedule(argv: readonly string[]): Schedule {
   const first = given[0]?.value;
   if (shape === "help") return { mode: "help" };
   if (shape === "once") return { mode: "once" };
-  if (shape === "setup" && first !== undefined && first !== "") {
-    return { mode: "setup", file: first };
-  }
+  if (shape === "setup") return { mode: "setup" };
   if (shape === "every" || shape === "every look-every") {
     const intervalMs = interval(first);
     const lookGiven = given.length === 2;

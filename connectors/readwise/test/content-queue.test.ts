@@ -163,7 +163,7 @@ describe("independent Reader content recovery", () => {
       });
       expect(
         f.conditions.get(`readwise:content:${digest(f.canonical)}`),
-      ).toContain("READWISE_CONTENT_MAX_BYTES (512 bytes)");
+      ).toContain("readwise_content_max_bytes (512 bytes)");
       await drainContent(f.context, client(changed), f.checkpoint, {
         fetch: fetcher,
         maxBytes: 1024,

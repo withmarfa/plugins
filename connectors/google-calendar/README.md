@@ -22,7 +22,7 @@ A row's `source_id` is `<account>:<calendar ID>/<event ID>`, where `<account>` i
 The connector reads every calendar in the account's calendar list, including hidden ones, that the account owns or can write to. It skips:
 
 - The Birthdays calendar.
-- A calendar the account can only read, unless you name it in `GOOGLE_CALENDAR_READ_ONLY_CALENDARS`.
+- A calendar the account can only read, unless you name it in `google_calendar_read_only_calendars`.
 
 A calendar whose access drops to read only, or a read-only calendar you stop naming, is archived with its events.
 
@@ -41,45 +41,35 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-Create a key for the connector:
+Install the plugin and assign its connector to a connector host, which mints the connector's key, as [the template's README](../../template/README.md#the-key) says:
 
 ```bash
-marfa keys create \
-  --label google-calendar \
-  --source google-calendar \
-  --type-permission google.calendar.calendar=write \
-  --type-permission google.calendar.event=write \
-  --edge-permission google.calendar.in-calendar=write \
-  --edge-permission parent-of=write \
-  --default-tier feed
+marfa plugins install connectors/google-calendar/plugin
+marfa plugins assign google-calendar --host "<machine>"
 ```
 
-Writing `parent-of` is what lets a changed occurrence sit beneath its series. The key holds no metadata entry: installing the plugin registers the types and connection types.
+The key holds write on `google.calendar.calendar`, `google.calendar.event`, `google.calendar.in-calendar` and `parent-of`, and nothing else. Writing `parent-of` is what lets a changed occurrence sit beneath its series. Installing the plugin registers the types and connection types.
 
-Then sign in. Create a Desktop app OAuth client in your own Google Cloud project, turn on the Google Calendar API, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Run setup and put the token it writes in `GOOGLE_REFRESH_TOKEN`:
+Then give it a Google sign-in. Create a Desktop app OAuth client in your own Google Cloud project, turn on the Google Calendar API, and set `google_client_id` and `google_client_secret`. The connector's own setup is gone, and signing in through Marfa comes in a later version, so until then the connector starts only with a refresh token you already hold for that client, set with `marfa plugins secret google-calendar google_refresh_token`, as [the shared page](../../shared/google/README.md#signing-in) says.
 
-```bash
-node connectors/google-calendar/dist/main.js --setup <file>
-```
-
-Setup requests these scopes. Leave both ticked on the consent screen.
+The grant needs these scopes:
 
 - `https://www.googleapis.com/auth/calendar.events`
 - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
 
-Without the calendar list scope, the connector reads nothing and raises a scope condition. Without the events scope, it writes the calendar rows and no events. [The shared page](../../shared/google/README.md) describes the sign-in steps, the conditions and what to do when Google asks you to sign in again.
+Without the calendar list scope, the connector reads nothing and raises a scope condition. Without the events scope, it writes the calendar rows and no events. [The shared page](../../shared/google/README.md) describes the conditions and what to do when Google asks you to sign in again.
 
 ## Configure
 
-| Variable                              | Meaning                                                                                                                    |
+Set these in Marfa with `marfa plugins settings google-calendar --set <name>=<value>`, and each secret with `marfa plugins secret google-calendar <name>`. The connector reads them at the start of every run. The environment holds only `MARFA_API_URL` and `MARFA_API_KEY`, the key its host minted.
+
+| Setting                               | Meaning                                                                                                                    |
 | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `MARFA_API_URL`                       | Marfa instance address.                                                                                                    |
-| `MARFA_API_KEY`                       | The key above.                                                                                                             |
-| `GOOGLE_CLIENT_ID`                    | The ID of your Desktop app OAuth client.                                                                                   |
-| `GOOGLE_CLIENT_SECRET`                | That client's secret.                                                                                                      |
-| `GOOGLE_REFRESH_TOKEN`                | The value `--setup` writes.                                                                                                |
-| `GOOGLE_CALENDAR_READ_ONLY_CALENDARS` | Optional. Calendar IDs, separated by commas or spaces, of read-only calendars to read, such as a shared holidays calendar. |
-| `GOOGLE_CALENDAR_CONFIRM_DELETES`     | Optional. Lets one held batch of deletions through; see [The safety stop](#the-safety-stop).                               |
+| `google_client_id`                    | The ID of your Desktop app OAuth client.                                                                                   |
+| `google_client_secret`                | That client's secret.                                                                                                      |
+| `google_refresh_token`                | The refresh token of the Google account's grant to that client.                                                            |
+| `google_calendar_read_only_calendars` | Optional. Calendar IDs, separated by commas or spaces, of read-only calendars to read, such as a shared holidays calendar. |
+| `google_calendar_confirm_deletes`     | Optional. Lets one held batch of deletions through; see [The safety stop](#the-safety-stop).                               |
 
 Run it:
 
@@ -88,7 +78,7 @@ node connectors/google-calendar/dist/main.js --once
 node connectors/google-calendar/dist/main.js --every 15m
 ```
 
-A calendar ID in `GOOGLE_CALENDAR_READ_ONLY_CALENDARS` that isn't in the account's calendar list raises the condition `read-only-calendar-unknown:<ID>`.
+A calendar ID in `google_calendar_read_only_calendars` that isn't in the account's calendar list raises the condition `read-only-calendar-unknown:<ID>`.
 
 ## How events appear
 
@@ -202,7 +192,7 @@ A rate limit, a server error or no answer from Google leaves the change in Marfa
 
 Trashing a row deletes its event in Google, and so does purging a row whose trash wasn't carried. Before it deletes anything, the connector counts, for each calendar, the events Google still holds that the run's trashes and purges would delete. An event that both a trash and a purge would delete counts once. It counts only the deletes it would send: it skips a row whose `editable` is `false`, a calendar that Google answers has left the account's list, and a calendar the account can only read. It also skips an event that Google holds, when it counts, as one Marfa may not change, such as one that gained another guest since Marfa last read it, and a series with a changed occurrence Marfa may not change. A trash of such an event is declined when the connector carries it. A calendar that one listing leaves out while Google still has it is counted, because its events are deleted. If Google can't say whether such a calendar is still there, the run fails and the batch waits. For a row trashed or purged before its create got an answer, it counts the event under the row's ID, if Google holds it. A changed occurrence trashed or purged before its change lands deletes nothing, so it isn't counted. A calendar Google no longer has holds nothing to delete. A row that went into the bin with its series, such as a changed occurrence, isn't counted, because its trash isn't carried; the series' own delete removes its occurrences. The events a calendar holds include the changed occurrences of its series. If one calendar would lose more than 10 events and more than a quarter of its events at once, nothing is carried to Google, the run fails, and the connector raises the condition `deletes-held`, which says how many events would be deleted from which calendar.
 
-To keep the events, restore the trashed rows in Marfa; the next run counts again. A purged row can't be restored. To let the batch through, set `GOOGLE_CALENDAR_CONFIRM_DELETES` to the value the condition names, run once, and remove the setting. The value is the number of events and a short hash of which events they are, such as `11:3f9a0c2b7d41`, so it lets through that batch and no other. A batch that deletes other events, even the same number of them, is held again, and the condition says that the setting names another batch.
+To keep the events, restore the trashed rows in Marfa; the next run counts again. A purged row can't be restored. To let the batch through, set `google_calendar_confirm_deletes` to the value the condition names, run once, and remove the setting. The value is the number of events and a short hash of which events they are, such as `11:3f9a0c2b7d41`, so it lets through that batch and no other. A batch that deletes other events, even the same number of them, is held again, and the condition says that the setting names another batch.
 
 ## Progress and recovery
 

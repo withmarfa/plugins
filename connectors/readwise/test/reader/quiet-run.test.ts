@@ -38,16 +38,16 @@ quietRun({
       marfa,
       async run() {
         await run("node", [built, "--once"], {
-          env: {
+          env: marfa.processEnv({
             PATH: process.env["PATH"],
             MARFA_API_URL: marfa.url,
             MARFA_API_KEY: marfa.key,
-            READWISE_ACCOUNT: "primary",
-            READWISE_ACCESS_TOKEN: "reader-fixture-token",
-            READWISE_API_URL: `${vendor.base}/v2/`,
-            READWISE_READER: "true",
-            READWISE_READER_API_URL: `${vendor.base}/v3/`,
-          },
+            readwise_account: "primary",
+            readwise_access_token: "reader-fixture-token",
+            readwise_api_url: `${vendor.base}/v2/`,
+            readwise_reader: true,
+            readwise_reader_api_url: `${vendor.base}/v3/`,
+          }),
         });
       },
       async stop() {

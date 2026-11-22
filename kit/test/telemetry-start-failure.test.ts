@@ -40,12 +40,15 @@ it.each([
   [
     "a JSON value in it",
     `invalid settings ${JSON.stringify({ region: "unknown" })}`,
-    "cannot start: invalid settings [removed]",
+    "the connector cannot run with its settings: invalid settings [removed]",
   ],
   [
     "more than the log allows",
     "x".repeat(2500),
-    `cannot start: ${"x".repeat(2500)}`.slice(0, 1999) + "…",
+    `the connector cannot run with its settings: ${"x".repeat(2500)}`.slice(
+      0,
+      1999,
+    ) + "…",
   ],
 ])(
   "logs the same text, and no other, in the log and the OpenTelemetry logs when the check's message has %s",
@@ -60,10 +63,10 @@ it.each([
       },
       harness.runtime(["--once"], telemetry()),
     );
-    expect(code).toBe(2);
-    expect((harness.lines.at(-1) ?? "").endsWith(` error ${expected}`)).toBe(
-      true,
-    );
+    expect(code).toBe(4);
+    expect(
+      harness.lines.some((line) => line.endsWith(` error ${expected}`)),
+    ).toBe(true);
     expect(collector.logRecords().map((record) => record.body)).toContain(
       expected,
     );

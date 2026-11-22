@@ -171,15 +171,15 @@ afterEach(async () => {
 });
 function launch() {
   const running = exec("node", [built, "--once"], {
-    env: {
+    env: marfa.processEnv({
       PATH: process.env["PATH"],
       MARFA_API_URL: marfa.url,
       MARFA_API_KEY: marfa.key,
-      READWISE_ACCESS_TOKEN: "test-readwise-token",
-      READWISE_ACCOUNT: "primary",
-      READWISE_API_URL: base,
-      READWISE_READER_API_URL: base,
-    },
+      readwise_access_token: "test-readwise-token",
+      readwise_account: "primary",
+      readwise_api_url: base,
+      readwise_reader_api_url: base,
+    }),
     timeout: 15_000,
   });
   const result = running.then(

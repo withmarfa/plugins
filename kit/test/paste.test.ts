@@ -1,6 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -14,14 +11,12 @@ import type { Runtime } from "../src/runtime.js";
 import { Harness, testFields, testType } from "./harness.js";
 
 let harness: Harness;
-let dir: string;
 beforeEach(async () => {
   harness = await Harness.create();
-  dir = await mkdtemp(join(tmpdir(), "kit-paste-"));
+  harness.server.settings = {};
 });
 afterEach(async () => {
   await harness.close();
-  await rm(dir, { recursive: true, force: true });
 });
 
 const made = "pem_private_key_made_by_the_vendor";
@@ -70,8 +65,8 @@ function connector(
   });
 }
 
-function withInput(input: PassThrough | undefined, file: string): Runtime {
-  return { ...harness.runtime(["--setup", file]), stdin: input };
+function withInput(input: PassThrough | undefined): Runtime {
+  return { ...harness.runtime(["--setup"]), stdin: input };
 }
 
 function opened(held: Held): LocalCallback {
@@ -101,7 +96,7 @@ describe("a redirect that arrives by paste", () => {
   it("resolves from the address pasted into the terminal, whatever host and port the other browser showed", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     const local = opened(held);
     input.write(`${elsewhere(local, "code=abc&state=xyz")}\n`);
@@ -114,7 +109,7 @@ describe("a redirect that arrives by paste", () => {
   it("says, beside the address to open, which address a browser on another machine opens and that it pastes the address it ends on", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     const lines = harness.lines.join("\n");
     expect(lines).toContain(`open ${held.opened?.url ?? ""} in a browser`);
@@ -128,10 +123,7 @@ describe("a redirect that arrives by paste", () => {
   it("reads nothing and says nothing of pasting where the connector does not ask for it", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(
-      connector(held, undefined, false),
-      withInput(input, join(dir, "a.json")),
-    );
+    const exit = start(connector(held, undefined, false), withInput(input));
     await until(() => held.opened !== undefined);
     expect(input.listenerCount("data") + input.listenerCount("readable")).toBe(
       0,
@@ -151,7 +143,7 @@ describe("a redirect that arrives by paste", () => {
   it("warns once for a wrong path, a garbage line and an address with another base, and goes on waiting", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     const local = opened(held);
     const path = new URL(local.callback).pathname;
@@ -181,7 +173,7 @@ describe("a redirect that arrives by paste", () => {
     const input = new PassThrough();
     input.end();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(
@@ -194,7 +186,7 @@ describe("a redirect that arrives by paste", () => {
   it("goes on waiting where standard input fails", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     input.destroy(new Error("the terminal went away"));
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -204,10 +196,7 @@ describe("a redirect that arrives by paste", () => {
 
   it("needs no standard input at all", async () => {
     const held: Held = {};
-    const exit = start(
-      connector(held),
-      withInput(undefined, join(dir, "a.json")),
-    );
+    const exit = start(connector(held), withInput(undefined));
     await until(() => held.opened !== undefined);
     await fetch(`${held.opened?.callback ?? ""}?code=abc`);
     expect(await exit).toBe(0);
@@ -219,7 +208,7 @@ describe("a redirect that arrives by paste", () => {
   it("stops reading when asked to stop while it waits", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     expect(input.listenerCount("data") + input.listenerCount("readable")).toBe(
       1,
@@ -235,7 +224,7 @@ describe("a redirect that arrives by paste", () => {
   it("stops reading once setup ends, so standard input does not hold the process", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(connector(held), withInput(input, join(dir, "a.json")));
+    const exit = start(connector(held), withInput(input));
     await until(() => held.opened !== undefined);
     await fetch(`${held.opened?.callback ?? ""}?code=abc`);
     expect(await exit).toBe(0);
@@ -246,10 +235,7 @@ describe("a redirect that arrives by paste", () => {
   it("takes the first of the browser and a paste, and ignores the second", async () => {
     const browserFirst = new PassThrough();
     const one: Held = {};
-    const exitOne = start(
-      connector(one),
-      withInput(browserFirst, join(dir, "one.json")),
-    );
+    const exitOne = start(connector(one), withInput(browserFirst));
     await until(() => one.opened !== undefined);
     const first = opened(one);
     expect((await fetch(`${first.callback}?code=browser`)).status).toBe(200);
@@ -259,10 +245,7 @@ describe("a redirect that arrives by paste", () => {
 
     const pasteFirst = new PassThrough();
     const two: Held = {};
-    const exitTwo = start(
-      connector(two),
-      withInput(pasteFirst, join(dir, "two.json")),
-    );
+    const exitTwo = start(connector(two), withInput(pasteFirst));
     await until(() => two.opened !== undefined);
     const second = opened(two);
     pasteFirst.write(`${elsewhere(second, "code=paste")}\n`);
@@ -281,7 +264,7 @@ describe("a redirect that arrives by paste", () => {
       connector(held, (_context, local) => {
         local.onward("https://vendor.example/apps/install");
       }),
-      withInput(input, join(dir, "a.json")),
+      withInput(input),
     );
     await until(() => held.opened !== undefined);
     input.write(`${elsewhere(opened(held), "code=abc")}\n`);
@@ -298,7 +281,7 @@ describe("a redirect that arrives by paste", () => {
       connector(held, (_context, local) => {
         local.onward("javascript:alert(1)");
       }),
-      withInput(input, join(dir, "a.json")),
+      withInput(input),
     );
     await until(() => held.opened !== undefined);
     input.write(`${elsewhere(opened(held), "code=abc")}\n`);

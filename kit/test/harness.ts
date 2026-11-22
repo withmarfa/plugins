@@ -458,12 +458,16 @@ export const secretToken = "tok_vendor_secret_value";
 
 export class Harness {
   readonly lines: string[] = [];
+  /** What the connector printed on standard output. */
+  readonly printed: string[] = [];
   readonly clock = new ManualClock();
   requestTimeoutMs = 5000;
   random = (): number => 0;
   private stopListener: (() => void) | undefined;
 
-  constructor(readonly server: ScriptedServer) {}
+  constructor(readonly server: ScriptedServer) {
+    server.settings = { test_token: secretToken };
+  }
 
   static async create(): Promise<Harness> {
     return new Harness(
@@ -475,19 +479,39 @@ export class Harness {
     await this.server.stop();
   }
 
+  /** A runtime whose environment holds what `values` names in capitals.
+   *  Where it names a setting, in lowercase, the server's settings become
+   *  those it names beside the test token; otherwise they stay as set. */
   runtime(
     argv: readonly string[],
-    env: Record<string, string | undefined> = {},
+    values: Readonly<Record<string, unknown>> = {},
   ): Runtime {
+    const env: Record<string, string | undefined> = {};
+    const settings: Record<string, unknown> = { test_token: secretToken };
+    let named = false;
+    for (const [name, value] of Object.entries(values)) {
+      if (!/^[a-z]/.test(name)) {
+        env[name] =
+          value === undefined
+            ? undefined
+            : typeof value === "string"
+              ? value
+              : JSON.stringify(value);
+        continue;
+      }
+      named = true;
+      if (value !== undefined) settings[name] = value;
+    }
+    if (named) this.server.settings = settings;
     return {
       argv,
       env: {
         MARFA_API_URL: this.server.url,
         MARFA_API_KEY: this.server.key,
-        TEST_TOKEN: secretToken,
         ...env,
       },
       write: (line) => this.lines.push(line),
+      print: (text) => this.printed.push(text),
       clock: this.clock,
       requestTimeoutMs: this.requestTimeoutMs,
       random: () => this.random(),

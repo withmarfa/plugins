@@ -8,6 +8,9 @@ import {
 } from "@withmarfa/connector";
 import { isProgram } from "./program.js";
 
+/** Where the proof tells the connector what to do. */
+const controlUrl = process.env["PROOF_CONTROL_URL"] ?? "";
+
 const source = process.env["PROOF_SOURCE"] ?? "proof-watch";
 const type = "proof.watch.item";
 const journal = process.env["PROOF_OUTBOUND"] === "true";
@@ -39,14 +42,6 @@ export const connector = defineConnector({
       fields: ["title", "note", "vendor_id"],
     },
   ],
-  settings: [
-    {
-      name: "proof_control_url",
-      label: "Proof control url",
-      kind: "text",
-      required: true,
-    },
-  ],
   ...(journal && {
     preflight(inventory: { purges: readonly unknown[] }) {
       if (!Array.isArray(inventory.purges))
@@ -55,7 +50,7 @@ export const connector = defineConnector({
     },
   }),
   async run(context) {
-    const url = context.env.proof_control_url;
+    const url = controlUrl;
     const response = await fetch(`${url}/entries`, {
       signal: context.signal,
     });
@@ -85,7 +80,7 @@ export const connector = defineConnector({
           baseline: { source_id: change.item.source_id ?? null },
         })))
       : undefined;
-    const response = await fetch(`${context.env.proof_control_url}/push`, {
+    const response = await fetch(`${controlUrl}/push`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(

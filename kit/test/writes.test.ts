@@ -678,7 +678,7 @@ describe("a row the server refuses", () => {
         harness.server.grants = { type_permissions: { "test.entry": "read" } };
       }
     };
-    expect(await harness.once(vendor([one, two]))).toBe(1);
+    expect(await harness.once(vendor([one, two]))).toBe(3);
     expect(harness.lastRun().outcome).toBe("failed");
     expect(harness.lastRun().error).toContain("type test.entry");
     expect(harness.server.requestsTo("GET", "/keys/current")).toHaveLength(2);
@@ -750,7 +750,7 @@ describe("a row the server refuses", () => {
 
   it("fails the run when the whole write is refused for the key", async () => {
     harness.server.refuseNext("POST /items/bulk", 401, "unauthorized");
-    expect(await harness.once(vendor([one]))).toBe(1);
+    expect(await harness.once(vendor([one]))).toBe(3);
     expect(harness.lastRun().outcome).toBe("failed");
   });
 

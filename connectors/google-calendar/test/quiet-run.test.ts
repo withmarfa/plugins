@@ -3,7 +3,7 @@ import { Harness } from "../../../kit/test/harness.js";
 import { quietRun } from "../../../kit/test/quiet-run.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import {
-  clientEnv,
+  clientSettings,
   freshToken,
   GoogleStub,
 } from "../../../shared/google/test/stub.js";
@@ -59,8 +59,8 @@ quietRun({
             endpoints: { ...google.endpoints, api: calendar.url },
           }),
           harness.runtime(["--once"], {
-            ...clientEnv,
-            GOOGLE_REFRESH_TOKEN: freshToken(),
+            ...clientSettings,
+            google_refresh_token: freshToken(),
           }),
         );
         if (code !== 0) throw new Error(`the run exited ${String(code)}`);

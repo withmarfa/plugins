@@ -47,21 +47,21 @@ afterEach(async () => {
   await marfa.stop();
   await github.stop();
 });
-async function once(env: Record<string, string> = {}) {
+async function once(env: Record<string, unknown> = {}) {
   const result = await run(
     "node",
     [resolve(import.meta.dirname, "../dist/main.js"), "--once"],
     {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        GITHUB_APP_ID: "12345",
-        GITHUB_PRIVATE_KEY: key,
-        GITHUB_WEBHOOK_SECRET: "test-secret",
+        github_app_id: "12345",
+        github_private_key: key,
+        github_webhook_secret: "test-secret",
         ...github.settings,
         ...env,
-      },
+      }),
     },
   );
   return result.stderr;
@@ -185,7 +185,7 @@ describe("related and duplicate issues", () => {
     marfa.removeEdge(canonical.id);
     marfa.drawEdge(row(a.node).id, row(c.node).id, "github.relates-to");
     marfa.edit(row(comment.node).id, { body: "After" });
-    await once({ GITHUB_READ_ONLY: "issue" });
+    await once({ github_read_only: "issue" });
     expect(links(a.node, "github.relates-to")).toEqual([b.node]);
     expect(a.relates_to).toEqual([b.node]);
     expect(c.relates_to ?? []).toEqual([]);

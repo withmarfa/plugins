@@ -4,6 +4,7 @@ import type { MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
 import {
   ConnectorUnderProof,
+  hostMintedKey,
   installedAsKindOf,
   rowsOf,
   type Item,
@@ -49,47 +50,11 @@ export async function proveReadwise(
   await new Promise<void>((done) => vendor.listen(0, "127.0.0.1", done));
   const base = `http://127.0.0.1:${String((vendor.address() as AddressInfo).port)}/`;
   try {
-    let key = "";
-    await check(
-      "readwise: its key writes only its data types and connections, and holds no metadata entry",
-      async () => {
-        const { data, error } = await marfa.POST("/keys", {
-          body: {
-            label: "readwise",
-            source: "readwise",
-            default_tier: "feed",
-            type_permissions: {
-              "readwise.source": "write",
-              "readwise.highlight": "write",
-              "readwise.file": "write",
-            },
-            edge_permissions: {
-              "excerpt-of": "write",
-              "attached-to": "write",
-              references: "write",
-            },
-          },
-        });
-        if (data === undefined)
-          throw new Error(`Readwise key was refused: ${JSON.stringify(error)}`);
-        key = data.key;
-        if (
-          data.source !== "readwise" ||
-          data.default_tier !== "feed" ||
-          Object.keys(data.metadata_permissions).length !== 0 ||
-          Object.keys(data.edge_permissions).sort().join() !==
-            "attached-to,excerpt-of,references"
-        )
-          throw new Error(
-            "Readwise key permissions differ from the requested scope",
-          );
-        return "scoped readwise key, with no metadata entry";
-      },
-    );
+    const { key } = await hostMintedKey(url, "readwise");
     const runner = new ConnectorUnderProof("readwise", url, key, {
-      READWISE_ACCOUNT: "proof",
-      READWISE_ACCESS_TOKEN: "readwise-proof-token",
-      READWISE_API_URL: base,
+      readwise_account: "proof",
+      readwise_access_token: "readwise-proof-token",
+      readwise_api_url: base,
     });
     const once = async (): Promise<void> => {
       const result = await runner.once();
@@ -207,7 +172,7 @@ export async function proveReadwise(
       async () => {
         const before = await all();
         const failed = await runner.run(["--once"], {
-          READWISE_ACCESS_TOKEN: "readwise-wrong-token",
+          readwise_access_token: "readwise-wrong-token",
         });
         if (failed.code === 0 || !failed.output.includes("401"))
           throw new Error("Readwise authentication failure was not reported");

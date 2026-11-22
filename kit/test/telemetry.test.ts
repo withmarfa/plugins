@@ -232,7 +232,8 @@ describe("a secret", () => {
     collector.posts.map((post) => post.text).join("\n");
 
   it("never leaves the process, in any spelling, through logs, spans or errors", async () => {
-    expect(await harness.once(leaking(), on({ TEST_TOKEN: secret }))).toBe(1);
+    harness.server.settings = { test_token: secret };
+    expect(await harness.once(leaking(), on())).toBe(1);
     const sent = everything();
     expect(collector.spans()).toHaveLength(1);
     expect(sent).toContain("[redacted]");

@@ -39,6 +39,8 @@ function withoutNulls(
 let marfa: ScriptedServer;
 let vendor: Server;
 let vendorUrl: string;
+/** How many requests the vendor took. */
+let vendorCalls: number;
 let items: VendorItem[];
 let writes: VendorWrite[];
 let refuseNextWrite: number | undefined;
@@ -68,7 +70,9 @@ beforeEach(async () => {
     vendorClock += 1000;
     return new Date(vendorClock).toISOString();
   };
+  vendorCalls = 0;
   vendor = createServer((req, res) => {
+    vendorCalls += 1;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(chunk));
     req.on("end", () => {
@@ -184,19 +188,19 @@ afterEach(async () => {
 });
 
 async function once(
-  env: Record<string, string | undefined> = {},
+  given: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
       timeout: 30_000,
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        EXAMPLE_URL: vendorUrl,
-        EXAMPLE_TOKEN: token,
-        ...env,
-      },
+        example_url: vendorUrl,
+        example_token: token,
+        ...given,
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -524,7 +528,7 @@ describe("the template, run as a process", () => {
   });
 
   it("fails the run when the vendor refuses the token, and never prints it", async () => {
-    const { code, output } = await once({ EXAMPLE_TOKEN: "wrong-token-value" });
+    const { code, output } = await once({ example_token: "wrong-token-value" });
     expect(code).toBe(1);
     expect(marfa.runs.at(-1)?.outcome).toBe("failed");
     expect(marfa.runs.at(-1)?.error).toContain("401");
@@ -677,13 +681,15 @@ describe("the template, run as a process", () => {
     expect(marfa.runs.at(-1)?.summary).toMatch(/pushed 1, /);
   });
 
-  it("fails visibly at start without its vendor's address", async () => {
-    const { code, output } = await once({ EXAMPLE_URL: undefined });
-    expect(code).toBe(2);
-    expect(output).toContain("EXAMPLE_URL");
-    expect(marfa.requests).toEqual([]);
+  it("stops the run without its vendor's address, naming the setting, exits 4 and writes nothing", async () => {
+    items = [{ id: "1", title: "One", created: "2026-09-01T10:00:00.000Z" }];
+    const { code, output } = await once({ example_url: undefined });
+    expect(code).toBe(4);
+    expect(output).toContain("Address of the example vendor (example_url)");
+    expect(marfa.rows).toEqual([]);
+    expect(vendorCalls).toBe(0);
     expect((await once()).code).toBe(0);
-    expect(marfa.requests.length).toBeGreaterThan(0);
+    expect(marfa.rows.length).toBe(1);
   });
 
   it("archives an item the vendor no longer lists and no longer has", async () => {
@@ -727,7 +733,7 @@ describe("the template, run as a process", () => {
   it("fails the run, to be tried again, when the vendor does not answer a read in time", async () => {
     items = [{ id: "1", title: "One", created: "2026-09-01T10:00:00.000Z" }];
     hangNext = "GET";
-    const { code, output } = await once({ EXAMPLE_TIMEOUT_MS: "300" });
+    const { code, output } = await once({ example_timeout_ms: 300 });
     expect(code).toBe(1);
     expect(output).toContain("the example vendor did not answer");
     expect(marfa.runs.at(-1)?.outcome).toBe("failed");
@@ -741,7 +747,7 @@ describe("the template, run as a process", () => {
     const mine = marfa.row("acct:1");
     marfa.edit(mine.id, { title: "One, edited" });
     hangNext = "PUT";
-    expect((await once({ EXAMPLE_TIMEOUT_MS: "300" })).code).toBe(0);
+    expect((await once({ example_timeout_ms: 300 })).code).toBe(0);
     expect(marfa.runs.at(-1)?.outcome).toBe("succeeded");
     expect(marfa.runs.at(-1)?.summary).toContain(
       "1 change waits: the example vendor did not answer",
@@ -752,22 +758,25 @@ describe("the template, run as a process", () => {
   });
 
   it.each([
-    ["an address that is not one", { EXAMPLE_URL: "not an address" }],
+    ["an address that is not one", { example_url: "not an address" }],
     [
       "an address that is not http",
-      { EXAMPLE_URL: "ftp://vendor.example.com" },
+      { example_url: "ftp://vendor.example.com" },
     ],
-    ["a time limit that is not a number", { EXAMPLE_TIMEOUT_MS: "soon" }],
-    ["a time limit of zero", { EXAMPLE_TIMEOUT_MS: "0" }],
+    ["a time limit that is not a number", { example_timeout_ms: "soon" }],
+    ["a time limit of zero", { example_timeout_ms: 0 }],
     [
       "a time limit longer than a timer holds",
-      { EXAMPLE_TIMEOUT_MS: "3000000000" },
+      { example_timeout_ms: 3_000_000_000 },
     ],
-  ])("stops at start, before it reaches Marfa, on %s", async (_, env) => {
-    const { code, output } = await once(env);
-    expect(code).toBe(2);
-    expect(output).toContain("cannot start: EXAMPLE_");
-    expect(marfa.requests).toEqual([]);
+  ])("stops the run, exits 4 and writes nothing, on %s", async (_, given) => {
+    items = [{ id: "1", title: "One", created: "2026-09-01T10:00:00.000Z" }];
+    const { code, output } = await once(given);
+    expect(code).toBe(4);
+    expect(output).toContain("the connector cannot run with its settings: ");
+    expect(output).toMatch(/example_(url|timeout_ms)/);
+    expect(marfa.rows).toEqual([]);
+    expect(vendorCalls).toBe(0);
   });
 
   it.each(["", "/"])(
@@ -790,7 +799,7 @@ describe("the template, run as a process", () => {
       try {
         const port = String((prefixed.address() as AddressInfo).port);
         const { code } = await once({
-          EXAMPLE_URL: `http://127.0.0.1:${port}/api${ending}`,
+          example_url: `http://127.0.0.1:${port}/api${ending}`,
         });
         expect(code).toBe(0);
         expect(reached).toEqual(["GET /api/items"]);

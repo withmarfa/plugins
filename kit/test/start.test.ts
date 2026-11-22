@@ -26,7 +26,7 @@ describe("configuration", () => {
     const reached = harness.server.requests.length;
     expect(reached).toBeGreaterThan(0);
 
-    const required = ["MARFA_API_URL", "MARFA_API_KEY", "TEST_TOKEN"];
+    const required = ["MARFA_API_URL", "MARFA_API_KEY"];
     for (const name of required) {
       harness.lines.length = 0;
       expect(await harness.once(vendor([entry]), { [name]: undefined })).toBe(
@@ -110,7 +110,9 @@ describe("configuration", () => {
     const help = harness.lines.join("\n");
     expect(help).toContain("--every");
     expect(help).toContain("MARFA_API_URL");
-    expect(help).toContain("TEST_TOKEN");
+    expect(help).toContain("test_token (Test token, text, secret)");
+    expect(help).toContain("marfa plugins settings test");
+    expect(help).not.toContain("TEST_TOKEN");
     expect(help).toContain("as the template's README says");
     harness.lines.length = 0;
     await start(
@@ -155,14 +157,16 @@ describe("configuration", () => {
   });
 
   it("refuses a secret too short to keep out of the logs", async () => {
-    expect(await harness.once(vendor(), { TEST_TOKEN: "abcdefg" })).toBe(2);
-    expect(harness.lines.join("\n")).toContain("TEST_TOKEN");
-    expect(harness.server.requests).toEqual([]);
-    expect(await harness.once(vendor(), { TEST_TOKEN: "abcdefgh" })).toBe(0);
-    expect(harness.server.requests.length).toBeGreaterThan(0);
+    harness.server.settings = { test_token: "abcdefg" };
+    expect(await harness.once(vendor())).toBe(4);
+    expect(harness.lines.join("\n")).toContain("test_token");
+    expect(harness.server.rows).toEqual([]);
+    harness.server.settings = { test_token: "abcdefgh" };
+    expect(await harness.once(vendor([entry]))).toBe(0);
+    expect(harness.server.rows).toHaveLength(1);
   });
 
-  it("refuses an environment the connector's own check refuses, under either schedule", async () => {
+  it("refuses settings the connector's own check refuses, under either schedule, before it writes anything", async () => {
     const connector = {
       ...testConnector(vendor([entry])),
       checkEnv: (env: {
@@ -174,18 +178,19 @@ describe("configuration", () => {
         }
       },
     };
+    harness.server.settings = {
+      test_token: secretToken,
+      test_region: "nowhere",
+    };
     for (const argv of [["--once"], ["--every", "1m"]]) {
-      expect(
-        await start(
-          connector,
-          harness.runtime(argv, { TEST_REGION: "nowhere" }),
-        ),
-      ).toBe(2);
+      expect(await start(connector, harness.runtime(argv))).toBe(4);
     }
     const said = harness.lines.join("\n");
     expect(said).toContain("no region nowhere for [redacted]");
     expect(said).not.toContain(secretToken);
-    expect(harness.server.requests).toEqual([]);
+    expect(JSON.stringify(harness.server.runs)).not.toContain(secretToken);
+    expect(harness.server.rows).toEqual([]);
+    harness.server.settings = { test_token: secretToken };
     expect(await start(connector, harness.runtime(["--once"]))).toBe(0);
     expect(harness.server.rows).toHaveLength(1);
   });
@@ -198,9 +203,9 @@ describe("configuration", () => {
         throw new Error("the region is refused");
       },
     };
-    expect(await start(connector, harness.runtime(["--once"]))).toBe(2);
+    expect(await start(connector, harness.runtime(["--once"]))).toBe(4);
     expect(harness.lines.join("\n")).toContain("the region is refused");
-    expect(harness.server.requests).toEqual([]);
+    expect(harness.server.rows).toEqual([]);
   });
 
   it("starts no run once told to stop while registering", async () => {
@@ -251,7 +256,7 @@ describe("the key check on start", () => {
       metadata_permissions: { types: "write", tags: "write" },
       edge_permissions: { "*": "write" },
     };
-    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(await harness.once(vendor([entry]))).toBe(3);
     const error = harness.lastRun().error ?? "";
     expect(harness.lastRun().outcome).toBe("failed");
     for (const named of [
@@ -273,7 +278,7 @@ describe("the key check on start", () => {
       permissions: ["keys.mint"],
       type_permissions: { "test.entry": "write" },
     };
-    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(await harness.once(vendor([entry]))).toBe(3);
     expect(harness.lastRun().error).toContain(
       "Revoke it and mint another as the template's README says.",
     );
@@ -283,7 +288,7 @@ describe("the key check on start", () => {
         { ...testConnector(vendor([entry])), readme: own },
         harness.runtime(["--once"]),
       ),
-    ).toBe(1);
+    ).toBe(3);
     const error = harness.lastRun().error ?? "";
     expect(error).toContain(`Revoke it and mint another as ${own} says.`);
     expect(error).not.toContain("template's README");
@@ -295,7 +300,7 @@ describe("the key check on start", () => {
       type_permissions: { "test.entry": "write" },
       permissions: ["schema.write"],
     };
-    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(await harness.once(vendor([entry]))).toBe(3);
     const error = harness.lastRun().error ?? "";
     expect(error).toContain("key-1");
     expect(error.slice(error.indexOf("is refused:"))).toContain("schema.write");
@@ -333,57 +338,51 @@ describe("the key check on start", () => {
       ],
     ] as const) {
       harness.server.grants = grants;
-      expect(await harness.once(vendor([entry]))).toBe(1);
+      expect(await harness.once(vendor([entry]))).toBe(3);
       expect(harness.lastRun().error).toContain(named);
       expect(harness.lastRun().error).toContain("key-1");
       expect(harness.server.rows).toEqual([]);
     }
   });
 
-  it("starts on a second account's key, whose own source is another and which claims the connector's", async () => {
-    harness.server.keySource = "test-second";
-    harness.server.grants = {
-      sources: ["test"],
-      type_permissions: { "test.entry": "write" },
-    };
-    expect(await harness.once(vendor([entry]))).toBe(0);
-    expect(harness.server.rows.map((row) => row.source)).toEqual(["test"]);
-  });
-
-  it("refuses a key that claims a source besides the connector's, naming it and how to narrow the key, before it checks the types or writes a row", async () => {
-    for (const [keySource, sources, narrow] of [
-      ["test", ["other.app", "test"], "marfa keys update key-1 --no-claims"],
-      [
-        "test-second",
-        ["test", "other.app"],
-        "marfa keys update key-1 --claim test",
-      ],
+  it("refuses a key that claims any source, its connector's included, naming them, before it checks the types or writes a row", async () => {
+    for (const [keySource, sources] of [
+      ["test", ["other.app"]],
+      ["test-second", ["test"]],
     ] as const) {
       harness.server.keySource = keySource;
       harness.server.grants = {
         sources: [...sources],
         type_permissions: { "test.entry": "write" },
       };
-      expect(await harness.once(vendor([entry]))).toBe(1);
+      expect(await harness.once(vendor([entry]))).toBe(3);
       const error = harness.lastRun().error ?? "";
       expect(harness.lastRun().outcome).toBe("failed");
       expect(error).toContain("key-1");
-      expect(error).toContain("other.app");
-      expect(error).toContain(narrow);
+      expect(error).toContain(
+        keySource === "test" ? "claims sources" : "not the connector's",
+      );
       expect(harness.server.rows).toEqual([]);
       expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
     }
   });
 
-  it("refuses a key whose own source is not the connector's and which does not claim it, saying how to claim it", async () => {
+  it("refuses a key whose own source is not the connector's", async () => {
     harness.server.keySource = "elsewhere";
     harness.server.grants = { type_permissions: { "test.entry": "write" } };
-    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(await harness.once(vendor([entry]))).toBe(3);
     const error = harness.lastRun().error ?? "";
     expect(error).toContain("elsewhere");
-    expect(error).toContain("marfa keys update key-1 --claim test");
+    expect(error).toContain("not the connector's, test");
     expect(harness.server.rows).toEqual([]);
     expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
+  });
+
+  it("refuses a key whose default tier is not the feed, since the connector names no tier on most writes", async () => {
+    harness.server.grants = { default_tier: "library" } as never;
+    expect(await harness.once(vendor([entry]))).toBe(3);
+    expect(harness.lastRun().error).toContain("a default tier of library");
+    expect(harness.server.rows).toEqual([]);
   });
 
   it("refuses a key an app made, however narrow, before it registers anything, saying how to mint another", async () => {
@@ -391,13 +390,11 @@ describe("the key check on start", () => {
       oauth_client_id: "client-1",
       type_permissions: { "test.entry": "write" },
     };
-    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(await harness.once(vendor([entry]))).toBe(3);
     const said = harness.lines.join("\n");
     expect(said).toContain("key-1");
     expect(said).toContain("an app made it");
-    expect(said).toContain(
-      "run `marfa keys create` from any computer signed in as the owner",
-    );
+    expect(said).toContain("the key its connector host mints for it");
     expect(harness.server.requestsTo("POST", "/connectors")).toEqual([]);
     expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
     expect(harness.server.runs).toEqual([]);

@@ -34,7 +34,6 @@ import {
   readEdges,
   type Carried,
 } from "./connections.js";
-import type { Environment } from "./environment.js";
 import { collect, type Collected } from "./inbound.js";
 import { cap, keepSecret, reportCap, type Logger } from "./log.js";
 import {
@@ -97,7 +96,8 @@ import {
 
 export interface RunSetup<E extends SettingsDeclaration> {
   connector: Connector<E>;
-  environment: Environment;
+  /** The settings, as Marfa held them at the start of the run. */
+  values: SettingValues<E>;
   marfa: Marfa;
   connectorId: string;
   process: string;
@@ -236,7 +236,7 @@ function sending(change: Change): string {
 /** How long a refused purge waits before it is asked again. */
 const purgeAgainMs = 24 * 3_600_000;
 
-/** The types whose changes go back to the vendor for an environment. */
+/** The types whose changes go back to the vendor for the settings. */
 export function carriedTypes<E extends SettingsDeclaration>(
   connector: Connector<E>,
   env: SettingValues<E>,
@@ -415,7 +415,7 @@ export async function runOnce<E extends SettingsDeclaration>(
   trigger: Trigger,
 ): Promise<RunResult> {
   const { connector, logger, clock } = setup;
-  const env = setup.environment.values as SettingValues<E>;
+  const env = setup.values;
   interface Scope {
     name: string;
     retry?: InboundRetryCapability;
@@ -3778,11 +3778,7 @@ export async function waitingInMarfa<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   cursor: string | undefined,
 ): Promise<{ waiting: boolean; cursor: string | undefined }> {
-  const specs = specsOf(
-    setup.connector,
-    setup.environment.values as SettingValues<E>,
-    setup.narrowed,
-  );
+  const specs = specsOf(setup.connector, setup.values, setup.narrowed);
   const read = await new Watch(
     setup.marfa,
     [...specs.keys()],

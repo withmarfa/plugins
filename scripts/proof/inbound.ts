@@ -5,7 +5,9 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { marfaProgram } from "../release/plugins.ts";
+import { managerKeyAt } from "./host.js";
 import { createClient, type MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
 import { deliverySettled, restorationSettled } from "./inbound-wait.js";
@@ -13,7 +15,7 @@ import {
   ConnectorUnderProof,
   edit,
   lastRun,
-  mintWithTheReadmeKeyFlags,
+  hostMintedKey,
   registration,
   rowsOf,
 } from "./connector.js";
@@ -126,14 +128,13 @@ export async function proveInbound(
 ): Promise<void> {
   const vendor = await serveThings();
   try {
-    const key = await mintWithTheReadmeKeyFlags(marfa, {
-      label: "proof-inbound",
-      source: "proof-inbound",
-      typePermission: "proof.thing",
+    const key = await hostMintedKey(url, "proof-inbound", {
+      entry,
+      types: ["proof.thing"],
     });
     const env = {
-      PROOF_VENDOR_URL: vendor.url,
-      PROOF_WEBHOOK_SECRET: secret,
+      proof_vendor_url: vendor.url,
+      proof_webhook_secret: secret,
     };
     const runner = new ConnectorUnderProof(
       "proof-inbound",
@@ -503,7 +504,7 @@ export async function proveInbound(
       },
     );
 
-    await proveSetup(url, own, runner, connectorId);
+    await proveSetup(url, own, manager, runner, connectorId);
 
     // The server lets one key hold a source, and the keys group mints a key
     // of this one for itself, so this group's key goes with the group.
@@ -525,48 +526,72 @@ async function endpointsOf(own: MarfaClient, connectorId: string) {
   return data.data;
 }
 
+/** Runs what setup printed as an owner would, piped to `sh` where `marfa`
+ *  is signed in with `connectors.manage`. */
+async function runPrinted(url: string, printed: string): Promise<string> {
+  const program = marfaProgram();
+  return new Promise((done, fail) => {
+    const shell = spawn("sh", ["-s"], {
+      env: {
+        PATH: `${dirname(program)}:${process.env["PATH"] ?? ""}`,
+        MARFA_API_URL: url,
+        MARFA_API_KEY: managerKeyAt(url),
+        MARFA_NO_KEYCHAIN: "1",
+        OTEL_SDK_DISABLED: "true",
+      },
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    let output = "";
+    shell.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    shell.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    shell.once("error", fail);
+    shell.once("close", (code) => {
+      if (code === 0) done(output);
+      else fail(new Error(`sh exited ${String(code)}: ${output}`));
+    });
+    shell.stdin.end(printed);
+  });
+}
+
 async function proveSetup(
   url: string,
   own: MarfaClient,
+  manager: MarfaClient,
   runner: ConnectorUnderProof,
   connectorId: string,
 ): Promise<void> {
   const dir = await mkdtemp(join(tmpdir(), "plugins-setup-"));
   try {
     await check(
-      "setup: refuses to write its file inside a git working tree, and makes nothing",
+      "setup: takes no argument after --setup, exits 2 and makes nothing",
       async () => {
-        const file = resolve(import.meta.dirname, "../../../proof-setup.json");
         const before = (await endpointsOf(own, connectorId)).length;
-        const { code, output } = await runner.run(["--setup", file]);
+        const { code, output } = await runner.run([
+          "--setup",
+          join(dir, "secrets.json"),
+        ]);
         const after = (await endpointsOf(own, connectorId)).length;
         if (
           code !== 2 ||
-          existsSync(file) ||
           after !== before ||
-          !output.includes("is inside the git working tree at")
+          existsSync(join(dir, "secrets.json"))
         ) {
           throw new Error(
-            `exited ${String(code)}, file ${String(existsSync(file))}, endpoints ${String(before)} then ${String(after)}: ${output}`,
+            `exited ${String(code)}, endpoints ${String(before)} then ${String(after)}: ${output}`,
           );
         }
-        return `exited 2 without registering or making an endpoint: ${output.slice(output.indexOf("is inside")).trim()}`;
+        return "exited 2, made no endpoint and wrote no file";
       },
     );
 
     await check(
-      "setup: writes its secrets to a new file outside the checkout and leaves the endpoint it made live and labeled with when it was set up",
+      "setup: prints on standard output the marfa plugins secret line for the secret it made, which sets it in Marfa when run, keeps the secret out of its log, and leaves the endpoint it made live and labeled with when it was set up",
       async () => {
-        const file = join(dir, "made.json");
         const pathFile = join(dir, "made.path");
-        const { code, output } = await runner.run(["--setup", file], {
-          PROOF_SETUP_PATH_FILE: pathFile,
+        const { code, output, printed } = await runner.run(["--setup"], {
+          proof_setup_path_file: pathFile,
         });
         if (code !== 0) throw new Error(`exited ${String(code)}: ${output}`);
-        const written = JSON.parse(await readFile(file, "utf8")) as Record<
-          string,
-          string
-        >;
         const path = await readFile(pathFile, "utf8");
         const [newest] = await endpointsOf(own, connectorId);
         const answer = await post(
@@ -574,29 +599,46 @@ async function proveSetup(
           path,
           signed({ id: "t1" }, "55555555-5555-5555-5555-555555555555"),
         );
+        const line =
+          "printf '%s' proof-setup-webhook-secret | marfa plugins secret proof-inbound proof_webhook_secret";
         if (
-          Object.keys(written).join() !== "PROOF_WEBHOOK_SECRET" ||
+          printed.trim() !== line ||
+          output.includes("proof-setup-webhook-secret") ||
           newest?.retired_at !== null ||
           !/^stub vendor, set up \d{4}-/.test(newest.label ?? "") ||
           !output.includes(`setup made the inbound endpoint ${newest.id}`) ||
           answer.status !== 202
         ) {
           throw new Error(
-            `wrote ${Object.keys(written).join()}, newest ${JSON.stringify(newest)}, delivery ${String(answer.status)}: ${output}`,
+            `printed ${printed}, newest ${JSON.stringify(newest)}, delivery ${String(answer.status)}: ${output}`,
           );
         }
-        return `wrote ${Object.keys(written).join()}; ${newest.id} is live as "${String(newest.label)}" and took a delivery, 202`;
+        await manager.PATCH("/plugins/{name}/connector/settings", {
+          params: { path: { name: "proof-inbound" } },
+          body: { proof_webhook_secret: null },
+        });
+        await runPrinted(url, printed);
+        const held = await manager.GET("/plugins/{name}/connector/settings", {
+          params: { path: { name: "proof-inbound" } },
+        });
+        const set = held.data?.settings.find(
+          (setting) => setting.name === "proof_webhook_secret",
+        );
+        if (set?.set !== true)
+          throw new Error(
+            `the printed line left the secret ${JSON.stringify(set)}`,
+          );
+        return `printed "${line}", which set the secret when run; ${newest.id} is live as "${String(newest.label)}" and took a delivery, 202`;
       },
     );
 
     await check(
-      "setup: a setup that fails removes its file and retires the endpoint it made, whose address then answers 404 and stores nothing",
+      "setup: a setup that fails prints nothing and retires the endpoint it made, whose address then answers 404 and stores nothing",
       async () => {
-        const file = join(dir, "failed.json");
         const pathFile = join(dir, "failed.path");
-        const { code, output } = await runner.run(["--setup", file], {
-          PROOF_SETUP_PATH_FILE: pathFile,
-          PROOF_SETUP_FAILS: "true",
+        const { code, output, printed } = await runner.run(["--setup"], {
+          proof_setup_path_file: pathFile,
+          proof_setup_fails: "true",
         });
         const path = await readFile(pathFile, "utf8");
         const [newest] = await endpointsOf(own, connectorId);
@@ -609,7 +651,7 @@ async function proveSetup(
         const after = (await deliveries(own, connectorId, "any")).length;
         if (
           code !== 1 ||
-          existsSync(file) ||
+          printed !== "" ||
           newest?.retired_at == null ||
           !output.includes(
             `the inbound endpoint ${newest.id} it made was retired`,
@@ -618,10 +660,10 @@ async function proveSetup(
           after !== before
         ) {
           throw new Error(
-            `exited ${String(code)}, file ${String(existsSync(file))}, newest ${JSON.stringify(newest)}, delivery ${String(answer.status)}, deliveries ${String(before)} then ${String(after)}: ${output}`,
+            `exited ${String(code)}, printed ${printed}, newest ${JSON.stringify(newest)}, delivery ${String(answer.status)}, deliveries ${String(before)} then ${String(after)}: ${output}`,
           );
         }
-        return `exited 1 with no file; ${newest.id} was retired at ${newest.retired_at}, and its address answered 404 and stored nothing`;
+        return `exited 1, printing nothing; ${newest.id} was retired at ${newest.retired_at}, and its address answered 404 and stored nothing`;
       },
     );
   } finally {

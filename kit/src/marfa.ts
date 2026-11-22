@@ -1,3 +1,4 @@
+import type { HeldSettings } from "./settings.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   pages,
@@ -120,10 +121,9 @@ export class MarfaUnreachable extends Error {
   readonly timedOut: boolean;
 
   /** Says what is wrong with the address where the transport names it: a
-   *  host that is not found, or a certificate or TLS handshake refused. A
-   *  mistake in a setting when a connector starts, and what a resolver or a
-   *  proxy can do to one that has run, so a start refuses it and a running
-   *  connector waits it out. */
+   *  host that is not found, or a certificate or TLS handshake refused. It
+   *  may mend, so a start exits 1, or tries again under --every, and a
+   *  running connector waits it out. */
   readonly fault: string | undefined;
 }
 
@@ -405,6 +405,35 @@ export class Marfa {
     });
     if (data === undefined) throw refusal(response, error);
     return data.id;
+  }
+
+  /** The types the connector's registration holds read only. */
+  async readOnlyTypes(id: string, signal?: AbortSignal): Promise<string[]> {
+    const { data, error, response } = await this.client.GET(
+      "/connectors/{id}",
+      { params: { path: { id } }, ...(signal !== undefined && { signal }) },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data.read_only_types;
+  }
+
+  /** The types the key's own registration holds read only, where it is
+   *  registered. */
+  async heldReadOnlyTypes(keyId: string): Promise<string[] | undefined> {
+    const { data, error, response } = await this.client.GET("/connectors");
+    if (data === undefined) throw refusal(response, error);
+    return data.data.find((one) => one.key_id === keyId)?.read_only_types;
+  }
+
+  /** The connector's settings, its secrets opened, as its own key reads
+   *  them. */
+  async settings(id: string, signal?: AbortSignal): Promise<HeldSettings> {
+    const { data, error, response } = await this.client.GET(
+      "/connectors/{id}/settings",
+      { params: { path: { id } }, ...(signal !== undefined && { signal }) },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data;
   }
 
   async heartbeat(id: string, signal: AbortSignal): Promise<void> {

@@ -60,15 +60,15 @@ quietRun({
       marfa,
       async run() {
         await run("node", [built, "--once"], {
-          env: {
+          env: marfa.processEnv({
             PATH: process.env["PATH"],
             MARFA_API_URL: marfa.url,
             MARFA_API_KEY: marfa.key,
-            GITHUB_APP_ID: "12345",
-            GITHUB_PRIVATE_KEY: github.appPem,
-            GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
+            github_app_id: "12345",
+            github_private_key: github.appPem,
+            github_webhook_secret: "github-test-webhook-secret",
             ...github.settings,
-          },
+          }),
         });
       },
       async stop() {

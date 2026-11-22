@@ -1,28 +1,43 @@
 import { execFile, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import type { components, MarfaClient } from "@withmarfa/client";
+import {
+  createClient,
+  type components,
+  type MarfaClient,
+} from "@withmarfa/client";
 import { check } from "./check.js";
-import { installPlugin, reinstallPlugin } from "./install.js";
+import { freshConnectorKey, setSettings, type ConnectorKey } from "./host.js";
+import {
+  installPlugin,
+  reinstallPlugin,
+  type InstallOptions,
+} from "./install.js";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "../../..");
 
 export type Item = components["schemas"]["Item"];
 
-export interface KeyFlags {
-  label: string;
-  source: string;
-  typePermission: string;
+/** What a run is given: each name in lowercase is a setting, set in Marfa
+ *  through the owner's door before the run, as the connector reads every
+ *  setting; each in capitals is a variable of the process, which only a
+ *  connector of the proof's own reads, for what the proof tells it. */
+export type Given = Readonly<Record<string, unknown>>;
+
+function settingsOf(given: Given): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(given).filter(([name]) => /^[a-z]/.test(name)),
+  );
 }
 
-export function keyBody(flags: KeyFlags) {
-  return {
-    label: flags.label,
-    source: flags.source,
-    type_permissions: { [flags.typePermission]: "write" as const },
-    default_tier: "feed" as const,
-  };
+function variablesOf(given: Given): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(given)
+      .filter(([name]) => !/^[a-z]/.test(name))
+      .map(([name, value]) => [name, String(value)]),
+  );
 }
 
 export class ConnectorUnderProof {
@@ -35,7 +50,7 @@ export class ConnectorUnderProof {
     readonly name: string,
     private readonly url: string,
     private readonly key: string,
-    private readonly env: Record<string, string>,
+    private readonly given: Given,
     entry?: string,
     /** The address of the instance that holds the plugin, where a proxy
      *  stands between the connector and it; `false` where the proof holds
@@ -47,10 +62,15 @@ export class ConnectorUnderProof {
   }
 
   /** The plugin's types and connection types installed, as an owner's
-   *  `marfa plugins install` leaves them, which the kit never registers. */
-  private install(): Promise<void> {
-    if (this.installAt === false) return Promise.resolve();
-    return installPlugin(this.installAt, this.name, this.own);
+   *  `marfa plugins install` leaves them, which the kit never registers, and
+   *  its connector's settings set as this run is given them. */
+  private async prepare(given: Given): Promise<void> {
+    if (this.installAt !== false)
+      await installPlugin(this.installAt, this.name, this.own);
+    const settings = settingsOf(given);
+    // A connector of the proof's own given no setting declares none.
+    if (this.own !== undefined && Object.keys(settings).length === 0) return;
+    await setSettings(this.installAt || this.url, this.name, settings);
   }
 
   /** The plugin installed again, after its types were deleted. */
@@ -59,29 +79,27 @@ export class ConnectorUnderProof {
     return reinstallPlugin(this.installAt, this.name, this.own);
   }
 
-  once(): Promise<{ code: number; output: string }> {
+  once(): Promise<{ code: number; output: string; printed: string }> {
     return this.run(["--once"]);
   }
 
-  /** A run told to stop once `until` says so, as a stop or a reboot would. */
-  stopped(
-    args: readonly string[],
-    until: () => Promise<void>,
-  ): Promise<{ code: number | null; output: string }> {
-    return this.install().then(() => this.spawned(args, until));
+  private environment(given: Given): Record<string, string | undefined> {
+    return {
+      PATH: process.env["PATH"],
+      MARFA_API_URL: this.url,
+      MARFA_API_KEY: this.key,
+      ...variablesOf(given),
+    };
   }
 
-  private spawned(
+  /** A run told to stop once `until` says so, as a stop or a reboot would. */
+  async stopped(
     args: readonly string[],
     until: () => Promise<void>,
   ): Promise<{ code: number | null; output: string }> {
+    await this.prepare(this.given);
     const child = spawn("node", [this.entry, ...args], {
-      env: {
-        PATH: process.env["PATH"],
-        MARFA_API_URL: this.url,
-        MARFA_API_KEY: this.key,
-        ...this.env,
-      },
+      env: this.environment(this.given),
       stdio: ["ignore", "ignore", "pipe"],
     });
     let output = "";
@@ -99,72 +117,110 @@ export class ConnectorUnderProof {
     return exited;
   }
 
+  /** One run, given what the runner was made with and `more` over it. The
+   *  log is `output`, and what the connector prints on standard output,
+   *  which only setup does, is `printed`. */
   async run(
     args: readonly string[],
-    env: Record<string, string> = {},
-  ): Promise<{ code: number; output: string }> {
-    await this.install();
+    more: Given = {},
+  ): Promise<{ code: number; output: string; printed: string }> {
+    const given = { ...this.given, ...more };
+    await this.prepare(given);
     try {
-      const { stderr } = await run("node", [this.entry, ...args], {
-        env: {
-          PATH: process.env["PATH"],
-          MARFA_API_URL: this.url,
-          MARFA_API_KEY: this.key,
-          ...this.env,
-          ...env,
-        },
+      const { stdout, stderr } = await run("node", [this.entry, ...args], {
+        env: this.environment(given),
       });
-      return { code: 0, output: stderr };
+      return { code: 0, output: stderr, printed: stdout };
     } catch (error) {
-      const failed = error as { code?: number; stderr?: string };
+      const failed = error as {
+        code?: number;
+        stderr?: string;
+        stdout?: string;
+      };
       return {
         code: failed.code ?? -1,
         output: failed.stderr ?? String(error),
+        printed: failed.stdout ?? "",
       };
     }
   }
 }
 
-async function mint(marfa: MarfaClient, flags: KeyFlags) {
-  const { data, error } = await marfa.POST("/keys", { body: keyBody(flags) });
-  if (data === undefined)
-    throw new Error(`the key was refused: ${JSON.stringify(error)}`);
-  return data;
+/** The types of a shipped connector's kinds and its edge types, as its
+ *  plugin's folder names them. */
+async function reachOf(
+  plugin: string,
+): Promise<{ types: string[]; edges: string[] }> {
+  const manifest = JSON.parse(
+    await readFile(
+      join(root, "connectors", plugin, "plugin", "plugin.json"),
+      "utf8",
+    ),
+  ) as { connector: { kinds: { type: string }[]; edge_types?: string[] } };
+  return {
+    types: manifest.connector.kinds.map((kind) => kind.type),
+    edges: manifest.connector.edge_types ?? [],
+  };
 }
 
-export type Minted = Awaited<ReturnType<typeof mint>>;
-
-export async function mintWithTheReadmeKeyFlags(
-  marfa: MarfaClient,
-  flags: KeyFlags,
-): Promise<Minted> {
-  let minted: Minted | undefined;
+/**
+ * The key the proof's connector host mints for `plugin`'s connector, checked
+ * as the template's README says it is made: the connector's source as its
+ * own, write on the types of its kinds and on its edge types, and nothing
+ * else. A shipped connector's are read from its plugin's folder; one of the
+ * proof's own names them. The group starts afresh, as `freshConnectorKey`
+ * says.
+ */
+export async function hostMintedKey(
+  url: string,
+  plugin: string,
+  own?: { entry: string; types: readonly string[]; edges?: readonly string[] },
+  install?: InstallOptions,
+): Promise<ConnectorKey> {
+  const { types, edges = [] } = own ?? (await reachOf(plugin));
+  const entry = own?.entry;
+  let minted: ConnectorKey | undefined;
   await check(
-    `${flags.label}: its key is minted through the API, not by the CLI, with the permissions the template's README names`,
+    `${plugin}: its connector host mints its key, holding its own source and write on its types and connection types alone`,
     async () => {
-      const key = await mint(marfa, flags);
-      minted = key;
-      const types = JSON.stringify(key.type_permissions);
-      const metadata = JSON.stringify(key.metadata_permissions);
-      const permissions = JSON.stringify(key.permissions);
+      minted = await freshConnectorKey(url, plugin, entry, install);
+      const { data: key, error } = await createClient({
+        baseUrl: url,
+        credential: minted.key,
+      }).GET("/keys/current");
+      if (key === undefined)
+        throw new Error(`the key was refused: ${JSON.stringify(error)}`);
+      const want = (names: readonly string[]) =>
+        JSON.stringify(
+          Object.fromEntries([...names].sort().map((name) => [name, "write"])),
+        );
+      const sorted = (map: Record<string, string> | undefined) =>
+        JSON.stringify(
+          Object.fromEntries(
+            Object.entries(map ?? {}).sort(([a], [b]) => a.localeCompare(b)),
+          ),
+        );
+      const typesHeld = sorted(key.type_permissions);
+      const edgesHeld = sorted(key.edge_permissions);
       const rest = JSON.stringify([
-        key.edge_permissions,
+        key.permissions,
+        key.sources,
+        key.metadata_permissions,
         key.extension_permissions,
         key.profile_permissions,
       ]);
       if (
-        key.source !== flags.source ||
+        key.source !== minted.source ||
         key.default_tier !== "feed" ||
-        types !== JSON.stringify({ [flags.typePermission]: "write" }) ||
-        metadata !== "{}" ||
-        permissions !== "[]" ||
-        rest !== "[{},{},{}]"
+        typesHeld !== want(types) ||
+        edgesHeld !== want(edges) ||
+        rest !== "[[],[],{},{},{}]"
       ) {
         throw new Error(
-          `source ${key.source}, type_permissions ${types}, metadata ${metadata}, permissions ${permissions}, edge, extension and profile ${rest}, default tier ${key.default_tier}`,
+          `source ${key.source}, type_permissions ${typesHeld}, edge_permissions ${edgesHeld}, permissions, claims, metadata, extension and profile ${rest}, default tier ${key.default_tier}`,
         );
       }
-      return `source ${key.source}, type_permissions ${types}, metadata ${metadata}, permissions ${permissions}, no other map, default tier ${key.default_tier}`;
+      return `source ${key.source}, type_permissions ${typesHeld}, edge_permissions ${edgesHeld}, no permission, claim or other entry, default tier ${key.default_tier}`;
     },
   );
   if (minted === undefined) throw new Error("the key check answered nothing");

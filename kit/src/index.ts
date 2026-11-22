@@ -14,6 +14,7 @@ export {
   type Connected,
   type ConnectionDefinition,
   type Connector,
+  type ConnectorOf,
   type Delivery,
   type Entry,
   type Hint,
@@ -43,7 +44,7 @@ export {
   type WatchContext,
 } from "./define.js";
 export { main } from "./main.js";
-export { settingsFromEnvironment, variableOf } from "./environment.js";
+export { exitCode } from "./exit.js";
 export { carriedTypes } from "./run.js";
 export { edgeTypesOf, shippedConnection } from "./shipped.js";
 export { Declined, LinkTaken, Refused, Unreachable } from "./rows.js";
