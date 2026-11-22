@@ -6,6 +6,7 @@ export interface HeldSetting {
   readonly name: string;
   readonly value?: unknown;
   readonly set?: boolean;
+  readonly secret?: boolean;
   readonly unreadable?: boolean;
 }
 
@@ -23,26 +24,61 @@ export type ReadSettings<E extends SettingsDeclaration> =
     }
   | { readonly values?: undefined; readonly problem: string };
 
+/** Whether a setting is secret: the build declares it so, or Marfa says it
+ *  holds it as one. */
+function secretIn(
+  declared: SettingsDeclaration,
+  held: HeldSettings,
+): (name: string) => boolean {
+  const secret = new Set([
+    ...declared
+      .filter((setting) => setting.secret === true)
+      .map((setting) => setting.name),
+    ...held.settings
+      .filter((setting) => setting.secret === true)
+      .map((setting) => setting.name),
+  ]);
+  return (name) => secret.has(name);
+}
+
 /** Every secret value the answer holds, whatever the connector makes of it,
  *  so the log redacts them before anything else is said. One too short to
- *  redact without hiding ordinary words is left out: `readSettings` refuses
- *  it, so the connector never reads it, and the kit never says a value. */
+ *  redact without hiding ordinary words is left out: `readSettings` and
+ *  setup refuse it, so the connector never reads it, and the kit never says
+ *  a value. */
 export function secretsOf(
   declared: SettingsDeclaration,
   held: HeldSettings,
 ): string[] {
-  const secret = new Set(
-    declared
-      .filter((setting) => setting.secret === true)
-      .map((setting) => setting.name),
-  );
+  const secret = secretIn(declared, held);
   return held.settings.flatMap((setting) =>
-    secret.has(setting.name) &&
+    secret(setting.name) &&
     typeof setting.value === "string" &&
     setting.value.length >= shortestSecret
       ? [setting.value]
       : [],
   );
+}
+
+/** Why the secrets held cannot be read, where one is too short to keep out
+ *  of the logs, naming each by label and name and never a value. */
+export function shortSecretsProblem(
+  declared: SettingsDeclaration,
+  held: HeldSettings,
+): string | undefined {
+  const secret = secretIn(declared, held);
+  const short = held.settings.filter(
+    (setting) =>
+      secret(setting.name) &&
+      typeof setting.value === "string" &&
+      setting.value.length < shortestSecret,
+  );
+  if (short.length === 0) return undefined;
+  const names = short.map((setting) => {
+    const one = declared.find((each) => each.name === setting.name);
+    return one === undefined ? setting.name : named(one);
+  });
+  return `${names.join(", ")} ${short.length === 1 ? "is" : "are"} shorter than ${String(shortestSecret)} characters, too short to keep out of the logs`;
 }
 
 function named(setting: Setting): string {
@@ -110,18 +146,10 @@ export function readSettings<E extends SettingsDeclaration>(
       );
       continue;
     }
-    if (
-      setting.secret === true &&
-      typeof value === "string" &&
-      value.length < shortestSecret
-    ) {
-      invalid.push(
-        `${named(setting)} is shorter than ${String(shortestSecret)} characters, too short to keep out of the logs`,
-      );
-      continue;
-    }
     values[setting.name] = value;
   }
+  const short = shortSecretsProblem(declared, held);
+  if (short !== undefined) invalid.push(short);
   const problems: string[] = [];
   const unreadableNames = new Set(unreadable.map((setting) => setting.name));
   const lacking = declared.filter(

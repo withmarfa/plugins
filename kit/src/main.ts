@@ -15,7 +15,12 @@ import {
   type Environment,
 } from "./environment.js";
 import { exitCode } from "./exit.js";
-import { readSettings, secretsOf, type HeldSettings } from "./settings.js";
+import {
+  readSettings,
+  secretsOf,
+  shortSecretsProblem,
+  type HeldSettings,
+} from "./settings.js";
 import { withoutBodies } from "./exception-text.js";
 import { cap, Logger } from "./log.js";
 import {
@@ -313,17 +318,22 @@ async function nameSource<E extends SettingsDeclaration>(
  * they are read the registration holds every type read only, and no edit is
  * taken that the settings might not carry back; the first run registers again
  * with the types its settings carry back. They are read before anything else
- * Marfa answers, so a secret an answer echoes is already redacted.
+ * Marfa answers, so a secret an answer echoes is already redacted. Setup runs
+ * no run, so it keeps what the registration holds, which a connector running
+ * beside it set from its settings.
  */
 async function registerAndCheck<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   logger: Logger,
+  keep: boolean,
 ): Promise<Started | Unregistered> {
   const key = await marfa.currentKey();
   const refusal = appKeyProblem(key, keyGuide(connector));
   if (refusal !== undefined) return { refusal };
-  const readOnly = connector.types.map((kind) => kind.type.id);
+  const readOnly =
+    (keep ? await marfa.heldReadOnlyTypes(key.id) : undefined) ??
+    connector.types.map((kind) => kind.type.id);
   let id: string;
   try {
     id = await marfa.register(connector.name, connector.description, readOnly);
@@ -349,7 +359,6 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   const problems = keyProblems(connector, key);
   const stopped = (problem: string, keyRefused = false): Started => ({
     id,
-    readOnly,
     held,
     narrowed: undefined,
     problem,
@@ -371,7 +380,6 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   await nameSource(connector, marfa, logger);
   return {
     id,
-    readOnly,
     held,
     narrowed: step.narrowed,
     problem: undefined,
@@ -387,8 +395,6 @@ interface Unregistered {
 
 interface Started {
   readonly id: string;
-  /** The types the registration names read only. */
-  readonly readOnly: readonly string[];
   /** The settings as read on registering, which the first run uses. */
   readonly held: HeldSettings | undefined;
   readonly narrowed: Narrowed | undefined;
@@ -481,7 +487,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
-    "It exits 0 once stopped, 1 for a failure a restart may mend, 2 when its definition or command line is wrong, 3 when Marfa refuses its key, and 4 when a required setting is missing or a value is invalid.",
+    "It exits 0 once stopped, 1 for a failure a restart may mend, 2 when its definition, its command line or MARFA_API_URL is wrong, 3 when Marfa refuses its key, and 4 when a required setting is missing or a value is invalid.",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
 }
@@ -725,7 +731,7 @@ async function started<E extends SettingsDeclaration>(
 }
 
 /** Why a session ended that no run mends. */
-type Halt = Ended | "settings" | "unhosted" | "definition";
+type Halt = Ended | "settings" | "unhosted" | "definition" | "keyRefused";
 
 /** Said when the settings door answers that this key is not the one a
  *  connector host minted for the plugin's connector. */
@@ -761,11 +767,22 @@ async function serve<E extends SettingsDeclaration>(
   let started: Started | Unregistered | undefined;
   for (let failures = 1; started === undefined; failures += 1) {
     try {
-      started = await registerAndCheck(connector, marfa, logger);
+      started = await registerAndCheck(
+        connector,
+        marfa,
+        logger,
+        schedule.mode === "setup",
+      );
     } catch (error) {
-      if (causeOf(error) === "address" || faultOf(error) !== undefined) {
+      if (causeOf(error) === "address") {
         cannotStart(logger, addressProblem(error, environment.url));
         return exitCode.definition;
+      }
+      // A host not found or a certificate refused may mend, as when the
+      // connector starts before the network does.
+      if (faultOf(error) !== undefined && schedule.mode !== "every") {
+        cannotStart(logger, addressProblem(error, environment.url));
+        return exitCode.failed;
       }
       if (schedule.mode !== "every" || causeOf(error) !== "marfa") {
         cannotStart(
@@ -778,8 +795,9 @@ async function serve<E extends SettingsDeclaration>(
         startBackoff(intervalMs, failures),
         Math.min(retryAfterOf(error) ?? 0, longestRetryAfterMs),
       );
+      const fault = faultOf(error);
       logger.warn(
-        `could not reach the server at MARFA_API_URL (${environment.url}), trying again in ${describeDuration(wait)}: ${describe(error)}`,
+        `could not reach the server at MARFA_API_URL (${environment.url})${fault === undefined ? "" : `, since ${fault}`}, trying again in ${describeDuration(wait)}: ${describe(error)}`,
       );
       await clock.sleep(wait, stop.signal);
       if (stopped()) return exitCode.stopped;
@@ -816,6 +834,7 @@ async function serve<E extends SettingsDeclaration>(
   /** Reads the settings, their secrets redacted from every later line as
    *  soon as they arrive. The first read takes what registering read. */
   let fresh = started.held;
+  let settingsRead = fresh !== undefined;
   const readHeld = async (
     signal: AbortSignal,
   ): Promise<HeldSettings | undefined> => {
@@ -827,6 +846,7 @@ async function serve<E extends SettingsDeclaration>(
     }
     const held = await marfa.settings(connectorId, signal);
     logger.keep(secretsOf(connector.settings ?? [], held));
+    settingsRead = true;
     return held;
   };
 
@@ -843,6 +863,17 @@ async function serve<E extends SettingsDeclaration>(
           `could not read the connector's settings from Marfa: ${describe(error)}`,
       );
       return refused === undefined ? exitCode.failed : exitCode.key;
+    }
+    const short =
+      held === undefined
+        ? undefined
+        : shortSecretsProblem(connector.settings ?? [], held);
+    if (short !== undefined) {
+      cannotStart(
+        logger,
+        `the connector cannot set up with its settings: ${short}`,
+      );
+      return exitCode.settings;
     }
     // Setup makes what the connector needs later, so it needs none of it.
     const values: Record<string, unknown> = {};
@@ -961,7 +992,6 @@ async function serve<E extends SettingsDeclaration>(
     stopping: stopped,
     narrowed: started.narrowed,
   };
-  let readOnly = started.readOnly;
   const failedOn = (error: unknown): RunResult => ({
     succeeded: false,
     cause: causeOf(error),
@@ -976,12 +1006,48 @@ async function serve<E extends SettingsDeclaration>(
    * Answers a failed run where Marfa did not answer, and nothing where the
    * session ends.
    */
+  let keyChecked = true;
   const prepare = async (): Promise<RunResult | undefined> => {
+    // A key widened since the last run would write past its connector.
+    if (!keyChecked) {
+      let problem: string | undefined;
+      try {
+        problem = keyProblems(connector, await marfa.currentKey());
+      } catch (error) {
+        if (over()) return undefined;
+        const cause = causeOf(error);
+        if (ends(cause)) {
+          end(cause, error);
+          return undefined;
+        }
+        logger.error(
+          `the key could not be checked, so this run does not start: ${describe(error)}`,
+        );
+        return failedOn(error);
+      }
+      if (problem !== undefined) {
+        await refuseStart(problem);
+        end("keyRefused");
+        return undefined;
+      }
+    }
+    keyChecked = false;
     let held: HeldSettings | undefined;
     try {
       held = await readHeld(lasting);
     } catch (error) {
       if (over()) return undefined;
+      // The door answering for a registration it answered before has lost
+      // it, as any other door would say.
+      if (
+        settingsRead &&
+        error instanceof Refusal &&
+        error.status === 404 &&
+        error.code === "connector_not_found"
+      ) {
+        end("registration", error);
+        return undefined;
+      }
       const refused = settingsRefusal(error, connector);
       if (refused !== undefined) {
         await refuseStart(refused);
@@ -1036,23 +1102,25 @@ async function serve<E extends SettingsDeclaration>(
       end("settings", error);
       return undefined;
     }
+    // Compared with what Marfa holds, which another start or a setup beside
+    // this process may have registered.
     const wanted = readOnlyTypesOf(specsOf(shaped, values, undefined).values());
-    if (!isDeepStrictEqual([...wanted].sort(), [...readOnly].sort())) {
-      try {
+    try {
+      const holds = await marfa.readOnlyTypes(connectorId, lasting);
+      if (!isDeepStrictEqual([...wanted].sort(), [...holds].sort())) {
         await marfa.register(connector.name, connector.description, wanted);
-        readOnly = wanted;
-      } catch (error) {
-        if (over()) return undefined;
-        const cause = causeOf(error);
-        if (ends(cause)) {
-          end(cause, error);
-          return undefined;
-        }
-        logger.error(
-          `the types this run carries back could not be registered, so it does not start: ${describe(error)}`,
-        );
-        return failedOn(error);
       }
+    } catch (error) {
+      if (over()) return undefined;
+      const cause = causeOf(error);
+      if (ends(cause)) {
+        end(cause, error);
+        return undefined;
+      }
+      logger.error(
+        `the types this run carries back could not be registered, so it does not start: ${describe(error)}`,
+      );
+      return failedOn(error);
     }
     setup.connector = shaped;
     setup.values = values;
@@ -1258,7 +1326,7 @@ async function serve<E extends SettingsDeclaration>(
   }
   if (halted === undefined || (succeeded && code === 0)) return code;
   if (halted === "settings") return exitCode.settings;
-  if (halted === "unhosted") return exitCode.key;
+  if (halted === "unhosted" || halted === "keyRefused") return exitCode.key;
   if (halted === "definition") return exitCode.definition;
   if (halted === "key") {
     logger.error(

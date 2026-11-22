@@ -420,6 +420,8 @@ export class ScriptedServer {
   settings: Record<string, unknown> = {};
   /** The secret settings whose stored value Marfa cannot open. */
   unreadable = new Set<string>();
+  /** The settings Marfa holds as secret, beside those it cannot open. */
+  secrets = new Set<string>();
   /** What the door names as missing, beyond what the kit finds itself. */
   missing: string[] = [];
   /** Whether the key is one a connector host minted, which alone reads the
@@ -428,6 +430,8 @@ export class ScriptedServer {
   settingsReads = 0;
   /** The registration's `read_only_types`, replaced by each register call. */
   readOnlyTypes: string[] = [];
+  /** What the last registration named, and when. */
+  registered: { name: unknown; description: unknown; at: string } | undefined;
   requests: Request[] = [];
   readonly log: Event[] = [];
   readonly entryRefusals = new Map<string, Refusal>();
@@ -565,6 +569,24 @@ export class ScriptedServer {
   /** Whether a start finds the connector's types installed. A test that
    *  means the plugin not installed turns it off. */
   installs = true;
+
+  /** The registration, as the connector doors answer it. */
+  private connector(): Record<string, unknown> {
+    const at = this.registered?.at ?? this.now();
+    return {
+      id: "connector-1",
+      key_id: "key-1",
+      source: this.keySource,
+      name: this.registered?.name,
+      description: this.registered?.description ?? null,
+      registered_at: at,
+      updated_at: at,
+      last_heartbeat_at: null,
+      read_only_types: this.readOnlyTypes,
+      last_run: null,
+      problems: this.problems.get(this.keySource) ?? {},
+    };
+  }
 
   /** What installing a plugin registers: a type, as `POST /plugins` writes
    *  it, which an install never overwrites here. */
@@ -1418,7 +1440,7 @@ export class ScriptedServer {
                 : typeof value === "number"
                   ? "number"
                   : "text",
-            secret: unreadable,
+            secret: unreadable || this.secrets.has(name),
             required: false,
             value,
             set: value !== null,
@@ -1429,6 +1451,12 @@ export class ScriptedServer {
       });
       return;
     }
+    if (method === "GET" && url.pathname === "/connectors") {
+      send(200, {
+        data: this.registrations === 0 || this.lost ? [] : [this.connector()],
+      });
+      return;
+    }
     if (method === "POST" && url.pathname === "/connectors") {
       this.installHeld();
       // A registration removed takes its hold with it.
@@ -1436,20 +1464,12 @@ export class ScriptedServer {
       this.lost = false;
       this.registrations += 1;
       this.readOnlyTypes = (input["read_only_types"] ?? []) as string[];
-      const at = this.now();
-      send(this.registrations === 1 ? 201 : 200, {
-        id: "connector-1",
-        key_id: "key-1",
-        source: this.keySource,
+      this.registered = {
         name: input["name"],
         description: input["description"] ?? null,
-        registered_at: at,
-        updated_at: at,
-        last_heartbeat_at: null,
-        read_only_types: this.readOnlyTypes,
-        last_run: null,
-        problems: this.problems.get(this.keySource) ?? {},
-      });
+        at: this.now(),
+      };
+      send(this.registrations === 1 ? 201 : 200, this.connector());
       return;
     }
     if (
@@ -1652,11 +1672,7 @@ export class ScriptedServer {
       parts.length === 2 &&
       method === "GET"
     ) {
-      send(200, {
-        id: parts[1],
-        source: this.keySource,
-        problems: this.problems.get(this.keySource) ?? {},
-      });
+      send(200, { ...this.connector(), id: parts[1] });
       return;
     }
     if (

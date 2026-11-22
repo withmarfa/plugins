@@ -308,6 +308,35 @@ describe("--setup", () => {
     ]);
   });
 
+  it("refuses a stored secret too short to keep out of the logs, with exit 4, never handing it to setup", async () => {
+    let called = false;
+    harness.server.settings = { test_app_key: "abc12" };
+    expect(
+      await start(
+        withSetup({}, () => {
+          called = true;
+          return Promise.resolve({});
+        }),
+        harness.runtime(["--setup"]),
+      ),
+    ).toBe(4);
+    expect(called).toBe(false);
+    expect(harness.printed).toEqual([]);
+    const said = harness.lines.join("\n");
+    expect(said).toContain("Test app key (test_app_key) is shorter than 8");
+    expect(said).not.toContain("abc12");
+  });
+
+  it("keeps the read-only types the registration holds, which a connector running beside it set", async () => {
+    const quiet = withSetup({}, () => Promise.resolve({}));
+    expect(await start(quiet, harness.runtime(["--setup"]))).toBe(0);
+    // Witness: with nothing registered, every type is held read only.
+    expect(harness.server.readOnlyTypes).toEqual([testType.id]);
+    harness.server.readOnlyTypes = [];
+    expect(await start(quiet, harness.runtime(["--setup"]))).toBe(0);
+    expect(harness.server.readOnlyTypes).toEqual([]);
+  });
+
   it("quotes a value with characters a shell would read, so the command sets it as made", async () => {
     const pem = "-----BEGIN KEY-----\nit's $HOME `x`\n-----END KEY-----";
     expect(

@@ -179,7 +179,7 @@ describe("an address that cannot be used", () => {
     }
   });
 
-  it("refuses a start where the host is not found or the certificate is refused, under either schedule", async () => {
+  it("fails a start run once where the host is not found or the certificate is refused, so the host restarts it, exiting 1", async () => {
     for (const code of ["ENOTFOUND", "CERT_HAS_EXPIRED", "EPROTO"]) {
       vi.stubGlobal("fetch", () =>
         Promise.reject(
@@ -189,17 +189,49 @@ describe("an address that cannot be used", () => {
         ),
       );
       try {
-        for (const argv of [["--once"], ["--every", "5m"]]) {
-          harness.lines.length = 0;
-          expect(
-            await start(testConnector(vendor([one])), harness.runtime(argv)),
-          ).toBe(2);
-          expect(said()).toContain("MARFA_API_URL");
-          expect(said()).toContain(code);
-        }
+        harness.lines.length = 0;
+        expect(
+          await start(
+            testConnector(vendor([one])),
+            harness.runtime(["--once"]),
+          ),
+        ).toBe(1);
+        expect(said()).toContain("MARFA_API_URL");
+        expect(said()).toContain(code);
       } finally {
         vi.unstubAllGlobals();
       }
+    }
+  });
+
+  it("tries a start under --every again where the host is not found, as before the network is up, and runs once it is", async () => {
+    const real = fetch;
+    let down = true;
+    vi.stubGlobal("fetch", (...args: Parameters<typeof fetch>) =>
+      down
+        ? Promise.reject(
+            new TypeError("fetch failed", {
+              cause: Object.assign(new Error("ENOTFOUND"), {
+                code: "ENOTFOUND",
+              }),
+            }),
+          )
+        : real(...args),
+    );
+    try {
+      const held = vendor([one]);
+      const exit = every(held, "10m");
+      await until(() => said().includes("trying again"));
+      expect(said()).toContain("ENOTFOUND");
+      down = false;
+      const wait = harness.clock.requested.at(-1) ?? 0;
+      await harness.clock.wake(wait);
+      await harness.clock.sleeping(10 * minute);
+      expect(held.runs).toBe(1);
+      harness.stop();
+      expect(await exit).toBe(0);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 

@@ -319,6 +319,99 @@ describe("settings read from Marfa", () => {
   });
 });
 
+describe("what Marfa holds", () => {
+  function twoWay(seen: Seen[] = []) {
+    return defineConnector({
+      ...typed(seen),
+      types: [
+        {
+          type: { ...testType, link_field: "title" },
+          fields: testFields,
+        },
+      ],
+      carries: () => [testType.id],
+      onChange: () => Promise.resolve(undefined),
+    });
+  }
+
+  it("registers again where the registration holds other read-only types than its settings make, as after a setup or a second start beside it", async () => {
+    harness.server.settings = { test_token: secretToken, test_on: true };
+    const exit = start(
+      twoWay(),
+      harness.runtime(["--every", "15m", "--look-every", "15m"]),
+    );
+    await harness.clock.sleeping(15 * minute);
+    expect(harness.server.readOnlyTypes).toEqual([]);
+    harness.server.readOnlyTypes = [testType.id];
+    await harness.clock.wake(15 * minute);
+    await harness.clock.sleeping(15 * minute);
+    expect(harness.server.readOnlyTypes).toEqual([]);
+    harness.stop();
+    expect(await exit).toBe(exitCode.stopped);
+  });
+
+  it("redacts a setting Marfa holds as secret, though the build does not declare it so", async () => {
+    const value = "a-value-marfa-holds-secret";
+    const open = defineConnector({
+      name: "test",
+      source: "test",
+      types: [{ type: testType, fields: testFields }],
+      settings: [
+        { name: "test_note", label: "Note", kind: "text", required: true },
+      ] as const,
+      async run(context) {
+        context.log.info(`the note is ${context.env.test_note}`);
+        await context.upsert(testType.id, [entry]);
+      },
+    });
+    harness.server.settings = { test_note: value };
+    harness.server.secrets.add("test_note");
+    expect(await start(open, harness.runtime(["--once"]))).toBe(0);
+    expect(everything()).toContain("[redacted]");
+    expect(everything()).not.toContain(value);
+
+    harness.server.settings = { test_note: "short" };
+    expect(await start(open, harness.runtime(["--once"]))).toBe(
+      exitCode.settings,
+    );
+    expect(harness.lastRun().error).toContain(
+      "Note (test_note) is shorter than 8 characters",
+    );
+  });
+
+  it("registers again where the settings door loses a registration it answered for, on an interval shorter than the heartbeat's", async () => {
+    const seen: Seen[] = [];
+    harness.server.settings = { test_token: secretToken };
+    const exit = start(typed(seen), harness.runtime(["--every", "15m"]));
+    await harness.clock.sleeping(15 * minute);
+    harness.server.lost = true;
+    await harness.clock.wake(15 * minute);
+    await harness.clock.sleeping(15 * minute);
+    expect(harness.server.registrations).toBe(2);
+    expect(seen).toHaveLength(2);
+    harness.stop();
+    expect(await exit).toBe(exitCode.stopped);
+  });
+
+  it("stops with exit 3, before the run, where the key was widened while it ran", async () => {
+    const held = vendor([entry]);
+    const exit = start(
+      testConnector(held),
+      harness.runtime(["--every", "15m"]),
+    );
+    await harness.clock.sleeping(15 * minute);
+    harness.server.grants = { permissions: ["items.read"] };
+    await harness.clock.wake(15 * minute);
+    const ended = await Promise.race([
+      exit,
+      harness.clock.sleeping(15 * minute).then(() => "ran again"),
+    ]);
+    expect(ended).toBe(exitCode.key);
+    expect(held.runs).toBe(1);
+    expect(harness.lastRun().error).toContain("items.read");
+  });
+});
+
 describe("the key", () => {
   it("accepts the key a connector host mints: its own source, write on its kinds' types, nothing else", async () => {
     expect(

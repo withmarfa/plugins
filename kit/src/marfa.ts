@@ -408,6 +408,24 @@ export class Marfa {
     return data.id;
   }
 
+  /** The types the connector's registration holds read only. */
+  async readOnlyTypes(id: string, signal?: AbortSignal): Promise<string[]> {
+    const { data, error, response } = await this.client.GET(
+      "/connectors/{id}",
+      { params: { path: { id } }, ...(signal !== undefined && { signal }) },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data.read_only_types;
+  }
+
+  /** The types the key's own registration holds read only, where it is
+   *  registered. */
+  async heldReadOnlyTypes(keyId: string): Promise<string[] | undefined> {
+    const { data, error, response } = await this.client.GET("/connectors");
+    if (data === undefined) throw refusal(response, error);
+    return data.data.find((one) => one.key_id === keyId)?.read_only_types;
+  }
+
   /** The connector's settings, its secrets opened, as its own key reads
    *  them. */
   async settings(id: string, signal?: AbortSignal): Promise<HeldSettings> {
