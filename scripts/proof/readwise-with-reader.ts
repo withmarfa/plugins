@@ -1,11 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
-import {
-  createClient,
-  type MarfaClient,
-  type components,
-} from "@withmarfa/client";
+import { createClient, type MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
 import {
   ConnectorUnderProof,
@@ -14,7 +8,7 @@ import {
   type Item,
 } from "./connector.js";
 import { enrichmentPollMs, type ProofServer } from "./server.js";
-import { readwiseVendor } from "./readwise-reader-stub.js";
+import { readwiseVendor } from "./readwise-vendor.js";
 
 /**
  * The file rows once the server's enrichment sweep has finished with them.
@@ -57,11 +51,10 @@ async function settledFiles(admin: MarfaClient): Promise<Map<string, Item>> {
   return rows;
 }
 
-export async function proveReadwiseReader(
+export async function proveReadwiseWithReader(
   admin: MarfaClient,
   url: string,
   mint: ProofServer["mintKey"],
-  updateKey: ProofServer["updateKey"],
 ): Promise<void> {
   const vendor = await readwiseVendor();
   const failures: unknown[] = [];
@@ -73,7 +66,7 @@ export async function proveReadwiseReader(
     }
   };
   try {
-    const key = (source: string, legacy = false) =>
+    const key = (source: string) =>
       mint({
         label: source,
         source,
@@ -82,34 +75,35 @@ export async function proveReadwiseReader(
         type_permissions: {
           "readwise.source": "write",
           "readwise.highlight": "write",
-          ...(!legacy && { "readwise.file": "write" as const }),
+          "readwise.file": "write",
         },
         edge_permissions: {
           "excerpt-of": "write",
-          ...(!legacy && { references: "write" as const }),
-          ...(!legacy && { "attached-to": "write" as const }),
+          references: "write",
+          "attached-to": "write",
         },
         metadata_permissions: { types: "write" },
         permissions: [],
         extension_permissions: {},
         profile_permissions: {},
       });
-    const highlightsKey = await key("reader-proof-highlights", true);
-    const readerKey = await key("reader-proof-reader");
-    const options = (account: string) => ({
+    const readerKey = await key("reader-proof");
+    const options = (account: string, reader = true) => ({
       READWISE_ACCOUNT: account,
       READWISE_ACCESS_TOKEN: "reader-fixture-token",
       READWISE_API_URL: `${vendor.base}/v2/`,
       READWISE_READER_API_URL: `${vendor.base}/v3/`,
+      READWISE_READER: String(reader),
     });
-    const highlights = new ConnectorUnderProof(
+    // One registration, run with Reader off and then on.
+    const exportOnly = new ConnectorUnderProof(
       "readwise",
       url,
-      highlightsKey.key,
-      options("adoption"),
+      readerKey.key,
+      options("adoption", false),
     );
     const reader = new ConnectorUnderProof(
-      "readwise-reader",
+      "readwise",
       url,
       readerKey.key,
       options("adoption"),
@@ -117,20 +111,18 @@ export async function proveReadwiseReader(
     const once = async (runner: ConnectorUnderProof) => {
       const result = await runner.once();
       if (result.code !== 0) {
-        for (const heldKey of [highlightsKey, readerKey]) {
-          const client = createClient({
-            baseUrl: url,
-            credential: heldKey.key,
-          });
-          const found = await registration(client, heldKey.id);
-          const snapshot = await client.GET("/connectors/{id}/state", {
-            params: { path: { id: found.id } },
-          });
-          console.error(
-            "fixture failure conditions",
-            JSON.stringify(snapshot.data?.problems),
-          );
-        }
+        const client = createClient({
+          baseUrl: url,
+          credential: readerKey.key,
+        });
+        const found = await registration(client, readerKey.id);
+        const snapshot = await client.GET("/connectors/{id}/state", {
+          params: { path: { id: found.id } },
+        });
+        console.error(
+          "fixture failure conditions",
+          JSON.stringify(snapshot.data?.problems),
+        );
       }
       assert.equal(result.code, 0, result.output);
     };
@@ -196,18 +188,11 @@ export async function proveReadwiseReader(
         updated_at: stamp,
       });
     }
-    const legacy = new ConnectorUnderProof(
-      "readwise",
-      url,
-      highlightsKey.key,
-      { ...options("adoption"), PROOF_VENDOR_URL: vendor.base },
-      resolve(import.meta.dirname, "readwise-reader-legacy.js"),
-    );
     let before = new Map<string, Item>();
     await verify(
-      "reader fixture: legacy export rows and agreements survive explicit structural schema replacement",
+      "reader fixture: turning Reader on adopts the export's rows, keeping natural IDs in every state and respecting purged aliases",
       async () => {
-        await once(legacy);
+        await once(exportOnly);
         before = await all();
         assert.equal(before.size, 8);
         await transition(await row("adoption:source:2"), "archived");
@@ -217,64 +202,6 @@ export async function proveReadwiseReader(
           params: { path: { id: (await row("adoption:highlight:14")).id } },
         });
         assert.ok(purged.response.ok, JSON.stringify(purged.error));
-        const oldClient = createClient({
-          baseUrl: url,
-          credential: highlightsKey.key,
-        });
-        const registered = await registration(oldClient, highlightsKey.id);
-        const state = () =>
-          oldClient.GET("/connectors/{id}/state", {
-            params: { path: { id: registered.id } },
-          });
-        const agreements = await state();
-        assert.ok(agreements.data, JSON.stringify(agreements.error));
-        const refused = await reader.once();
-        assert.equal(
-          refused.code,
-          1,
-          "Old required export ID must refuse Reader schema adoption",
-        );
-        assert.match(
-          refused.output,
-          /readwise_id|required|schema|incompatible/i,
-        );
-        const retained = await all();
-        for (const type of ["source", "highlight"]) {
-          const definition = JSON.parse(
-            await readFile(
-              resolve(
-                import.meta.dirname,
-                `../../../shared/readwise/src/readwise.${type}.json`,
-              ),
-              "utf8",
-            ),
-          ) as components["schemas"]["TypeDefinitionInput"];
-          const replaced = await admin.PUT("/types/{id}", {
-            params: { path: { id: `readwise.${type}` } },
-            body: definition,
-          });
-          assert.ok(replaced.data, JSON.stringify(replaced.error));
-        }
-        await updateKey(highlightsKey.id, {
-          type_permissions: {
-            "readwise.source": "write",
-            "readwise.highlight": "write",
-            "readwise.file": "write",
-          },
-          edge_permissions: {
-            "excerpt-of": "write",
-            "attached-to": "write",
-            references: "write",
-          },
-        });
-        assert.deepEqual(await all(), retained);
-        assert.deepEqual((await state()).data, agreements.data);
-        return "real legacy process, required-ID refusal, operator PUT, unchanged rows and saved agreements";
-      },
-    );
-    await verify(
-      "reader fixture: Highlights-first adoption retains natural IDs in every state and respects purged aliases",
-      async () => {
         await once(reader);
         for (const [natural, item] of await all())
           assert.equal(item.id, before.get(natural)?.id);
@@ -304,10 +231,10 @@ export async function proveReadwiseReader(
       },
     );
     await verify(
-      "reader fixture: unchanged processes preserve row, file and edge versions",
+      "reader fixture: unchanged runs, with Reader on or off, preserve row, file and edge versions",
       async () => {
         await once(reader);
-        await once(highlights);
+        await once(exportOnly);
         await once(reader);
         const snapshot = async () => {
           const files = await settledFiles(admin);
@@ -326,9 +253,9 @@ export async function proveReadwiseReader(
         };
         const stable = await snapshot();
         await once(reader);
-        await once(highlights);
+        await once(exportOnly);
         assert.deepEqual(await snapshot(), stable);
-        return "complete item and edge snapshots unchanged after both fresh processes";
+        return "complete item and edge snapshots unchanged after runs with Reader on and off";
       },
     );
     await verify(
@@ -383,13 +310,13 @@ export async function proveReadwiseReader(
       },
     );
     await verify(
-      "reader fixture: Highlights independently refreshes managed Reader fields and preserves pending edits",
+      "reader fixture: with Reader off, the export keeps refreshing managed Reader fields and preserves pending edits",
       async () => {
         const writesBefore = vendor.writes.length;
         const document = vendor.documents.get("doc-1");
         assert.ok(document);
         document.title = "Remote title while Reader stopped";
-        await once(highlights);
+        await once(exportOnly);
         assert.equal(
           (await row("adoption:source:1")).properties["title"],
           document.title,
@@ -398,7 +325,7 @@ export async function proveReadwiseReader(
           title: "Pending local title",
         });
         document.title = "New remote title";
-        await once(highlights);
+        await once(exportOnly);
         assert.equal(
           (await row("adoption:source:1")).properties["title"],
           "Pending local title",
@@ -414,7 +341,7 @@ export async function proveReadwiseReader(
           (await row("adoption:source:1")).properties["canonical_key"],
           "adoption:reader-document:doc-1",
         );
-        return "Reader GET from Highlights, pending title retained, one owning Reader carries it later";
+        return "Reader read with Reader off, pending title retained, carried once Reader is on";
       },
     );
     await verify(
@@ -476,7 +403,7 @@ export async function proveReadwiseReader(
         const reconciliationKey = await key("reader-proof-reconciliation");
         await once(
           new ConnectorUnderProof(
-            "readwise-reader",
+            "readwise",
             url,
             reconciliationKey.key,
             options("adoption"),
@@ -536,9 +463,8 @@ export async function proveReadwiseReader(
           content: "Reader-only passage",
         });
         const firstKey = await key("reader-proof-first");
-        const laterKey = await key("reader-proof-later-highlights");
         const first = new ConnectorUnderProof(
-          "readwise-reader",
+          "readwise",
           url,
           firstKey.key,
           options("reader-first"),
@@ -546,7 +472,7 @@ export async function proveReadwiseReader(
         const later = new ConnectorUnderProof(
           "readwise",
           url,
-          laterKey.key,
+          firstKey.key,
           options("reader-first"),
         );
         await once(first);
@@ -599,7 +525,7 @@ export async function proveReadwiseReader(
         vendor.documents.clear();
         const createKey = await key("reader-proof-create");
         const creating = new ConnectorUnderProof(
-          "readwise-reader",
+          "readwise",
           url,
           createKey.key,
           options("creation"),
@@ -660,7 +586,7 @@ export async function proveReadwiseReader(
       vendor.sources.length = 0;
       vendor.documents.clear();
       const runner = new ConnectorUnderProof(
-        "readwise-reader",
+        "readwise",
         url,
         (await key(`reader-proof-${account}`)).key,
         { ...options(account), ...extra },
@@ -769,7 +695,7 @@ export async function proveReadwiseReader(
         const initialKey = await key("reader-proof-guard-initial");
         await once(
           new ConnectorUnderProof(
-            "readwise-reader",
+            "readwise",
             url,
             initialKey.key,
             options("guard"),
@@ -783,7 +709,7 @@ export async function proveReadwiseReader(
         const missingKey = await key("reader-proof-guard-missing");
         await once(
           new ConnectorUnderProof(
-            "readwise-reader",
+            "readwise",
             url,
             missingKey.key,
             options("guard"),
@@ -796,7 +722,7 @@ export async function proveReadwiseReader(
       },
     );
     await verify(
-      "reader fixture: current Highlights-first adoption keeps IDs, content and repeated runs stable",
+      "reader fixture: Reader turned on after the export keeps IDs, content and repeated runs stable",
       async () => {
         vendor.sources.length = 0;
         vendor.documents.clear();
@@ -825,18 +751,17 @@ export async function proveReadwiseReader(
           content: "Fresh passage",
           updated_at: stamp,
         });
-        const freshHighlightsKey = await key("reader-proof-fresh-highlights");
-        const freshReaderKey = await key("reader-proof-fresh-reader");
-        const freshHighlights = new ConnectorUnderProof(
+        const freshKey = await key("reader-proof-fresh");
+        const freshExport = new ConnectorUnderProof(
           "readwise",
           url,
-          freshHighlightsKey.key,
-          options("fresh"),
+          freshKey.key,
+          options("fresh", false),
         );
         const freshReader = new ConnectorUnderProof(
-          "readwise-reader",
+          "readwise",
           url,
-          freshReaderKey.key,
+          freshKey.key,
           { ...options("fresh"), READWISE_READER_INBOUND_ONLY: "true" },
         );
         const freshRows = async () =>
@@ -845,7 +770,7 @@ export async function proveReadwiseReader(
               ([, item]) => item.properties["account"] === "fresh",
             ),
           );
-        await once(freshHighlights);
+        await once(freshExport);
         const original = await freshRows();
         assert.equal(original.size, 2);
         for (const [natural, item] of original)
@@ -878,7 +803,7 @@ export async function proveReadwiseReader(
         });
         assert.ok(content.data, JSON.stringify(content.error));
         assert.equal(Buffer.from(content.data).toString(), html);
-        await once(freshHighlights);
+        await once(freshExport);
         await once(freshReader);
         assert.deepEqual(await snapshot(), retained);
         return "current binaries, original IDs and natural keys, retained HTML, unchanged item and file versions";
@@ -927,21 +852,20 @@ export async function proveReadwiseReader(
           content: "Current Reader passage",
           updated_at: stamp,
         });
-        const highlightsKey = await key("reader-proof-lifecycle-highlights");
-        const readerKey = await key("reader-proof-lifecycle-reader");
-        const highlights = new ConnectorUnderProof(
+        const lifecycleKey = await key("reader-proof-lifecycle");
+        const exportOnly = new ConnectorUnderProof(
           "readwise",
           url,
-          highlightsKey.key,
-          options("lifecycle"),
+          lifecycleKey.key,
+          options("lifecycle", false),
         );
         const reader = new ConnectorUnderProof(
-          "readwise-reader",
+          "readwise",
           url,
-          readerKey.key,
+          lifecycleKey.key,
           { ...options("lifecycle"), READWISE_READER_INBOUND_ONLY: "true" },
         );
-        await once(highlights);
+        await once(exportOnly);
         const historical = await row("lifecycle:highlight:102");
         const active = await row("lifecycle:highlight:103");
         const old = source.highlights[0];

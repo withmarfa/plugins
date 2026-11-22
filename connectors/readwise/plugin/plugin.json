@@ -1,7 +1,7 @@
 {
   "name": "readwise",
   "title": "Readwise",
-  "description": "Sources and complete highlights from one Readwise account, read only.",
+  "description": "Sources and complete highlights from one Readwise account, and, when turned on, Reader documents with supported two-way edits.",
   "mark": "lucide:highlighter",
   "maker": "WithMarfa",
   "marfa": "0.0.95",
@@ -9,8 +9,12 @@
     "source": "readwise",
     "source_name": "Readwise",
     "kinds": [
-      { "name": "source", "type": "readwise.source", "direction": "in" },
-      { "name": "highlight", "type": "readwise.highlight", "direction": "in" },
+      { "name": "source", "type": "readwise.source", "direction": "both" },
+      {
+        "name": "highlight",
+        "type": "readwise.highlight",
+        "direction": "both"
+      },
       { "name": "file", "type": "readwise.file", "direction": "in" }
     ],
     "edge_types": ["excerpt-of", "references", "attached-to"],
@@ -43,10 +47,46 @@
         "required": false
       },
       {
+        "name": "readwise_reader",
+        "label": "Include Readwise Reader",
+        "kind": "boolean",
+        "default": false,
+        "required": false
+      },
+      {
         "name": "readwise_reader_api_url",
         "label": "Reader API address",
         "kind": "text",
         "default": "https://readwise.io/api/v3/",
+        "required": false
+      },
+      {
+        "name": "readwise_reader_include_feed",
+        "label": "Include the Reader feed",
+        "kind": "boolean",
+        "default": false,
+        "required": false
+      },
+      {
+        "name": "readwise_reader_pictures",
+        "label": "Reader pictures",
+        "kind": "choice",
+        "default": "addresses",
+        "required": false,
+        "choices": ["addresses", "save", "save-in-library"]
+      },
+      {
+        "name": "readwise_reader_inbound_only",
+        "label": "Never send edits to Reader",
+        "kind": "boolean",
+        "default": false,
+        "required": false
+      },
+      {
+        "name": "readwise_reader_propagate_purge",
+        "label": "Delete from Reader what is purged in Marfa",
+        "kind": "boolean",
+        "default": false,
         "required": false
       }
     ],
