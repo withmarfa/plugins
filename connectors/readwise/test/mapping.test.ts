@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { parsePage } from "@withmarfa/readwise";
-import { identity, mapHighlight, mapSource } from "@withmarfa/readwise";
+import { parsePage } from "../src/readwise.js";
+import { identity, mapHighlight, mapSource } from "../src/readwise.js";
 import {
   sourceType,
   highlightType,
   sourceFields,
   highlightFields,
-} from "@withmarfa/readwise";
+} from "../src/readwise.js";
 
 const highlight = {
   id: 42,

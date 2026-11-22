@@ -1,20 +1,25 @@
-import { defineConnector, type Item, type Entry } from "@withmarfa/connector";
-import { contentMaxBytes, endpoint } from "@withmarfa/readwise";
-import { identity } from "@withmarfa/readwise";
-import { highlightsPolicy } from "./coexistence.js";
-import { settings, sync } from "./sync.js";
+import { defineConnector } from "@withmarfa/connector";
 import {
   sourceType,
   highlightType,
   sourceFields,
   highlightFields,
+  readerMutableSourceFields,
+  readerMutableHighlightFields,
   readerFileType,
   readerFileFields,
   readerFilePolicy,
-} from "@withmarfa/readwise";
+} from "./readwise.js";
+import { settings } from "./settings.js";
+import { parseConfig } from "./reader/config.js";
+import { readerArchived } from "./reader/sync.js";
+import { onChange, preflight } from "./reader/outbound.js";
+import { rowPolicy, type PolicyConfig } from "./policy.js";
+import { sync } from "./sync.js";
 
 export function connector() {
-  let account: string | undefined;
+  let config: PolicyConfig | undefined;
+  const fromReader = new Set<string>();
   return defineConnector({
     name: "readwise",
     title: "Readwise",
@@ -23,31 +28,58 @@ export function connector() {
     source: "readwise",
     sourceName: "Readwise",
     description:
-      "Sources and complete highlights from one Readwise account, read only.",
+      "Sources and complete highlights from one Readwise account, and, when turned on, Reader documents with supported two-way edits.",
     readme: "connectors/readwise/README.md",
+    settings,
+    checkEnv(values) {
+      const parsed = parseConfig(values);
+      config = {
+        account: parsed.account,
+        reader: parsed.reader,
+        inboundOnly: parsed.inboundOnly,
+      };
+    },
     types: [
       {
         name: "source",
-        direction: "in",
+        direction: "both",
         type: sourceType,
         fields: sourceFields,
-        policy: (item: Item | undefined, entry?: Entry) =>
-          highlightsPolicy(sourceType.id, item, entry),
+        readOnly: sourceFields.filter(
+          (field) =>
+            !(readerMutableSourceFields as readonly string[]).includes(field),
+        ),
+        policy: (item, entry, archiving) =>
+          rowPolicy(sourceType.id, config, item, entry, archiving, fromReader),
+        archived: readerArchived,
       },
       {
         name: "highlight",
-        direction: "in",
+        direction: "both",
         type: highlightType,
         fields: highlightFields,
-        policy: (item: Item | undefined, entry?: Entry) =>
-          highlightsPolicy(highlightType.id, item, entry),
+        readOnly: highlightFields.filter(
+          (field) =>
+            !(readerMutableHighlightFields as readonly string[]).includes(
+              field,
+            ),
+        ),
+        policy: (item, entry, archiving) =>
+          rowPolicy(
+            highlightType.id,
+            config,
+            item,
+            entry,
+            archiving,
+            fromReader,
+          ),
       },
       {
         name: "file",
         direction: "in",
         type: readerFileType,
         fields: readerFileFields,
-        policy: (item, entry) => readerFilePolicy(account, item, entry),
+        policy: (item, entry) => readerFilePolicy(config?.account, item, entry),
       },
     ],
     retired: [{ type: highlightType.id, connection: "references" }],
@@ -76,13 +108,15 @@ export function connector() {
         to_type_constraints: [sourceType.id, highlightType.id],
       },
     ],
-    settings,
-    checkEnv(values) {
-      identity(values.readwise_account, "source", 1);
-      account = values.readwise_account;
-      endpoint(values.readwise_api_url);
-      contentMaxBytes(values.readwise_content_max_bytes);
+    // Nothing goes to Readwise unless Reader is on and may be written.
+    carries: (values) => {
+      const parsed = parseConfig(values);
+      return parsed.reader && !parsed.inboundOnly
+        ? [sourceType.id, highlightType.id]
+        : [];
     },
-    run: sync,
+    run: (context) => sync(context, fromReader),
+    preflight,
+    onChange,
   });
 }

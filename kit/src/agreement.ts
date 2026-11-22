@@ -1,6 +1,9 @@
 import type { Entry } from "./define.js";
 import { cleaned, fingerprint, instant } from "./values.js";
 
+/** The key under which `waiting` holds when a state change began. */
+export const stateKey = "@state";
+
 /** A row's own time, beside its properties; no property starts with `@`. */
 export const occurredKey = "@occurred_at";
 
@@ -127,6 +130,9 @@ export interface MergeInput {
   readonly retired?: readonly string[];
   readonly preserveFirst?: boolean;
   readonly firstHold?: boolean;
+  /** The row's state and the values changed in Marfa since the agreement
+   *  are agreed as they stand, as a first agreement's hold keeps them. */
+  readonly adopt?: boolean;
   readonly agreement: Agreement | undefined;
   readonly row: Row;
   readonly entry: Entry;
@@ -171,6 +177,15 @@ export function merge(input: MergeInput): Merged {
     const vendorNow = mark(held(theirs, field));
     const marfaNow = mark(held(properties, field));
     const observing = input.observe?.(field) === true;
+    if (
+      input.adopt === true &&
+      agreement !== undefined &&
+      (observing || !readOnly(field)) &&
+      marfaNow !== at(agreement.marfa, field)
+    ) {
+      if (marfaNow !== "") marfa[field] = marfaNow;
+      continue;
+    }
     if (agreement === undefined) {
       if (input.firstHold === true && marfaNow === "" && vendorNow !== "") {
         seeded.push(field);
@@ -240,8 +255,10 @@ export function merge(input: MergeInput): Merged {
     kept.push(field);
     keep(field, since);
   }
+  const adopting = input.adopt === true && agreement !== undefined;
   for (const [key, since] of Object.entries(agreement?.waiting ?? {})) {
-    if (!fields.includes(key)) waiting[key] = since;
+    if (!fields.includes(key) && !(adopting && key === stateKey))
+      waiting[key] = since;
   }
   for (const field of input.retired ?? []) {
     Reflect.deleteProperty(properties, field);
@@ -269,9 +286,14 @@ export function merge(input: MergeInput): Merged {
   const next: Agreement = {
     vendor,
     marfa,
-    state: agreement?.state ?? agreedState(row.state ?? "active"),
-    ...(agreement?.stateBy !== undefined && { stateBy: agreement.stateBy }),
-    ...(agreement?.stateAt !== undefined && { stateAt: agreement.stateAt }),
+    state:
+      agreement !== undefined && !adopting
+        ? agreement.state
+        : agreedState(row.state ?? "active"),
+    ...(!adopting &&
+      agreement?.stateBy !== undefined && { stateBy: agreement.stateBy }),
+    ...(!adopting &&
+      agreement?.stateAt !== undefined && { stateAt: agreement.stateAt }),
     ...(agreement?.link !== undefined && { link: agreement.link }),
     ...(changedAt !== undefined && { changedAt }),
     ...(Object.keys(waiting).length > 0 && { waiting }),

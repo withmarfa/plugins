@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
-import type { ExportPage } from "@withmarfa/readwise";
+import type { ExportPage } from "../src/readwise.js";
 
 const exec = promisify(execFile);
 const built = resolve(import.meta.dirname, "../dist/main.js");
@@ -209,7 +209,7 @@ function due() {
 }
 
 describe("Readwise process on the kit", () => {
-  it("keeps canonical adoption and local notes when an existing Highlights agreement observes Reader", async () => {
+  it("keeps canonical adoption and local notes when the export's existing agreement observes Reader", async () => {
     expect((await once()).code).toBe(0);
     const original = marfa.row("primary:source:1");
     marfa.touch("primary:source:1", {

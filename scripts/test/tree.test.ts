@@ -299,7 +299,6 @@ describe("the tree", () => {
       .filter((path) => /^shared\/[^/]+\/package\.json$/.test(path))
       .map((path) => path.split("/")[1]);
     expect(shared).toContain("google");
-    expect(shared).toContain("readwise");
   });
 
   it("takes only the shared packages' manifests and sources into the image, and no .env file at any depth", () => {
@@ -312,7 +311,7 @@ describe("the tree", () => {
       "shared/google/tsconfig.json",
       "shared/google/src/index.ts",
       "shared/google/src/env.ts",
-      "shared/readwise/src/nested/deep.ts",
+      "shared/google/src/nested/deep.ts",
       "kit/src/env.ts",
       "connectors/rss/src/.envrc.ts",
     ];
@@ -331,8 +330,8 @@ describe("the tree", () => {
       "shared/google/test/google.test.ts",
       "shared/google/dist/index.js",
       "shared/google/node_modules/x/index.js",
-      "shared/readwise/notes/package.json",
-      "shared/readwise/vitest.config.ts",
+      "shared/google/notes/package.json",
+      "shared/google/vitest.config.ts",
     ];
     expect(kept.filter((path) => dockerIgnores(rules, path))).toEqual([]);
     expect(left.filter((path) => !dockerIgnores(rules, path))).toEqual([]);

@@ -9,9 +9,6 @@
   "references": [
     {
       "path": "../../kit"
-    },
-    {
-      "path": "../../shared/readwise"
     }
   ]
 }
