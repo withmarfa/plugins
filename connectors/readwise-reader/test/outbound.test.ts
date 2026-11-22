@@ -11,7 +11,7 @@ import type {
 } from "@withmarfa/connector";
 import { readerIdentity, type ReaderDocument } from "@withmarfa/readwise";
 import { onChange, preflight } from "../src/outbound.js";
-import { env } from "../src/config.js";
+import type { settings } from "../src/config.js";
 let server: Server;
 let base: string;
 let token: string;
@@ -267,7 +267,7 @@ function context(propagatePurge = false) {
       set: (key: string, entry: unknown) => state.set(key, entry),
     },
     log: { condition: () => undefined, clear: () => undefined },
-  } as unknown as WatchContext<typeof env>;
+  } as unknown as WatchContext<typeof settings>;
   return {
     value,
     state,

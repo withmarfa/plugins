@@ -71,7 +71,7 @@ describe("configuration", () => {
       {
         ...connector,
         run: async (context) => {
-          region = context.env.TEST_REGION;
+          region = context.env.test_region;
           await run(context);
         },
       },
@@ -166,11 +166,11 @@ describe("configuration", () => {
     const connector = {
       ...testConnector(vendor([entry])),
       checkEnv: (env: {
-        TEST_REGION: string | undefined;
-        TEST_TOKEN: string;
+        test_region: string | undefined;
+        test_token: string;
       }) => {
-        if (env.TEST_REGION === "nowhere") {
-          throw new Error(`no region nowhere for ${env.TEST_TOKEN}`);
+        if (env.test_region === "nowhere") {
+          throw new Error(`no region nowhere for ${env.test_token}`);
         }
       },
     };

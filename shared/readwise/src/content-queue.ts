@@ -2,7 +2,7 @@ import type {
   CheckpointState,
   Entry,
   Item,
-  EnvDeclaration,
+  SettingsDeclaration,
   RunContext,
   ScopedRunContext,
 } from "@withmarfa/connector";
@@ -34,12 +34,12 @@ import type { ReaderReader } from "./reader-client.js";
 import { stageContent } from "./content-staging.js";
 
 export type Context = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   "known" | "signal" | "log"
 > & {
   /** Without it, no picture is proven attached to its document, so none is
    *  listed as kept. */
-  linked?: RunContext<EnvDeclaration>["linked"];
+  linked?: RunContext<SettingsDeclaration>["linked"];
   inspect(
     type: string,
     query: { links: readonly string[] },
@@ -49,7 +49,7 @@ export type Context = Pick<
   }>;
   forScope(
     name: string,
-  ): Pick<ScopedRunContext<EnvDeclaration>, "upsert" | "state">;
+  ): Pick<ScopedRunContext<SettingsDeclaration>, "upsert" | "state">;
 };
 /** How long work that failed `attempts` runs in a row waits before it is
  *  tried again: doubling from two minutes, at most a day. */

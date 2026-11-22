@@ -1,6 +1,6 @@
 import type {
   Entry,
-  EnvDeclaration,
+  SettingsDeclaration,
   Item,
   RunContext,
   State,
@@ -25,7 +25,7 @@ export const directoryType = "github.directory";
 export const inCollection = "in-collection";
 
 type Context = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   "held" | "upsert" | "archive" | "derive" | "linked" | "log" | "signal"
 >;
 

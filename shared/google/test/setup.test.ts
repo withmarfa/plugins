@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LocalCallback } from "@withmarfa/connector";
 import { signIn, type GoogleSetupContext } from "../src/index.js";
-import { clientEnv, GoogleStub, idToken } from "./stub.js";
+import { clientSettings, GoogleStub, idToken } from "./stub.js";
 
 async function failure(result: Promise<unknown>): Promise<Error> {
   const outcome = await result.then(
@@ -120,7 +120,7 @@ function driven(env: Record<string, string | undefined>): Driven {
 
 const options = () => ({ endpoints: stub.endpoints, now: () => time });
 const env = (extra: Record<string, string | undefined> = {}) => ({
-  ...clientEnv,
+  ...clientSettings,
   ...extra,
 });
 
@@ -131,7 +131,7 @@ describe("signing in", () => {
     const consent = await seen.consent();
     const query = consent.searchParams;
     expect(consent.origin + consent.pathname).toBe(`${stub.url}/auth`);
-    expect(query.get("client_id")).toBe(clientEnv.GOOGLE_CLIENT_ID);
+    expect(query.get("client_id")).toBe(clientSettings.google_client_id);
     expect(query.get("redirect_uri")).toBe(
       "http://127.0.0.1:50123/0b1a2c3d/callback",
     );
@@ -148,14 +148,16 @@ describe("signing in", () => {
     );
 
     seen.redirect({ code, state: query.get("state") ?? "" });
-    expect(await result).toEqual({ GOOGLE_REFRESH_TOKEN: issued });
+    expect(await result).toEqual({ google_refresh_token: issued });
 
     expect(stub.token).toHaveLength(1);
     const form = stub.token[0]?.form;
     expect(form?.get("grant_type")).toBe("authorization_code");
     expect(form?.get("code")).toBe(code);
-    expect(form?.get("client_id")).toBe(clientEnv.GOOGLE_CLIENT_ID);
-    expect(form?.get("client_secret")).toBe(clientEnv.GOOGLE_CLIENT_SECRET);
+    expect(form?.get("client_id")).toBe(clientSettings.google_client_id);
+    expect(form?.get("client_secret")).toBe(
+      clientSettings.google_client_secret,
+    );
     expect(form?.get("redirect_uri")).toBe(query.get("redirect_uri"));
     const verifier = form?.get("code_verifier") ?? "";
     expect(verifier).toMatch(/^[A-Za-z0-9_-]{43,128}$/);
@@ -168,7 +170,7 @@ describe("signing in", () => {
       issued,
       code,
       verifier,
-      clientEnv.GOOGLE_CLIENT_SECRET,
+      clientSettings.google_client_secret,
     ]) {
       expect(logged).not.toContain(secret);
     }
@@ -188,7 +190,7 @@ describe("signing in", () => {
   });
 
   it("refuses without the client in the environment", async () => {
-    for (const missing of ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]) {
+    for (const missing of ["google_client_id", "google_client_secret"]) {
       const seen = driven(env({ [missing]: undefined }));
       await expect(signIn(seen.context, [A], options())).rejects.toThrow(
         /setup needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET/,
@@ -284,7 +286,7 @@ describe("signing in", () => {
     const result = signIn(seen.context, [A, B], options());
     const consent = await seen.consent();
     seen.redirect({ code, state: consent.searchParams.get("state") ?? "" });
-    expect(await result).toEqual({ GOOGLE_REFRESH_TOKEN: issued });
+    expect(await result).toEqual({ google_refresh_token: issued });
     const warnings = seen.lines.filter((line) => line.startsWith("warn"));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).toContain(B);
@@ -341,7 +343,7 @@ describe("signing in again with a grant already held", () => {
       }
       return stub.granted({ refresh_token: issued, scope: `openid ${A} ${B}` });
     };
-    const seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    const seen = driven(env({ google_refresh_token: existing }));
     const result = signIn(seen.context, [B], options());
     const consent = await seen.consent();
     expect(consent.searchParams.get("scope")?.split(" ").sort()).toEqual(
@@ -349,7 +351,7 @@ describe("signing in again with a grant already held", () => {
     );
     expect(stub.token[0]?.form.get("refresh_token")).toBe(existing);
     seen.redirect({ code, state: consent.searchParams.get("state") ?? "" });
-    expect(await result).toEqual({ GOOGLE_REFRESH_TOKEN: issued });
+    expect(await result).toEqual({ google_refresh_token: issued });
     const logged = seen.lines.join("\n");
     expect(logged).not.toContain(existing);
     expect(logged).not.toContain(issued);
@@ -363,7 +365,7 @@ describe("signing in again with a grant already held", () => {
       }
       return stub.granted({ refresh_token: issued, scope: `openid ${B}` });
     };
-    const seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    const seen = driven(env({ google_refresh_token: existing }));
     const result = signIn(seen.context, [B], options());
     const consent = await seen.consent();
     expect(consent.searchParams.get("scope")).toBe(`openid ${B}`);
@@ -377,12 +379,12 @@ describe("signing in again with a grant already held", () => {
 
   it("stops where the client is wrong or Google cannot be reached, so it does not drop the grant's scopes unseen", async () => {
     stub.onToken = () => ({ status: 401, json: { error: "invalid_client" } });
-    let seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    let seen = driven(env({ google_refresh_token: existing }));
     await expect(signIn(seen.context, [B], options())).rejects.toThrow(
       /OAuth client/,
     );
     stub.onToken = () => ({ status: 503, json: {} });
-    seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    seen = driven(env({ google_refresh_token: existing }));
     await expect(signIn(seen.context, [B], options())).rejects.toThrow(
       /existing grant/,
     );
@@ -397,7 +399,7 @@ describe("signing in again with a grant already held", () => {
             return reply;
           })()
         : stub.granted({ refresh_token: issued, scope: `openid ${B}` });
-    const seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    const seen = driven(env({ google_refresh_token: existing }));
     const result = signIn(seen.context, [B], options());
     const consent = await seen.consent();
     expect(consent.searchParams.get("scope")).toBe(`openid ${B}`);
@@ -422,7 +424,7 @@ describe("signing in again with a grant already held", () => {
         id_token: idToken("sub-new"),
       });
     };
-    const seen = driven(env({ GOOGLE_REFRESH_TOKEN: existing }));
+    const seen = driven(env({ google_refresh_token: existing }));
     const result = signIn(seen.context, [B], options());
     const consent = await seen.consent();
     seen.redirect({ code, state: consent.searchParams.get("state") ?? "" });

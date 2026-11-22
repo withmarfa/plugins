@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
-  EnvValues,
+  SettingValues,
   RunContext,
   ScopedRunContext,
 } from "@withmarfa/connector";
@@ -26,28 +26,26 @@ import {
   SharedRows,
   type SharedContext,
 } from "./coexistence.js";
-import { sourceType, highlightType } from "@withmarfa/readwise";
+import {
+  highlightType,
+  readwiseSettings,
+  sourceType,
+} from "@withmarfa/readwise";
 
-export const env = {
-  READWISE_ACCOUNT: "required",
-  READWISE_ACCESS_TOKEN: "secret",
-  READWISE_API_URL: "optional",
-  READWISE_CONTENT_MAX_BYTES: "optional",
-  READWISE_READER_API_URL: "optional",
-} as const;
+export const settings = readwiseSettings;
 export type ReadScope = Pick<
-  ScopedRunContext<typeof env>,
+  ScopedRunContext<typeof settings>,
   "state" | "upsert" | "archive" | "refusals"
 >;
 export interface ReadContext extends SharedContext {
-  env: EnvValues<typeof env>;
+  env: SettingValues<typeof settings>;
   signal: AbortSignal;
-  waitUntil: RunContext<typeof env>["waitUntil"];
-  hints: RunContext<typeof env>["hints"];
-  log: RunContext<typeof env>["log"];
-  written: RunContext<typeof env>["written"];
-  known?: RunContext<typeof env>["known"];
-  linked?: RunContext<typeof env>["linked"];
+  waitUntil: RunContext<typeof settings>["waitUntil"];
+  hints: RunContext<typeof settings>["hints"];
+  log: RunContext<typeof settings>["log"];
+  written: RunContext<typeof settings>["written"];
+  known?: RunContext<typeof settings>["known"];
+  linked?: RunContext<typeof settings>["linked"];
   forScope: (
     name: string,
     options?: { retry: { mode: "refetch"; context: string } },
@@ -285,20 +283,20 @@ export async function sync(
     return;
   }
   const now = options.now ?? Date.now;
-  const account = context.env.READWISE_ACCOUNT;
+  const account = context.env.readwise_account;
   const maximumContentBytes = contentMaxBytes(
-    context.env.READWISE_CONTENT_MAX_BYTES,
+    context.env.readwise_content_max_bytes,
   );
   identity(account, "source", 1);
-  const base = endpoint(context.env.READWISE_API_URL);
+  const base = endpoint(context.env.readwise_api_url);
   const readerBase = endpoint(
-    context.env.READWISE_READER_API_URL ?? "https://readwise.io/api/v3/",
+    context.env.readwise_reader_api_url ?? "https://readwise.io/api/v3/",
   );
   const reader =
     options.reader ??
     new ReaderClient(
       readerBase,
-      context.env.READWISE_ACCESS_TOKEN,
+      context.env.readwise_access_token,
       context.signal,
       { now, waitUntil: (until) => context.waitUntil(until) },
     );
@@ -343,7 +341,7 @@ export async function sync(
   }
   const client =
     options.client ??
-    new Client(base, context.env.READWISE_ACCESS_TOKEN, context.signal, {
+    new Client(base, context.env.readwise_access_token, context.signal, {
       now,
       waitUntil: (until) => context.waitUntil(until),
     });

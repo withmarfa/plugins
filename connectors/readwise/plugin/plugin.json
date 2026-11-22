@@ -1,0 +1,55 @@
+{
+  "name": "readwise",
+  "title": "Readwise",
+  "description": "Sources and complete highlights from one Readwise account, read only.",
+  "mark": "lucide:highlighter",
+  "maker": "WithMarfa",
+  "marfa": "0.0.95",
+  "connector": {
+    "source": "readwise",
+    "source_name": "Readwise",
+    "kinds": [
+      { "name": "source", "type": "readwise.source", "direction": "in" },
+      { "name": "highlight", "type": "readwise.highlight", "direction": "in" },
+      { "name": "file", "type": "readwise.file", "direction": "in" }
+    ],
+    "edge_types": ["excerpt-of", "references", "attached-to"],
+    "settings": [
+      {
+        "name": "readwise_account",
+        "label": "Account name",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "name": "readwise_access_token",
+        "label": "Readwise access token",
+        "kind": "text",
+        "secret": true,
+        "required": true
+      },
+      {
+        "name": "readwise_api_url",
+        "label": "Readwise API address",
+        "kind": "text",
+        "default": "https://readwise.io/api/v2/",
+        "required": false
+      },
+      {
+        "name": "readwise_content_max_bytes",
+        "label": "Largest saved document in bytes",
+        "kind": "number",
+        "default": 268435456,
+        "required": false
+      },
+      {
+        "name": "readwise_reader_api_url",
+        "label": "Reader API address",
+        "kind": "text",
+        "default": "https://readwise.io/api/v3/",
+        "required": false
+      }
+    ],
+    "runs": { "on": "host" }
+  }
+}

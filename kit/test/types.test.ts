@@ -42,7 +42,15 @@ function twoTypes(held: Held) {
       { type: linkedType, fields: testFields },
       { type: noteType, fields: ["title"] },
     ],
-    env: { TEST_TOKEN: "secret" },
+    settings: [
+      {
+        name: "test_token",
+        label: "Test token",
+        kind: "text",
+        secret: true,
+        required: true,
+      },
+    ],
     carries: () => held.carries ?? ["test.entry"],
     async run(context) {
       await context.upsert(testType.id, held.entries);

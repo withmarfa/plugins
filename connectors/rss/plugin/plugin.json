@@ -1,0 +1,42 @@
+{
+  "name": "rss",
+  "title": "RSS",
+  "description": "Entries from Atom, RSS and JSON feeds.",
+  "mark": "simple-icons:rss",
+  "maker": "WithMarfa",
+  "marfa": "0.0.95",
+  "connector": {
+    "source": "rss",
+    "source_name": "RSS",
+    "source_mark": "simple-icons:rss",
+    "kinds": [
+      { "name": "entry", "type": "rss.entry", "direction": "in" },
+      { "name": "picture", "type": "rss.picture", "direction": "in" }
+    ],
+    "edge_types": ["attached-to"],
+    "settings": [
+      {
+        "name": "rss_feeds",
+        "label": "Feeds",
+        "kind": "text",
+        "secret": true,
+        "required": true
+      },
+      {
+        "name": "rss_private_hosts",
+        "label": "Private hosts",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "rss_pictures",
+        "label": "Pictures",
+        "kind": "choice",
+        "default": "addresses",
+        "required": false,
+        "choices": ["addresses", "save", "save-in-library"]
+      }
+    ],
+    "runs": { "on": "host" }
+  }
+}

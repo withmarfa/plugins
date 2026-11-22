@@ -22,7 +22,7 @@ import { CalendarApi, isGone, isJson, object, text, type Json } from "./api.js";
 import {
   calendarListScope,
   childOf,
-  env,
+  settings,
   eventsScope,
   inCalendar,
   needs,
@@ -57,7 +57,7 @@ import {
 } from "./recurrence.js";
 import { dayStart, iso, localDate, nextDay, validZone } from "./time.js";
 
-export type WriteContext = WatchContext<typeof env>;
+export type WriteContext = WatchContext<typeof settings>;
 
 /** What a write needs of Google, asked once for each context the kit hands. */
 interface Session {
@@ -1682,7 +1682,7 @@ export async function preflight(
   if (held.length === 0) return;
   const doomed = held.flatMap((one) => one.doomed);
   const confirmation = confirmationOf(doomed);
-  const given = context.env.GOOGLE_CALENDAR_CONFIRM_DELETES;
+  const given = context.env.google_calendar_confirm_deletes;
   if (given === confirmation) {
     context.log.info(
       `GOOGLE_CALENDAR_CONFIRM_DELETES confirms deleting ${String(doomed.length)} events from Google Calendar`,

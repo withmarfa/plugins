@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import type { EnvDeclaration, SetupContext } from "@withmarfa/connector";
+import type { SettingsDeclaration, SetupContext } from "@withmarfa/connector";
 import {
   anonymous,
   asApp,
@@ -9,16 +9,16 @@ import {
 } from "./github.js";
 
 export interface SetupEnv {
-  readonly GITHUB_PERSONAL_TOKEN?: string | undefined;
-  readonly GITHUB_APP_ID?: string | undefined;
-  readonly GITHUB_PRIVATE_KEY?: string | undefined;
-  readonly GITHUB_WEBHOOK_SECRET?: string | undefined;
-  readonly GITHUB_API_URL?: string | undefined;
-  readonly GITHUB_REQUEST_SPACING_MS?: string | undefined;
-  readonly GITHUB_PUBLIC_URL?: string | undefined;
-  readonly GITHUB_ORGANIZATION?: string | undefined;
-  readonly GITHUB_READ_ONLY?: string | undefined;
-  readonly GITHUB_APP_NAME?: string | undefined;
+  readonly github_personal_token?: string | undefined;
+  readonly github_app_id?: string | undefined;
+  readonly github_private_key?: string | undefined;
+  readonly github_webhook_secret?: string | undefined;
+  readonly github_api_url?: string | undefined;
+  readonly github_request_spacing_ms?: string | undefined;
+  readonly github_public_url?: string | undefined;
+  readonly github_organization?: string | undefined;
+  readonly github_read_only?: string | undefined;
+  readonly github_app_name?: string | undefined;
 }
 
 /** The App's name unless the setup names another; GitHub holds each
@@ -165,17 +165,17 @@ export function page(target: string, body: Record<string, unknown>): string {
 `;
 }
 
-export async function setUp<E extends EnvDeclaration>(
+export async function setUp<E extends SettingsDeclaration>(
   context: SetupContext<E>,
   env: SetupEnv,
 ): Promise<Record<string, string>> {
   const { listen, endpoint, secret, log, signal } = context;
-  readOnly(env.GITHUB_READ_ONLY);
-  if (env.GITHUB_PERSONAL_TOKEN !== undefined) {
+  readOnly(env.github_read_only);
+  if (env.github_personal_token !== undefined) {
     if (
-      env.GITHUB_APP_ID !== undefined ||
-      env.GITHUB_PRIVATE_KEY !== undefined ||
-      env.GITHUB_WEBHOOK_SECRET !== undefined
+      env.github_app_id !== undefined ||
+      env.github_private_key !== undefined ||
+      env.github_webhook_secret !== undefined
     )
       throw new Error(
         "choose either GITHUB_PERSONAL_TOKEN or the GitHub App settings",
@@ -185,26 +185,26 @@ export async function setUp<E extends EnvDeclaration>(
     );
     return {};
   }
-  const base = env.GITHUB_API_URL ?? defaultBase;
+  const base = env.github_api_url ?? defaultBase;
   const spacingMs = spacingOf(env);
   const made = await endpoint({
     label: "github",
     duplicateHeader: "X-GitHub-Delivery",
   });
   const hook =
-    env.GITHUB_PUBLIC_URL === undefined
+    env.github_public_url === undefined
       ? undefined
-      : hookUrl(env.GITHUB_PUBLIC_URL, made.path);
+      : hookUrl(env.github_public_url, made.path);
 
-  if (env.GITHUB_APP_ID !== undefined && env.GITHUB_PRIVATE_KEY !== undefined) {
+  if (env.github_app_id !== undefined && env.github_private_key !== undefined) {
     if (hook === undefined) {
       throw new Error(
         "GITHUB_PUBLIC_URL names no address, so the App's webhook has nowhere to point",
       );
     }
     const app: App = {
-      appId: env.GITHUB_APP_ID,
-      privateKey: env.GITHUB_PRIVATE_KEY,
+      appId: env.github_app_id,
+      privateKey: env.github_private_key,
       base,
       spacingMs,
     };
@@ -212,27 +212,27 @@ export async function setUp<E extends EnvDeclaration>(
     log.info(
       "the App's webhook now points at this instance, with a new secret; turn it on under the App's settings if it is off",
     );
-    return { GITHUB_WEBHOOK_SECRET: webhookSecret };
+    return { github_webhook_secret: webhookSecret };
   }
 
   const state = randomUUID();
   const web = base === defaultBase ? "https://github.com" : base;
-  const owner = env.GITHUB_ORGANIZATION;
+  const owner = env.github_organization;
   const target = `${web}${owner === undefined ? "" : `/organizations/${encodeURIComponent(owner)}`}/settings/apps/new?state=${state}`;
   const local = await listen((callback) =>
     page(
       target,
       manifest({
-        name: env.GITHUB_APP_NAME ?? defaultName,
+        name: env.github_app_name ?? defaultName,
         callback,
         hook: hook ?? made.url,
         active: hook !== undefined,
         readOnly:
-          readOnly(env.GITHUB_READ_ONLY, "issue") &&
-          readOnly(env.GITHUB_READ_ONLY, "comment"),
+          readOnly(env.github_read_only, "issue") &&
+          readOnly(env.github_read_only, "comment"),
         discussionsReadOnly:
-          readOnly(env.GITHUB_READ_ONLY, "discussion") &&
-          readOnly(env.GITHUB_READ_ONLY, "comment"),
+          readOnly(env.github_read_only, "discussion") &&
+          readOnly(env.github_read_only, "comment"),
       }),
     ),
   );
@@ -290,9 +290,9 @@ export async function setUp<E extends EnvDeclaration>(
     );
   }
   return {
-    GITHUB_APP_ID: String(conversion.id),
-    GITHUB_PRIVATE_KEY: conversion.pem,
-    GITHUB_WEBHOOK_SECRET: webhookSecret,
+    github_app_id: String(conversion.id),
+    github_private_key: conversion.pem,
+    github_webhook_secret: webhookSecret,
   };
 }
 

@@ -4,7 +4,7 @@ import {
   Refused,
   Unreachable,
   type Change,
-  type EnvDeclaration,
+  type SettingsDeclaration,
   type Item,
   type WatchContext,
 } from "@withmarfa/connector";
@@ -20,6 +20,7 @@ import {
   priorityFor,
   recurrenceTextOf,
   send,
+  defaultBase,
   timezoneOf,
   Unanswered,
   user,
@@ -35,18 +36,34 @@ import {
 } from "./todoist.js";
 import todoistTask from "./todoist.task.json" with { type: "json" };
 
-export const outboundEnv = {
-  TODOIST_API_TOKEN: "secret",
-  TODOIST_API_URL: "optional",
-  TODOIST_READ_ONLY: "optional",
-} as const satisfies EnvDeclaration;
+export const outboundSettings = [
+  {
+    name: "todoist_api_token",
+    label: "Todoist API token",
+    kind: "text",
+    secret: true,
+    required: true,
+  },
+  {
+    name: "todoist_api_url",
+    label: "Todoist API address",
+    kind: "text",
+    default: defaultBase,
+  },
+  {
+    name: "todoist_read_only",
+    label: "Read only",
+    kind: "boolean",
+    default: false,
+  },
+] as const satisfies SettingsDeclaration;
 
-export type OutboundEnv = typeof outboundEnv;
+export type OutboundSettings = typeof outboundSettings;
 
 export function readOnly(env: {
-  TODOIST_READ_ONLY?: string | undefined;
+  todoist_read_only?: string | undefined;
 }): boolean {
-  return env.TODOIST_READ_ONLY === "true";
+  return env.todoist_read_only === "true";
 }
 
 export const linkField = todoistTask.link_field;
@@ -224,7 +241,7 @@ const zones = new WeakMap<object, Promise<string>>();
 const users = new WeakMap<object, Promise<SyncAnswer["user"]>>();
 
 function userFor(
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   todoist: Door,
 ): Promise<SyncAnswer["user"]> {
   let asked = users.get(context);
@@ -238,7 +255,7 @@ function userFor(
 /** Asked only for a recurrence the row sets, from the sync where it can be. */
 type Lang = () => Promise<string | undefined>;
 
-function langFor(context: WatchContext<OutboundEnv>, todoist: Door): Lang {
+function langFor(context: WatchContext<OutboundSettings>, todoist: Door): Lang {
   return async () => {
     const held = context.state.get("lang");
     if (typeof held === "string") return held;
@@ -247,7 +264,7 @@ function langFor(context: WatchContext<OutboundEnv>, todoist: Door): Lang {
 }
 
 function timeZoneFor(
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   todoist: Door,
 ): Promise<string> {
   const held = context.state.get("timezone");
@@ -359,7 +376,7 @@ function commandId(item: Item, type: string): string {
 
 export function carry(
   change: Change,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   base: string,
 ): Promise<undefined> {
   return delivering(() => carried(change, context, base));
@@ -367,7 +384,7 @@ export function carry(
 
 export function remake(
   change: Change,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   base: string,
 ): Promise<boolean> {
   return delivering(() => remade(change, context, base));
@@ -375,12 +392,12 @@ export function remake(
 
 async function carried(
   change: Change,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   base: string,
 ): Promise<undefined> {
   const { item, kind } = change;
   const { env, signal } = context;
-  const todoist = new Door(base, env.TODOIST_API_TOKEN, signal);
+  const todoist = new Door(base, env.todoist_api_token, signal);
   const timeZone = await timeZoneFor(context, todoist);
   const lang = langFor(context, todoist);
   let taskId = linkOf(item);
@@ -442,13 +459,13 @@ async function carried(
 
 async function remade(
   change: Change,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   base: string,
 ): Promise<boolean> {
   const { item } = change;
   const taskId = linkOf(item);
   if (taskId === undefined) return false;
-  const todoist = new Door(base, context.env.TODOIST_API_TOKEN, context.signal);
+  const todoist = new Door(base, context.env.todoist_api_token, context.signal);
   const found = await todoist.task(taskId);
   if (found === "forbidden" || found === "unknown") {
     // Todoist answers a task of a deleted project as one it never had.
@@ -493,7 +510,7 @@ async function declineShelved(
   projectId: unknown,
   taskId: string,
   todoist: Door,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   change: Change,
 ): Promise<void> {
   if (typeof projectId !== "string") return;
@@ -706,7 +723,7 @@ async function add(
   timeZone: string,
   lang: Lang,
   todoist: Door,
-  context: WatchContext<OutboundEnv>,
+  context: WatchContext<OutboundSettings>,
   refused: string | undefined,
   replacing?: string,
 ): Promise<string> {

@@ -1,0 +1,8 @@
+{
+  "id": "github.closed-by",
+  "label": "Closed by",
+  "description": "A GitHub issue and the synced pull request that closed it.",
+  "cardinality": "many-to-one",
+  "from_type_constraints": ["github.issue"],
+  "to_type_constraints": ["github.pull_request"]
+}

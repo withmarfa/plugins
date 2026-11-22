@@ -1,6 +1,7 @@
 import {
   defineConnector,
   verifyHmac,
+  type SettingsDeclaration,
   type TypeDefinition,
 } from "@withmarfa/connector";
 import {
@@ -46,40 +47,69 @@ import repository from "./github.repository.json" with { type: "json" };
 import repositoryFile from "./github.repository_file.json" with { type: "json" };
 import directory from "./github.directory.json" with { type: "json" };
 
-const env = {
-  GITHUB_APP_ID: "optional",
-  GITHUB_PRIVATE_KEY: "optional-secret",
-  GITHUB_WEBHOOK_SECRET: "optional-secret",
-  GITHUB_PERSONAL_TOKEN: "optional-secret",
-  GITHUB_NOTIFICATIONS_TOKEN: "optional-secret",
-  GITHUB_READ_ONLY: "optional",
-  GITHUB_STARS: "optional",
-  GITHUB_API_URL: "optional",
-  GITHUB_REQUEST_SPACING_MS: "optional",
-  GITHUB_PUBLIC_URL: "optional",
-  GITHUB_ORGANIZATION: "optional",
-  GITHUB_APP_NAME: "optional",
-  GITHUB_REPOSITORIES: "optional",
-  GITHUB_FILES: "optional",
-} as const;
+const githubSettings = [
+  { name: "github_app_id", label: "GitHub App ID", kind: "text" },
+  {
+    name: "github_private_key",
+    label: "GitHub App private key",
+    kind: "text",
+    secret: true,
+  },
+  {
+    name: "github_webhook_secret",
+    label: "Webhook secret",
+    kind: "text",
+    secret: true,
+  },
+  {
+    name: "github_personal_token",
+    label: "Personal access token",
+    kind: "text",
+    secret: true,
+  },
+  {
+    name: "github_notifications_token",
+    label: "Notifications token",
+    kind: "text",
+    secret: true,
+  },
+  { name: "github_read_only", label: "Read only", kind: "text" },
+  {
+    name: "github_stars",
+    label: "Read your stars",
+    kind: "boolean",
+    default: true,
+  },
+  { name: "github_api_url", label: "GitHub API address", kind: "text" },
+  {
+    name: "github_request_spacing_ms",
+    label: "Spacing between requests in milliseconds",
+    kind: "number",
+  },
+  { name: "github_public_url", label: "Public address of Marfa", kind: "text" },
+  { name: "github_organization", label: "Organization", kind: "text" },
+  { name: "github_app_name", label: "GitHub App name", kind: "text" },
+  { name: "github_repositories", label: "Repositories", kind: "text" },
+  { name: "github_files", label: "Files", kind: "text" },
+] as const satisfies SettingsDeclaration;
 
 function appOf(values: {
-  GITHUB_APP_ID: string | undefined;
-  GITHUB_PRIVATE_KEY: string | undefined;
-  GITHUB_API_URL: string | undefined;
-  GITHUB_REQUEST_SPACING_MS: string | undefined;
+  github_app_id: string | undefined;
+  github_private_key: string | undefined;
+  github_api_url: string | undefined;
+  github_request_spacing_ms: string | undefined;
 }): App {
   if (
-    values.GITHUB_APP_ID === undefined ||
-    values.GITHUB_PRIVATE_KEY === undefined
+    values.github_app_id === undefined ||
+    values.github_private_key === undefined
   )
     throw new Error(
       "GitHub writes require GITHUB_APP_ID and GITHUB_PRIVATE_KEY",
     );
   return {
-    appId: values.GITHUB_APP_ID,
-    privateKey: values.GITHUB_PRIVATE_KEY,
-    base: values.GITHUB_API_URL ?? defaultBase,
+    appId: values.github_app_id,
+    privateKey: values.github_private_key,
+    base: values.github_api_url ?? defaultBase,
     spacingMs: spacingOf(values),
   };
 }
@@ -93,11 +123,14 @@ export function connector(settings: Settings) {
   // puts back the marks another process sets on the rows it syncs. A value
   // checkEnv refuses holds them here; the start stops before any row is read.
   const starFields =
-    settings["GITHUB_STARS"] === "false" ? [] : ["starred", "starred_at"];
-  return defineConnector<typeof env>({
+    settings["github_stars"] === "false" ? [] : ["starred", "starred_at"];
+  return defineConnector<typeof githubSettings>({
     name: "github",
+    title: "GitHub",
+    mark: "simple-icons:github",
+    maker: "WithMarfa",
     description:
-      "Repositories, issues, discussions, comments, read-only pull requests, read-only notifications and read-only Markdown files from chosen repository paths through a personal access token or GitHub App, with relations, closing links and checks. Personal token runs are read only; App runs can carry issue, discussion and comment edits back.",
+      "Repositories, issues, discussions, comments, pull requests, notifications and Markdown files from chosen repository paths, with relations and checks. A personal token reads only; a GitHub App can carry issue, discussion and comment edits back.",
     source: "github",
     sourceName: "GitHub",
     sourceMark: "simple-icons:github",
@@ -106,6 +139,8 @@ export function connector(settings: Settings) {
       {
         // Imported JSON widens every string; the check on start holds the
         // file to the server's.
+        name: "repository",
+        direction: "in",
         type: repository as TypeDefinition,
         fields: [
           "github_id",
@@ -133,6 +168,8 @@ export function connector(settings: Settings) {
                 : {},
       },
       {
+        name: "issue",
+        direction: "both",
         type: issue as TypeDefinition,
         fields: [
           "github_id",
@@ -179,6 +216,8 @@ export function connector(settings: Settings) {
         revive: true,
       },
       {
+        name: "comment",
+        direction: "both",
         type: comment as TypeDefinition,
         fields: [
           "github_id",
@@ -201,6 +240,8 @@ export function connector(settings: Settings) {
         derived: ["private", "github_files"],
       },
       {
+        name: "discussion",
+        direction: "both",
         type: discussion as TypeDefinition,
         fields: [
           "github_id",
@@ -233,6 +274,8 @@ export function connector(settings: Settings) {
         derived: ["private"],
       },
       {
+        name: "pull_request",
+        direction: "in",
         type: pullRequest as TypeDefinition,
         fields: [
           "github_id",
@@ -273,6 +316,8 @@ export function connector(settings: Settings) {
         retired: ["pr_state", "draft"],
       },
       {
+        name: "notification",
+        direction: "in",
         type: notification as TypeDefinition,
         fields: [
           "body",
@@ -303,6 +348,8 @@ export function connector(settings: Settings) {
       // GitHub is the source of these, whatever GITHUB_READ_ONLY says: no
       // kind outside `carries` goes back, so the kit puts back every edit.
       {
+        name: "repository_file",
+        direction: "in",
         type: repositoryFile as TypeDefinition,
         fields: [
           "title",
@@ -327,6 +374,8 @@ export function connector(settings: Settings) {
         derived: ["private"],
       },
       {
+        name: "directory",
+        direction: "in",
         type: directory as TypeDefinition,
         fields: ["title", "repository", "path", "url", "private"],
         readOnly: [
@@ -458,26 +507,26 @@ export function connector(settings: Settings) {
         to_type_constraints: [pullRequestType],
       },
     ],
-    env,
+    settings: githubSettings,
     carries: (values) =>
-      values.GITHUB_PERSONAL_TOKEN !== undefined
+      values.github_personal_token !== undefined
         ? []
         : [issueType, commentType, discussionType].filter(
             (kind) =>
-              !readOnly(values.GITHUB_READ_ONLY, kind.slice("github.".length)),
+              !readOnly(values.github_read_only, kind.slice("github.".length)),
           ),
     checkEnv(values) {
-      scopeOf(values.GITHUB_REPOSITORIES);
-      filesOf(values.GITHUB_FILES);
-      readOnly(values.GITHUB_READ_ONLY);
-      starsOn(values.GITHUB_STARS);
+      scopeOf(values.github_repositories);
+      filesOf(values.github_files);
+      readOnly(values.github_read_only);
+      starsOn(values.github_stars);
       spacingOf(values);
       const app = [
-        values.GITHUB_APP_ID,
-        values.GITHUB_PRIVATE_KEY,
-        values.GITHUB_WEBHOOK_SECRET,
+        values.github_app_id,
+        values.github_private_key,
+        values.github_webhook_secret,
       ];
-      if (values.GITHUB_PERSONAL_TOKEN !== undefined) {
+      if (values.github_personal_token !== undefined) {
         if (app.some((one) => one !== undefined))
           throw new Error(
             "choose either GITHUB_PERSONAL_TOKEN or the GitHub App settings",
@@ -494,20 +543,20 @@ export function connector(settings: Settings) {
     run(context) {
       return read(
         context,
-        context.env.GITHUB_PERSONAL_TOKEN === undefined
+        context.env.github_personal_token === undefined
           ? appOf(context.env)
           : {
-              token: context.env.GITHUB_PERSONAL_TOKEN,
-              base: context.env.GITHUB_API_URL ?? defaultBase,
+              token: context.env.github_personal_token,
+              base: context.env.github_api_url ?? defaultBase,
               spacingMs: spacingOf(context.env),
             },
-        scopeOf(context.env.GITHUB_REPOSITORIES),
+        scopeOf(context.env.github_repositories),
         {
-          token: context.env.GITHUB_NOTIFICATIONS_TOKEN,
-          scopeText: context.env.GITHUB_REPOSITORIES,
+          token: context.env.github_notifications_token,
+          scopeText: context.env.github_repositories,
         },
-        starsOn(context.env.GITHUB_STARS),
-        filesOf(context.env.GITHUB_FILES),
+        starsOn(context.env.github_stars),
+        filesOf(context.env.github_files),
       );
     },
     async onChange(change, context) {
@@ -524,13 +573,13 @@ export function connector(settings: Settings) {
         remake(change, context, app)
       );
     },
-    ...(settings["GITHUB_PERSONAL_TOKEN"]?.trim()
+    ...(settings["github_personal_token"]?.trim()
       ? {}
       : {
           inbound: {
             verify: (delivery, values) =>
               verifyHmac({
-                secret: values.GITHUB_WEBHOOK_SECRET ?? "",
+                secret: values.github_webhook_secret ?? "",
                 body: delivery.body,
                 signature: delivery.header("x-hub-signature-256"),
                 prefix: "sha256=",

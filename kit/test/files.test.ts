@@ -55,7 +55,7 @@ function withFiles(
         to_type_constraints: ["test.entry"],
       },
     ],
-    env: {},
+    settings: [],
     async run(context) {
       await context.upsert("test.entry", held.entries);
       await context.upsert("test.file", held.files);

@@ -8,12 +8,13 @@ import { createInterface, type Interface } from "node:readline";
 import type { Readable } from "node:stream";
 import type {
   Connector,
-  EnvDeclaration,
+  SettingsDeclaration,
   ListenOptions,
   LocalCallback,
   SetupContext,
+  SettingValues,
 } from "./define.js";
-import type { Environment } from "./environment.js";
+import { variableOf, type Environment } from "./environment.js";
 import { keepSecret, type Logger } from "./log.js";
 import type { Marfa } from "./marfa.js";
 import { describe } from "./run.js";
@@ -125,7 +126,7 @@ export function workingTreeOf(file: string): string | undefined {
 
 /** The file is new and owner-only, made first since a vendor may hand a
  *  secret once. */
-export async function setUp<E extends EnvDeclaration>(
+export async function setUp<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   connectorId: string,
@@ -149,7 +150,7 @@ export async function setUp<E extends EnvDeclaration>(
   const pasted = new Pasted(stdin, logger);
   const made: { id: string; label: string }[] = [];
   const context: SetupContext<E> = {
-    env: environment.values,
+    env: environment.values as Readonly<Partial<SettingValues<E>>>,
     signal,
     log: {
       info: (message) => {
@@ -186,7 +187,19 @@ export async function setUp<E extends EnvDeclaration>(
     let answered: Readonly<Record<string, string>>;
     try {
       answered = await setup(context);
-      await handle.writeFile(`${JSON.stringify(answered, null, 2)}\n`);
+      // The file holds the environment variable each secret is read from.
+      await handle.writeFile(
+        `${JSON.stringify(
+          Object.fromEntries(
+            Object.entries(answered).map(([name, value]) => [
+              variableOf(name),
+              value,
+            ]),
+          ),
+          null,
+          2,
+        )}\n`,
+      );
     } catch (error) {
       await handle.close();
       await rm(file, { force: true });
@@ -199,14 +212,14 @@ export async function setUp<E extends EnvDeclaration>(
     await handle.close();
     const names = Object.keys(answered);
     logger.info(
-      `setup wrote ${names.join(", ")} to ${file}, which its owner alone may read: move them into the secret store, then delete the file`,
+      `setup wrote ${names.map(variableOf).join(", ")} to ${file}, which its owner alone may read: move them into the secret store, then delete the file`,
     );
     for (const endpoint of made) {
       logger.info(
         `setup made the inbound endpoint ${endpoint.id} (${endpoint.label}); once the vendor posts to it, retire any endpoint it replaces with \`marfa connectors endpoints retire ${connectorId} <endpoint-id>\``,
       );
     }
-    const declared = Object.keys(connector.env ?? {});
+    const declared = (connector.settings ?? []).map((setting) => setting.name);
     const unknown = names.filter((name) => !declared.includes(name));
     if (unknown.length > 0) {
       logger.error(

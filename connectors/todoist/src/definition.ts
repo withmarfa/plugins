@@ -4,7 +4,7 @@ import {
   type Log,
   type TypeDefinition,
 } from "@withmarfa/connector";
-import { carry, readOnly, remake, outboundEnv } from "./outbound.js";
+import { carry, readOnly, remake, outboundSettings } from "./outbound.js";
 import { followProjects, knowing, placedIn } from "./projects.js";
 import {
   accountOf,
@@ -32,6 +32,9 @@ const source = "todoist";
 export function connector() {
   return defineConnector({
     name: "todoist",
+    title: "Todoist",
+    mark: "simple-icons:todoist",
+    maker: "WithMarfa",
     description:
       "Tasks from a Todoist account, read through the Sync API, and every todoist.task in Marfa carried back to it.",
     source,
@@ -39,6 +42,8 @@ export function connector() {
     sourceMark: "simple-icons:todoist",
     types: [
       {
+        name: "task",
+        direction: "both",
         // Imported JSON widens every string, so its field types read as
         // `string` here; the check on start holds the file to the server's.
         type: todoistTask as TypeDefinition,
@@ -46,7 +51,7 @@ export function connector() {
         readOnly: ["url", "parent_id", "child_order", "recurrence"],
       },
     ],
-    env: outboundEnv,
+    settings: outboundSettings,
     carries: (env) => (readOnly(env) ? [] : [taskType]),
     async run({
       env,
@@ -59,7 +64,7 @@ export function connector() {
       held,
       written,
     }) {
-      const base = env.TODOIST_API_URL ?? defaultBase;
+      const base = env.todoist_api_url ?? defaultBase;
       const keptAccount = state.get("account");
       if (hints !== undefined && typeof keptAccount === "string") {
         // A run for named tasks does not save the sync token: the rest was not
@@ -68,7 +73,7 @@ export function connector() {
         const named: TodoistItem[] = [];
         const gone: string[] = [];
         for (const id of hints.get(taskType) ?? []) {
-          const task = await getTask(base, env.TODOIST_API_TOKEN, id, signal);
+          const task = await getTask(base, env.todoist_api_token, id, signal);
           if (task === "deleted") gone.push(id);
           else if (task === "forbidden" || task === "unknown") {
             unanswered(log, id, task);
@@ -76,7 +81,7 @@ export function connector() {
         }
         const placed = placedIn(
           await knowing(named, projectsOf(state.get("projects")), () =>
-            projects(base, env.TODOIST_API_TOKEN, signal),
+            projects(base, env.todoist_api_token, signal),
           ),
         );
         const found = named
@@ -91,7 +96,7 @@ export function connector() {
       const shape = readShape(written(taskType));
       const saved = state.get("sync_token");
       const heldToken = typeof saved === "string" ? saved : firstSync;
-      let answer = await sync(base, env.TODOIST_API_TOKEN, heldToken, signal);
+      let answer = await sync(base, env.todoist_api_token, heldToken, signal);
       const knownZone = state.get("timezone");
       const kept = typeof knownZone === "string" ? knownZone : undefined;
       const newZone = timezoneOf(answer.user);
@@ -106,7 +111,7 @@ export function connector() {
           state.get("read_shape") !== shape)
       ) {
         fullSync = true;
-        const full = await sync(base, env.TODOIST_API_TOKEN, firstSync, signal);
+        const full = await sync(base, env.todoist_api_token, firstSync, signal);
         const byId = new Map(answer.items.map((item) => [item.id, item]));
         for (const item of full.items) byId.set(item.id, item);
         answer = {
@@ -124,7 +129,7 @@ export function connector() {
       if (fullSync) {
         const done = await completed(
           base,
-          env.TODOIST_API_TOKEN,
+          env.todoist_api_token,
           new Date(),
           signal,
         );
@@ -164,7 +169,7 @@ export function connector() {
         answer,
         fullSync,
         projectsOf(state.get("projects")),
-        () => projects(base, env.TODOIST_API_TOKEN, signal),
+        () => projects(base, env.todoist_api_token, signal),
         log,
       );
       // A delta sends again the open tasks of a project brought back, but not
@@ -174,7 +179,7 @@ export function connector() {
         for (const id of view.back) {
           const done = await completed(
             base,
-            env.TODOIST_API_TOKEN,
+            env.todoist_api_token,
             new Date(),
             signal,
             id,
@@ -269,7 +274,7 @@ export function connector() {
         [...waiting.map(({ id }) => id), ...unasked],
         {
           base,
-          token: env.TODOIST_API_TOKEN,
+          token: env.todoist_api_token,
           account,
           timeZone,
           signal,
@@ -310,13 +315,13 @@ export function connector() {
       state.set("read_shape", shape);
     },
     onChange(change, context) {
-      return carry(change, context, context.env.TODOIST_API_URL ?? defaultBase);
+      return carry(change, context, context.env.todoist_api_url ?? defaultBase);
     },
     remake(change, context) {
       return remake(
         change,
         context,
-        context.env.TODOIST_API_URL ?? defaultBase,
+        context.env.todoist_api_url ?? defaultBase,
       );
     },
   });

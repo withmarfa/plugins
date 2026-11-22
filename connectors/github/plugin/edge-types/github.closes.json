@@ -1,0 +1,8 @@
+{
+  "id": "github.closes",
+  "label": "Closes",
+  "description": "A GitHub pull request and an issue it closes, from the pull request's closing issues references.",
+  "cardinality": "many-to-many",
+  "from_type_constraints": ["github.pull_request"],
+  "to_type_constraints": ["github.issue"]
+}

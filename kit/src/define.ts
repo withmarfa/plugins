@@ -59,19 +59,38 @@ export interface Connected {
   readonly removed: readonly Item[];
 }
 
+/** What a setting holds: text, a number, `true` or `false`, or one of its
+ *  choices. */
+export type SettingKind = "text" | "number" | "boolean" | "choice";
+
 /**
- * How the kit treats an environment variable a connector names: `secret`
- * and `required` fail the start when absent. `optional-secret` may be
- * absent; both secret kinds are redacted from every log line and report.
+ * A setting the connector reads as it runs, as the plugin's manifest declares
+ * it. `name` is lowercase snake case, `^[a-z][a-z0-9_]*$` and at most 64
+ * characters; `label` is what a person reads, 1 to 100 characters. A secret is
+ * `text`, has no `default`, and is kept out of every log line and report.
+ * `choices` is given for a `choice` setting and for no other kind. A required
+ * setting fails the start when it is not set.
  */
-export type EnvKind = "secret" | "optional-secret" | "required" | "optional";
+export interface Setting {
+  readonly name: string;
+  readonly label: string;
+  readonly kind: SettingKind;
+  readonly secret?: boolean;
+  readonly default?: string | number | boolean;
+  readonly required?: boolean;
+  readonly choices?: readonly string[];
+}
 
-export type EnvDeclaration = Readonly<Record<string, EnvKind>>;
+export type SettingsDeclaration = readonly Setting[];
 
-export type EnvValues<E extends EnvDeclaration> = {
-  readonly [K in keyof E]: E[K] extends "optional" | "optional-secret"
-    ? string | undefined
-    : string;
+/** What a connector reads of its settings: a value is text until the values
+ *  come from Marfa, whatever its kind. */
+export type SettingValues<S extends SettingsDeclaration> = {
+  readonly [Declared in S[number] as Declared["name"]]: Declared extends {
+    readonly required: true;
+  }
+    ? string
+    : string | undefined;
 };
 
 export interface Entry {
@@ -184,7 +203,7 @@ export type PendingInbound = {
     }
 );
 
-export type ScopedRunContext<E extends EnvDeclaration> = Omit<
+export type ScopedRunContext<E extends SettingsDeclaration> = Omit<
   RunContext<E>,
   "state" | "forScope"
 > & {
@@ -221,12 +240,12 @@ export interface Log {
  */
 export type Secret = (value: string) => void;
 
-export interface RunContext<E extends EnvDeclaration> {
+export interface RunContext<E extends SettingsDeclaration> {
   /** Acknowledges a vendor retry deadline before waiting; restart honors it. */
   readonly waitUntil: (retryAt: string) => Promise<void>;
   /** Detached snapshots of unresolved writes. Definitively rejected requests do not block inbound reconciliation. */
   readonly pendingOutbound: () => readonly OutboundIntent[];
-  readonly env: EnvValues<E>;
+  readonly env: SettingValues<E>;
   /**
    * Aborts when the process is told to stop or the run's hold can no longer
    * be trusted, which is by five sixths of the instance's hold window after
@@ -502,8 +521,8 @@ export interface OutboundJournal {
   acknowledge(itemId: string, token: string, answer?: Entry): Promise<void>;
 }
 
-export interface WatchContext<E extends EnvDeclaration> {
-  readonly env: EnvValues<E>;
+export interface WatchContext<E extends SettingsDeclaration> {
+  readonly env: SettingValues<E>;
   /**
    * Aborts when the process is told to stop or the run's hold can no longer
    * be trusted, which is by five sixths of the instance's hold window after
@@ -561,8 +580,8 @@ export interface LocalCallback {
   readonly onward: (address: string) => void;
 }
 
-export interface SetupContext<E extends EnvDeclaration> {
-  readonly env: { readonly [K in keyof E]?: string | undefined };
+export interface SetupContext<E extends SettingsDeclaration> {
+  readonly env: Readonly<Partial<SettingValues<E>>>;
   readonly signal: AbortSignal;
   readonly log: Pick<Log, "info" | "warn">;
   readonly secret: Secret;
@@ -603,7 +622,7 @@ export interface Hint {
   readonly id: string;
 }
 
-export interface Inbound<E extends EnvDeclaration> {
+export interface Inbound<E extends SettingsDeclaration> {
   /**
    * Whether the delivery came from the vendor, by its signature: one that
    * did not, or that throws, is marked rejected for good and changes
@@ -614,7 +633,7 @@ export interface Inbound<E extends EnvDeclaration> {
    */
   verify(
     delivery: Delivery,
-    env: EnvValues<E>,
+    env: SettingValues<E>,
     signal: AbortSignal,
   ): boolean | Promise<boolean>;
   /**
@@ -624,7 +643,18 @@ export interface Inbound<E extends EnvDeclaration> {
   hints(delivery: Delivery): readonly Hint[] | "everything";
 }
 
+/** Which way a kind moves: `in` from the vendor into Marfa, `out` from Marfa
+ *  to the vendor, or `both`. */
+export type Direction = "in" | "out" | "both";
+
 export interface Kind {
+  /**
+   * The kind's name in the plugin's manifest: lowercase snake case, unique
+   * within the connector. Every connector that is published as a plugin names
+   * each of its kinds, and the generator refuses one that does not.
+   */
+  readonly name?: string;
+  readonly direction?: Direction;
   /** Synchronous row ownership and field rules, evaluated again on each fresh
    * concurrency retry. entry is present for inbound writes, including creates;
    * item is absent for a new row. archiving is present only when the row is
@@ -693,9 +723,20 @@ export interface Kind {
   ) => boolean;
 }
 
-export interface Connector<E extends EnvDeclaration = EnvDeclaration> {
+export interface Connector<
+  E extends SettingsDeclaration = SettingsDeclaration,
+> {
   readonly name: string;
   readonly description?: string;
+  /**
+   * What the plugin's manifest says of the plugin the connector is published
+   * as: the name people see, its Iconify icon ID and its maker. A connector
+   * under `connectors/` sets all three, and the generator refuses one that
+   * does not.
+   */
+  readonly title?: string;
+  readonly mark?: string;
+  readonly maker?: string;
   readonly source: string;
   /**
    * The name an owner reads for `source`, such as `GitHub`: the system the
@@ -718,7 +759,11 @@ export interface Connector<E extends EnvDeclaration = EnvDeclaration> {
    * the template's README.
    */
   readonly readme?: string;
-  /** At most ten. */
+  /**
+   * The kinds the connector brings, at most ten, each in the widest shape it
+   * can ever write: a type that a setting changes is declared with every
+   * field it can hold, since the key a host mints writes only these types.
+   */
   readonly types: readonly Kind[];
   readonly connections?: readonly ConnectionDefinition[];
   /**
@@ -735,18 +780,19 @@ export interface Connector<E extends EnvDeclaration = EnvDeclaration> {
    * any kind can run read only; every type where the connector has
    * `onChange` and says nothing.
    */
-  readonly carries?: (env: EnvValues<E>) => readonly string[];
-  readonly env?: E;
+  readonly carries?: (env: SettingValues<E>) => readonly string[];
+  /** The settings the connector reads, as its manifest declares them. */
+  readonly settings?: E;
   /**
    * Refuses, by throwing, an environment the connector can tell on sight it
    * cannot run with, such as a malformed address list. The start stops as it
    * does for a missing value, before anything reaches the server.
    */
-  readonly checkEnv?: (env: EnvValues<E>) => void | Promise<void>;
+  readonly checkEnv?: (env: SettingValues<E>) => void | Promise<void>;
   /**
    * Run once, by hand, with `--setup <file>`: registers the connector with
-   * its vendor and answers the secrets that made, by the environment
-   * variable each is read from. They are written to the file, which must
+   * its vendor and answers the secrets that made, by the name of the secret
+   * setting each is read as. They are written to the file, which must
    * not exist, readable by its owner alone, and moved into the secret store.
    */
   readonly setup?: (
@@ -826,7 +872,7 @@ export interface Connector<E extends EnvDeclaration = EnvDeclaration> {
 }
 
 export function defineConnector<
-  const E extends EnvDeclaration = EnvDeclaration,
+  const E extends SettingsDeclaration = SettingsDeclaration,
 >(connector: Connector<E>): Connector<E> {
   return connector;
 }

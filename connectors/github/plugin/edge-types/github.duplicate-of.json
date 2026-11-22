@@ -1,0 +1,8 @@
+{
+  "id": "github.duplicate-of",
+  "label": "Duplicate of",
+  "description": "A duplicate GitHub issue and its canonical issue.",
+  "cardinality": "many-to-one",
+  "from_type_constraints": ["github.issue"],
+  "to_type_constraints": ["github.issue"]
+}

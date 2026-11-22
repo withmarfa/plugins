@@ -6,7 +6,7 @@ import {
   Refused,
   Unreachable,
   type Change,
-  type EnvDeclaration,
+  type SettingsDeclaration,
   type Entry,
   type Item,
   type Target,
@@ -56,7 +56,7 @@ import {
 import type { Kept } from "./read.js";
 import { everywhere, unsettle } from "./unsettled.js";
 
-export type Context = WatchContext<EnvDeclaration>;
+export type Context = WatchContext<SettingsDeclaration>;
 
 /** A try's time asked early by as far as the connector lets GitHub's clock
  *  be from ours, and a little more. */

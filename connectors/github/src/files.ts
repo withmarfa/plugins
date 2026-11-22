@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type {
-  EnvDeclaration,
+  SettingsDeclaration,
   Item,
   RunContext,
   TypeDefinition,
@@ -21,6 +21,8 @@ export const fileFields = [
 ];
 export const fileTypes = ["github.file", "github.file.image"] as const;
 export const fileKinds = fileTypes.map((id) => ({
+  name: id.endsWith("image") ? "file_image" : "file",
+  direction: "in" as const,
   type: {
     id,
     label: id.endsWith("image") ? "GitHub image" : "GitHub file",
@@ -58,7 +60,7 @@ export const filesConnection: ConnectionDefinition = {
   to_type_constraints: ["github.issue", "github.comment"],
 };
 type Context = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   | "held"
   | "derive"
   | "upsert"

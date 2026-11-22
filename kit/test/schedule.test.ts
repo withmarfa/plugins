@@ -302,7 +302,7 @@ it("renews a short hold and heartbeats while an outbound callback waits across s
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "note", "vendor_id"] }],
     async run(context) {
       if (!seeded) {

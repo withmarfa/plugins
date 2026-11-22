@@ -14,7 +14,7 @@ it("keeps an inbound vendor retry deadline across processes", async () => {
     const connector = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [{ type: linkedType, fields: ["title", "note", "vendor_id"] }],
       run() {
         calls++;

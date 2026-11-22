@@ -21,12 +21,27 @@ const connector = defineConnector({
       fields: ["title"],
     },
   ],
-  env: {
-    PROOF_VENDOR_URL: "required",
-    PROOF_WEBHOOK_SECRET: "secret",
-    PROOF_SETUP_PATH_FILE: "optional",
-    PROOF_SETUP_FAILS: "optional",
-  },
+  settings: [
+    {
+      name: "proof_vendor_url",
+      label: "Proof vendor url",
+      kind: "text",
+      required: true,
+    },
+    {
+      name: "proof_webhook_secret",
+      label: "Proof webhook secret",
+      kind: "text",
+      secret: true,
+      required: true,
+    },
+    {
+      name: "proof_setup_path_file",
+      label: "Proof setup path file",
+      kind: "text",
+    },
+    { name: "proof_setup_fails", label: "Proof setup fails", kind: "text" },
+  ],
   // Hands the proof the address it made, which the kit keeps out of the
   // log, so the proof can post to it.
   async setup({ env, endpoint }) {
@@ -34,17 +49,17 @@ const connector = defineConnector({
       label: "stub vendor",
       duplicateHeader: "X-GitHub-Delivery",
     });
-    if (env.PROOF_SETUP_PATH_FILE !== undefined) {
-      await writeFile(env.PROOF_SETUP_PATH_FILE, made.path);
+    if (env.proof_setup_path_file !== undefined) {
+      await writeFile(env.proof_setup_path_file, made.path);
     }
-    if (env.PROOF_SETUP_FAILS === "true") {
+    if (env.proof_setup_fails === "true") {
       throw new Error("the stub vendor refused the setup");
     }
-    return { PROOF_WEBHOOK_SECRET: "proof-setup-webhook-secret" };
+    return { proof_webhook_secret: "proof-setup-webhook-secret" };
   },
   async run({ env, signal, hints, upsert }) {
     const fetched = async (path: string): Promise<unknown> => {
-      const response = await fetch(new URL(path, env.PROOF_VENDOR_URL), {
+      const response = await fetch(new URL(path, env.proof_vendor_url), {
         signal,
       });
       if (!response.ok) {
@@ -72,7 +87,7 @@ const connector = defineConnector({
   inbound: {
     verify: (delivery, env) =>
       verifyHmac({
-        secret: env.PROOF_WEBHOOK_SECRET,
+        secret: env.proof_webhook_secret,
         body: delivery.body,
         signature: delivery.header("X-Hub-Signature-256"),
         prefix: "sha256=",

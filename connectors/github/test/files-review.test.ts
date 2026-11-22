@@ -119,7 +119,7 @@ async function fixture(content = png, mime = "image/png") {
   const connector = defineConnector({
     name: "github",
     source: "github",
-    env: {},
+    settings: [],
     types: [
       ...fileKinds,
       { type: repositoryType, fields: ["github_id"] },

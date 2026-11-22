@@ -150,9 +150,9 @@ describe("what a change runs beyond formatting and the scan", () => {
       [],
     ],
     [
-      "the guidance of a connector's generated plugin",
+      "the guidance of a connector's generated plugin, which the generator reads to see that every type has some",
       ["connectors/todoist/plugin/types/common.task.md"],
-      ["proof", "plugins"],
+      ["code", "proof", "plugins"],
     ],
     [
       "the manifest of a connector's generated plugin, which a connector's own change can reach",
@@ -191,11 +191,10 @@ describe("what a change runs beyond formatting and the scan", () => {
     ],
     ["a repository test", ["scripts/test/tree.test.ts"], ["code", "tests"]],
     [
-      "the script that generates the list of connectors",
-      ["scripts/connector-list.ts"],
+      "the script that generates the connectors' plugin folders",
+      ["scripts/connector-plugins.ts"],
       ["code", "tests"],
     ],
-    ["the generated list of connectors", ["connectors.json"], ["code"]],
     ["lint settings", ["eslint.config.js"], ["code", "tests"]],
     [
       "a dependency",

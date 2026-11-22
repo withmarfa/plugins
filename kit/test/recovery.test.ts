@@ -235,7 +235,7 @@ describe("a key with whitespace around it", () => {
       {
         ...connector,
         run: async (context) => {
-          token = context.env.TEST_TOKEN;
+          token = context.env.test_token;
           await connector.run(context);
         },
       },

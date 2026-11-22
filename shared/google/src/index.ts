@@ -1,4 +1,4 @@
-export { googleEnv } from "./env.js";
+export { googleSettings } from "./settings.js";
 export {
   connectGoogle,
   missingScopes,

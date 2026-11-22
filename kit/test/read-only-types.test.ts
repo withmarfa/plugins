@@ -31,7 +31,7 @@ function two(carried: () => string[]) {
       { type: typed("test.mirrored"), fields: ["title", "vendor_id"] },
       { type: typed("test.carried"), fields: ["title", "vendor_id"] },
     ],
-    env: {},
+    settings: [],
     carries: carried,
     run: () => Promise.resolve(),
     onChange: () => Promise.resolve(undefined),

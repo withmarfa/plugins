@@ -35,18 +35,18 @@ import {
   readerMutableHighlightFields,
   type ContentJob,
 } from "@withmarfa/readwise";
-import { env, parseConfig } from "./config.js";
+import { settings, parseConfig } from "./config.js";
 import { ReaderIdentities } from "./identity.js";
 import { packIdentities, unpackIdentities } from "./checkpoint.js";
 export const readerArchived = (
   properties: Readonly<Record<string, unknown>>,
 ): boolean => properties["reader_location"] === "archive";
 export type ReaderScope = Pick<
-  ScopedRunContext<typeof env>,
+  ScopedRunContext<typeof settings>,
   "state" | "upsert" | "archive" | "refusals"
 >;
 export interface ReaderContext extends Pick<
-  RunContext<typeof env>,
+  RunContext<typeof settings>,
   | "env"
   | "signal"
   | "waitUntil"
@@ -58,7 +58,7 @@ export interface ReaderContext extends Pick<
   | "log"
   | "pendingOutbound"
 > {
-  linked?: RunContext<typeof env>["linked"];
+  linked?: RunContext<typeof settings>["linked"];
   forScope(
     name: string,
     options?: { retry: { mode: "refetch"; context: string } },
@@ -277,7 +277,7 @@ export async function sync(
     options.reader ??
     new ReaderClient(
       config.readerBase,
-      context.env.READWISE_ACCESS_TOKEN,
+      context.env.readwise_access_token,
       context.signal,
       { now, waitUntil: (until) => context.waitUntil(until) },
     );
@@ -285,7 +285,7 @@ export async function sync(
     options.exportClient ??
     new Client(
       config.exportBase,
-      context.env.READWISE_ACCESS_TOKEN,
+      context.env.readwise_access_token,
       context.signal,
       { now, waitUntil: (until) => context.waitUntil(until) },
     );

@@ -12,7 +12,7 @@ it("carries a policy-free sibling trash while recovering another row's journal",
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (!seed) return;

@@ -62,15 +62,15 @@ function fixture(capacity = false, hints?: ReaderContext["hints"]) {
   let writeFails = false;
   const context: ReaderContext = {
     env: {
-      READWISE_ACCOUNT: "one",
-      READWISE_ACCESS_TOKEN: "token",
-      READWISE_API_URL: undefined,
-      READWISE_READER_API_URL: undefined,
-      READWISE_READER_INCLUDE_FEED: undefined,
-      READWISE_READER_PICTURES: undefined,
-      READWISE_READER_INBOUND_ONLY: undefined,
-      READWISE_READER_PROPAGATE_PURGE: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
+      readwise_account: "one",
+      readwise_access_token: "token",
+      readwise_api_url: undefined,
+      readwise_reader_api_url: undefined,
+      readwise_reader_include_feed: undefined,
+      readwise_reader_pictures: undefined,
+      readwise_reader_inbound_only: undefined,
+      readwise_reader_propagate_purge: undefined,
+      readwise_content_max_bytes: undefined,
     },
     signal: controller.signal,
     waitUntil: () => Promise.resolve(),
@@ -262,8 +262,8 @@ describe("Reader durable metadata", () => {
     await f.run();
     const before = f.requests.length;
     (
-      f.context.env as { READWISE_READER_PICTURES?: string }
-    ).READWISE_READER_PICTURES = "save";
+      f.context.env as { readwise_reader_pictures?: string }
+    ).readwise_reader_pictures = "save";
     await f.run();
     expect(f.requests.slice(before)).toEqual([
       { updatedAfter: expect.any(String) as string },

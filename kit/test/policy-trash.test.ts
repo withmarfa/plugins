@@ -15,7 +15,7 @@ function fixture(policy = true) {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [
       {
         type: linkedType,

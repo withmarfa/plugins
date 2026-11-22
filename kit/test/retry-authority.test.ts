@@ -51,7 +51,7 @@ function fixture(journal?: "change" | "remake", ownership = false) {
   });
   const send = async (
     change: Change,
-    context: WatchContext<Record<string, never>>,
+    context: WatchContext<readonly []>,
     operation: "change" | "remake",
   ): Promise<Entry | undefined> => {
     if (change.item.type === otherType.id) {
@@ -81,7 +81,7 @@ function fixture(journal?: "change" | "remake", ownership = false) {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [
       {
         type: linkedType,

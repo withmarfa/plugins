@@ -17,7 +17,15 @@ function named(declared: { sourceName?: string; sourceMark?: string }) {
     source: "test",
     ...declared,
     types: [{ type: linkedType, fields: testFields }],
-    env: { TEST_TOKEN: "secret" },
+    settings: [
+      {
+        name: "test_token",
+        label: "Test token",
+        kind: "text",
+        secret: true,
+        required: true,
+      },
+    ],
     run() {
       return Promise.resolve();
     },

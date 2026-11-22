@@ -128,11 +128,11 @@ function fixture(size: number) {
   };
   const context: ReadContext = {
     env: {
-      READWISE_ACCOUNT: "sample",
-      READWISE_ACCESS_TOKEN: "fixture",
-      READWISE_API_URL: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
-      READWISE_READER_API_URL: undefined,
+      readwise_account: "sample",
+      readwise_access_token: "fixture",
+      readwise_api_url: undefined,
+      readwise_content_max_bytes: undefined,
+      readwise_reader_api_url: undefined,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),
@@ -212,7 +212,7 @@ it("preserves every managed source beyond the queue capacity while Reader is sto
 
 it("uses the Highlights download limit and retries pending content after the bound rises", async () => {
   const f = fixture(1);
-  f.context.env = { ...f.context.env, READWISE_CONTENT_MAX_BYTES: "8" };
+  f.context.env = { ...f.context.env, readwise_content_max_bytes: "8" };
   const page = f.reader.page.bind(f.reader);
   f.reader.page = async (query) => {
     const answer = await page(query);
@@ -240,7 +240,7 @@ it("uses the Highlights download limit and retries pending content after the bou
       message.includes("READWISE_CONTENT_MAX_BYTES (8 bytes)"),
     ),
   ).toBe(true);
-  f.context.env = { ...f.context.env, READWISE_CONTENT_MAX_BYTES: "32" };
+  f.context.env = { ...f.context.env, readwise_content_max_bytes: "32" };
   const due = pending?.due;
   if (due === undefined) throw new Error("content retry deadline is missing");
   f.setNow(due - 1);
@@ -466,11 +466,11 @@ async function readerPendingFixture(size: number) {
     ...f.context,
     env: {
       ...f.context.env,
-      READWISE_READER_INCLUDE_FEED: undefined,
-      READWISE_READER_PICTURES: undefined,
-      READWISE_READER_INBOUND_ONLY: undefined,
-      READWISE_READER_PROPAGATE_PURGE: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
+      readwise_reader_include_feed: undefined,
+      readwise_reader_pictures: undefined,
+      readwise_reader_inbound_only: undefined,
+      readwise_reader_propagate_purge: undefined,
+      readwise_content_max_bytes: undefined,
     },
     get hints() {
       return hints;

@@ -1,0 +1,34 @@
+{
+  "id": "github.repository",
+  "label": "GitHub Repository",
+  "description": "A repository the GitHub connector syncs through a token or GitHub App, or one the person has starred. Read only; its issues, discussions, comments and pull requests are connected to it.",
+  "parent": "core.entity",
+  "link_field": "github_id",
+  "fields": {
+    "github_id": {
+      "type": "string",
+      "description": "The repository's GitHub node id."
+    },
+    "private": {
+      "type": "boolean",
+      "description": "Whether the repository is private on GitHub."
+    },
+    "archived_on_github": {
+      "type": "boolean",
+      "description": "Whether the repository is archived on GitHub, where it reads only."
+    },
+    "starred": {
+      "type": "boolean",
+      "description": "Whether the person the personal access token, or without one the notifications token, belongs to has starred the repository, as of the last scheduled run that listed their stars. Empty where no run has listed them."
+    },
+    "starred_at": {
+      "type": "datetime",
+      "description": "When the person starred the repository. Empty where it is not starred."
+    },
+    "synced": {
+      "type": "boolean",
+      "description": "Whether a process of the connector syncs the repository, rather than keeping it for a star alone. A row that loses its star is archived only where this is false; empty where no run has said, which keeps the row."
+    }
+  },
+  "display_hints": { "title_field": "name" }
+}

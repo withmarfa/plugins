@@ -31,7 +31,7 @@ function connector(options: {
   return defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [
       {
         type: linkedType,

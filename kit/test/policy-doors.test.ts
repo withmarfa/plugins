@@ -21,7 +21,7 @@ it.each(["none", "empty", "add", "owned-add", "adopted-add"] as const)(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,
@@ -93,7 +93,7 @@ it.each([false, true])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,
@@ -141,7 +141,7 @@ it.each([false, true])(
     const c = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,
@@ -181,7 +181,7 @@ it.each(["owned", "adopted", "racing"])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,
@@ -251,7 +251,7 @@ it.each([false, true])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,
@@ -305,7 +305,7 @@ it.each([false, true])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [
         {
           type: linkedType,

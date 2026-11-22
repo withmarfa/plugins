@@ -44,9 +44,9 @@ function undelivered(error: unknown, signal: AbortSignal): unknown {
 }
 
 interface VendorEnv {
-  readonly EXAMPLE_URL: string;
-  readonly EXAMPLE_TOKEN: string;
-  readonly EXAMPLE_TIMEOUT_MS?: string | undefined;
+  readonly example_url: string;
+  readonly example_token: string;
+  readonly example_timeout_ms?: string | undefined;
 }
 
 // `new URL(path, base)` drops the base's last segment unless the base ends in
@@ -105,17 +105,17 @@ async function call(
 ): Promise<unknown> {
   let response: Response;
   try {
-    response = await fetch(address(env.EXAMPLE_URL, path), {
+    response = await fetch(address(env.example_url, path), {
       method,
       headers: {
-        Authorization: `Bearer ${env.EXAMPLE_TOKEN}`,
+        Authorization: `Bearer ${env.example_token}`,
         ...(body !== undefined && { "Content-Type": "application/json" }),
         ...headers,
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
       signal: AbortSignal.any([
         signal,
-        AbortSignal.timeout(timeoutOf(env.EXAMPLE_TIMEOUT_MS)),
+        AbortSignal.timeout(timeoutOf(env.example_timeout_ms)),
       ]),
     });
   } catch (error) {
@@ -154,36 +154,62 @@ async function itemOf(
   }
 }
 
-// Replace the type file, the environment, `run` and `onChange` with your
+// Replace the type file, the settings, `run` and `onChange` with your
 // vendor's. A connector that only reads leaves out `onChange` and the type's
 // `link_field`.
 export function connector() {
   return defineConnector({
     name: "example",
+    // What an app shows for the plugin this connector is published as: its
+    // name, an Iconify icon ID from Marfa's sets, and who made it.
+    title: "Example",
+    mark: "lucide:box",
+    maker: "Example Maker",
     description:
       "Items from the example vendor's list, and changes to them carried back.",
     source: "example",
     // What an app shows for the source: the system, not the route or an account.
     // Add `sourceMark` with an icon ID from Marfa's sets where one fits.
     sourceName: "Example",
+    // Every type the connector can ever write, in the widest shape it can
+    // take: the key a host mints for the plugin writes only these types.
     types: [
       {
+        name: "item",
+        // `in` reads from the vendor, `out` writes to it, `both` does each.
+        direction: "both",
         // Imported JSON widens every string, so its field types read as
         // `string` here; the check on start holds the file to the server's.
         type: exampleItem as TypeDefinition,
         fields: ["example_id", "title", "url", "note"],
       },
     ],
-    env: {
-      EXAMPLE_URL: "required",
-      EXAMPLE_TOKEN: "secret",
-      EXAMPLE_TIMEOUT_MS: "optional",
-    },
-    // Refuses on start what can be told wrong on sight, naming the variable and
+    settings: [
+      {
+        name: "example_url",
+        label: "Address of the example vendor",
+        kind: "text",
+        required: true,
+      },
+      {
+        name: "example_token",
+        label: "Access token",
+        kind: "text",
+        secret: true,
+        required: true,
+      },
+      {
+        name: "example_timeout_ms",
+        label: "Request timeout in milliseconds",
+        kind: "number",
+        default: defaultTimeoutMs,
+      },
+    ],
+    // Refuses on start what can be told wrong on sight, naming the setting and
     // never its value.
     checkEnv(env) {
-      checkAddress(env.EXAMPLE_URL);
-      timeoutOf(env.EXAMPLE_TIMEOUT_MS);
+      checkAddress(env.example_url);
+      timeoutOf(env.example_timeout_ms);
     },
     async run({ env, signal, log, upsert, archive, held }) {
       const { account, items } = (await call(env, signal, "GET", "items")) as {

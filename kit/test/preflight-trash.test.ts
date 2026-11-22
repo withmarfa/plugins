@@ -31,7 +31,7 @@ function fixture(options: { policy?: boolean; limit?: number } = {}) {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [
       {
         type: linkedType,

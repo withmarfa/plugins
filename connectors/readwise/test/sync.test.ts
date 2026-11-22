@@ -75,11 +75,11 @@ function fixture() {
   };
   const context: ReadContext = {
     env: {
-      READWISE_ACCOUNT: "primary",
-      READWISE_ACCESS_TOKEN: "token",
-      READWISE_API_URL: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
-      READWISE_READER_API_URL: undefined,
+      readwise_account: "primary",
+      readwise_access_token: "token",
+      readwise_api_url: undefined,
+      readwise_content_max_bytes: undefined,
+      readwise_reader_api_url: undefined,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),
@@ -152,7 +152,7 @@ describe("Readwise export checkpoints", () => {
     "rejects invalid content limit %s before contacting the provider",
     async (maximum) => {
       const f = fixture();
-      f.context.env = { ...f.context.env, READWISE_CONTENT_MAX_BYTES: maximum };
+      f.context.env = { ...f.context.env, readwise_content_max_bytes: maximum };
       await expect(f.run()).rejects.toThrow("READWISE_CONTENT_MAX_BYTES");
       expect(f.requests).toEqual([]);
     },
@@ -362,7 +362,7 @@ describe("Readwise export checkpoints", () => {
   it("refuses an account or endpoint change against saved progress", async () => {
     const f = fixture();
     await f.run();
-    f.context.env = { ...f.context.env, READWISE_ACCOUNT: "different" };
+    f.context.env = { ...f.context.env, readwise_account: "different" };
     await expect(f.run()).rejects.toThrow("account or endpoint");
   });
 });

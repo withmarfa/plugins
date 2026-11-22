@@ -184,9 +184,16 @@ export function captured(
   };
 }
 
+/** The client as a connector's settings hold it. */
+export const clientSettings = {
+  google_client_id: "client-id.apps.googleusercontent.com",
+  google_client_secret: "GOCSPX-client-secret-value",
+} as const;
+
+/** The same client as the environment variables of a process. */
 export const clientEnv = {
-  GOOGLE_CLIENT_ID: "client-id.apps.googleusercontent.com",
-  GOOGLE_CLIENT_SECRET: "GOCSPX-client-secret-value",
+  GOOGLE_CLIENT_ID: clientSettings.google_client_id,
+  GOOGLE_CLIENT_SECRET: clientSettings.google_client_secret,
 } as const;
 
 let counter = 0;

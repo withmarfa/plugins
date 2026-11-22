@@ -1,0 +1,22 @@
+{
+  "id": "github.file.image",
+  "label": "GitHub image",
+  "description": "Bytes retained from a signed attachment in a GitHub issue or comment.",
+  "parent": "core.file.image",
+  "link_field": "github_id",
+  "fields": {
+    "github_id": {
+      "type": "string",
+      "required": true,
+      "description": "The immutable GitHub asset UUID."
+    },
+    "private": {
+      "type": "boolean",
+      "description": "Whether any known parent is private or has unknown visibility."
+    },
+    "github_parents": {
+      "type": "object",
+      "description": "Parent node IDs with their type, immutable repository ID, name, and last known visibility."
+    }
+  }
+}

@@ -14,8 +14,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "connectors:list": "node --experimental-strip-types scripts/connector-list.ts",
-    "connectors:check": "node --experimental-strip-types scripts/connector-list.ts --check",
+    "connectors:generate": "node --experimental-strip-types scripts/connector-plugins.ts",
+    "connectors:check": "node --experimental-strip-types scripts/connector-plugins.ts --check",
     "proof": "node scripts/dist/proof/main.js"
   },
   "devDependencies": {

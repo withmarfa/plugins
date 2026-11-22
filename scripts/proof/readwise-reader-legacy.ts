@@ -9,7 +9,20 @@ await main(
   defineConnector({
     name: "readwise",
     source: "readwise",
-    env: { READWISE_ACCOUNT: "required", PROOF_VENDOR_URL: "required" },
+    settings: [
+      {
+        name: "readwise_account",
+        label: "Readwise account",
+        kind: "text",
+        required: true,
+      },
+      {
+        name: "proof_vendor_url",
+        label: "Proof vendor url",
+        kind: "text",
+        required: true,
+      },
+    ],
     types: [
       {
         type: {
@@ -54,7 +67,7 @@ await main(
     ],
     async run(context) {
       const response = await fetch(
-        `${context.env.PROOF_VENDOR_URL}/v2/export/`,
+        `${context.env.proof_vendor_url}/v2/export/`,
         {
           headers: { authorization: "Token reader-fixture-token" },
           signal: context.signal,
@@ -65,7 +78,7 @@ await main(
       const page = (await response.json()) as {
         results: ReaderFixtureSource[];
       };
-      const account = context.env.READWISE_ACCOUNT;
+      const account = context.env.readwise_account;
       for (const source of page.results) {
         const natural = `${account}:source:${String(source.user_book_id)}`;
         await context.upsert("readwise.source", [

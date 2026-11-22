@@ -1,15 +1,21 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
-import type { Connector, EnvValues } from "../src/define.js";
+import type {
+  Connector,
+  SettingsDeclaration,
+  SettingValues,
+} from "../src/define.js";
 import { readEnvironment } from "../src/environment.js";
 import { Logger } from "../src/log.js";
 import { systemClock } from "../src/runtime.js";
 
-const env = { TEST_TOKEN: "optional-secret" } as const;
-const connector: Connector<typeof env> = {
+const settings = [
+  { name: "test_token", label: "Test token", kind: "text", secret: true },
+] as const satisfies SettingsDeclaration;
+const connector: Connector<typeof settings> = {
   name: "optional-secret",
   source: "optional-secret",
   types: [],
-  env,
+  settings,
   run: () => Promise.resolve(),
 };
 const required = {
@@ -19,7 +25,7 @@ const required = {
 
 describe("an optional secret", () => {
   it("can be omitted or blank without stopping startup", () => {
-    expectTypeOf<EnvValues<typeof env>["TEST_TOKEN"]>().toEqualTypeOf<
+    expectTypeOf<SettingValues<typeof settings>["test_token"]>().toEqualTypeOf<
       string | undefined
     >();
     for (const value of [undefined, "", "   "]) {

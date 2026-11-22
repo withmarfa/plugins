@@ -1,0 +1,8 @@
+{
+  "id": "google.calendar.in-calendar",
+  "label": "On calendar",
+  "description": "A Google Calendar event on the calendar it belongs to.",
+  "cardinality": "many-to-one",
+  "from_type_constraints": ["google.calendar.event"],
+  "to_type_constraints": ["google.calendar.calendar"]
+}

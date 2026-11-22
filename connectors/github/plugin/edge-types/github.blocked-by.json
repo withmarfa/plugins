@@ -1,0 +1,8 @@
+{
+  "id": "github.blocked-by",
+  "label": "Blocked by",
+  "description": "A GitHub issue blocked by another.",
+  "cardinality": "many-to-many",
+  "from_type_constraints": ["github.issue"],
+  "to_type_constraints": ["github.issue"]
+}
