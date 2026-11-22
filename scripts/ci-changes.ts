@@ -7,8 +7,8 @@
  * `Proof` runs only when `proof` is true, and `Image`, which builds the
  * template's image and checks the launchd example, only when `image` is true,
  * and `Plugins`, which checks each plugin as installing will, only when
- * `plugins` is true. A skipped job satisfies a required check where a workflow filtered out by
- * `paths` would leave it pending. A pull request is classified by its diff
+ * `plugins` is true. A skipped job satisfies a required check where a
+ * workflow filtered out by `paths` would leave it pending. A pull request is classified by its diff
  * against its base, and a push to `main` by its diff against the commit it
  * follows, but only when that commit had a green push run of `ci.yml`:
  * otherwise a commit that touches nothing a job reads would show green on top
@@ -18,10 +18,10 @@
  * scope.
  *
  * A draft pull request runs only the quick checks: `Checks` without its
- * tests, so `tests`, `Proof`, `Image` and `Plugins` answer `false` for it. `full` says
- * whether the rest runs, and is `false` only for a draft. Marking the pull
- * request ready for review starts a run that does, and so does every push
- * after.
+ * tests, so `tests`, `Proof`, `Image` and `Plugins` answer `false` for it.
+ * `full` says whether the rest runs, and is `false` only for a draft. Marking
+ * the pull request ready for review starts a run that does, and so does every
+ * push after.
  *
  * A path is matched against `RULES` in order and the first match names the
  * jobs it can affect. A path no rule matches affects every job. A path inside
