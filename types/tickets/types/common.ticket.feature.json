@@ -1,0 +1,13 @@
+{
+  "id": "common.ticket.feature",
+  "label": "Feature",
+  "description": "A change that people using a product or service would notice, such as something new they can do.",
+  "version": 0,
+  "parent": "common.ticket",
+  "fields": {},
+  "display_hints": {
+    "title_field": "title",
+    "body_field": "body",
+    "icon": "lucide:sparkles"
+  }
+}

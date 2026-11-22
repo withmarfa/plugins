@@ -1,0 +1,25 @@
+{
+  "id": "common.ticket",
+  "label": "Ticket",
+  "description": "Work someone wants done, or a question they want answered, tracked from backlog to done.",
+  "version": 0,
+  "parent": "core.task",
+  "fields": {
+    "status": {
+      "type": "status",
+      "description": "Where the ticket stands. Adds backlog to the task's words, in the not started group.",
+      "status_values": [
+        {
+          "value": "backlog",
+          "group": "not_started",
+          "description": "Wanted, but not yet committed to."
+        }
+      ]
+    }
+  },
+  "display_hints": {
+    "title_field": "title",
+    "body_field": "body",
+    "icon": "lucide:ticket"
+  }
+}

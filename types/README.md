@@ -8,6 +8,11 @@ Each family gets its own folder here, `types/<name>/`, which holds:
 - `types/`, with one `<id>.json` for each type and its guidance in `<id>.md` beside it.
 - Optionally, `edge-types/`, with one `<id>.json` for each edge type.
 
-A pull request checks each folder as installing it will, with `marfa plugins check`. A version tag publishes a release that holds the bundle of every family, and `marfa plugins install <name>` adds a family to a Marfa from it. The first family, Tickets, is on its way.
+A pull request checks each folder as installing it will, with `marfa plugins check`. A version tag publishes a release that holds the bundle of every family, and `marfa plugins install <name>` adds a family to a Marfa from it. Once published, a family only gains fields, status words and types; it never loses or narrows one.
+
+The families:
+
+- [Tickets](./tickets/README.md): `common.ticket` and its kinds, epic, feature, spike and task.
+
 
 Connectors, the other kind of plugin in this repository, live in [`connectors/`](../connectors).
