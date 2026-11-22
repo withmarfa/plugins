@@ -729,7 +729,9 @@ export async function runOnce<E extends SettingsDeclaration>(
   const watching = [...specs.values()]
     .filter((spec) => spec.off === undefined)
     .map((spec) => spec.type);
-  const watched = watching.map((type) => applied.plan?.map.out(type) ?? type);
+  const watched = watching.flatMap(
+    (type) => applied.plan?.map.reads(type) ?? [type],
+  );
   const raised = new Map<string, string>(applied.conditions);
   for (const [key, condition] of setup.narrowed?.conditions ?? []) {
     raised.set(key, condition);

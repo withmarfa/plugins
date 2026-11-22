@@ -2592,9 +2592,13 @@ export class ScriptedServer {
           )
         : sourceIds !== undefined
           ? sourceIds.flatMap((sourceId) =>
+              // A natural key is looked up within the type named, as the
+              // server does.
               this.rows.filter(
                 (row) =>
-                  row.source === input["source"] && row.source_id === sourceId,
+                  this.ofType(row, type) &&
+                  row.source === input["source"] &&
+                  row.source_id === sourceId,
               ),
             )
           : (ids ?? []).flatMap((id) =>

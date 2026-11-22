@@ -100,6 +100,14 @@ export class TypeMap {
     return this.toTarget.size > 0;
   }
 
+  /** The types the rows of the connector's type are held as: its target,
+   *  where they are written, and its own, which keeps the rows written
+   *  before the mapping until a rewrite moves them. */
+  reads(type: string): string[] {
+    const target = this.toTarget.get(type);
+    return target === undefined ? [type] : [target, type];
+  }
+
   /** The type rows of the connector's type are written as. */
   out(type: string): string {
     return this.toTarget.get(type) ?? type;

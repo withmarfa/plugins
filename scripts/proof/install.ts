@@ -213,3 +213,36 @@ export async function reinstallPlugin(
   installed.delete(`${url} ${name} ${entry ?? ""} ${currentVersion}`);
   await installPlugin(url, name, entry);
 }
+
+/** Installs a family of common types from its folder under `types/`, as an
+ *  owner's `marfa plugins install` does. */
+export async function installTypes(url: string, name: string): Promise<void> {
+  const mark = `${url} types/${name}`;
+  if (installed.has(mark)) return;
+  const key = installers.get(url);
+  if (key === undefined) throw new Error(`no key installs plugins at ${url}`);
+  const ran = await runMarfa(
+    [
+      "plugins",
+      "install",
+      join(root, "types", name),
+      "--version",
+      currentVersion,
+    ],
+    { env: { MARFA_API_URL: url, MARFA_API_KEY: key } },
+  );
+  if (ran.code !== 0) {
+    throw new Error(
+      `marfa plugins install types/${name} exited ${String(ran.code)}: ${ran.stderr.trim() || ran.stdout.trim()}`,
+    );
+  }
+  installed.add(mark);
+}
+
+/** The key that installs at `url`, which may also save a mapping onto any
+ *  type, since it holds write on every one. */
+export function installerKeyAt(url: string): string {
+  const key = installers.get(url);
+  if (key === undefined) throw new Error(`no key installs plugins at ${url}`);
+  return key;
+}

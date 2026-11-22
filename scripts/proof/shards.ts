@@ -75,6 +75,7 @@ export const GROUPS = [
   { name: "retry-archive", instance: "shared", statements: 1, seconds: 1 },
   { name: "plugins", instance: "own", statements: 4, seconds: 2 },
   { name: "google-sign-in", instance: "hooks", statements: 5, seconds: 2 },
+  { name: "todoist-mapping", instance: "own", statements: 5 },
   {
     name: "readwise-with-reader",
     instance: "own",

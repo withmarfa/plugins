@@ -101,9 +101,30 @@ describe("a kind mapped onto another type", () => {
     expect(harness.server.rows).toHaveLength(2);
     expect(harness.server.row("a:1").properties["title"]).toBe("1");
     expect(harness.server.row("a:1").id).toBe(first.id);
-    // Listings, lookups and the log name the target, never the kind's own.
+    // The log is followed on the target, and on the kind's own type, which
+    // keeps what it wrote before the mapping until a rewrite moves it.
     for (const request of harness.server.requestsTo("GET", "/events"))
-      expect(request.query.get("type")).toBe(target);
+      expect(request.query.get("type")).toBe(`${target},${linkedType.id}`);
+  });
+
+  it("keeps writing a row it wrote before the mapping where it is, and makes no twin of it on the target", async () => {
+    const held = vendor([one]);
+    expect(await harness.twoWay(held)).toBe(0);
+    const before = harness.server.row("a:1");
+    mapTo(target);
+    held.entries = [
+      { ...one, properties: { ...one.properties, title: "1" } },
+      two,
+    ];
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rows).toHaveLength(2);
+    const after = harness.server.row("a:1");
+    expect([after.id, after.type, after.properties["title"]]).toEqual([
+      before.id,
+      linkedType.id,
+      "1",
+    ]);
+    expect(harness.server.row("a:2").type).toBe(target);
   });
 
   it("carries a change made in Marfa back, named by the connector's own type with its link", async () => {
@@ -143,9 +164,9 @@ describe("a kind mapped onto another type", () => {
     const settled = harness.server
       .requestsTo("POST", "/items/tombstones")
       .map((request) => request.body as Record<string, unknown>);
-    expect(settled.length).toBeGreaterThan(0);
-    for (const body of settled) {
-      expect(body["type"]).toBe(target);
+    const onTarget = settled.filter((body) => body["type"] === target);
+    expect(onTarget.length).toBeGreaterThan(0);
+    for (const body of onTarget) {
       expect(body).not.toHaveProperty("links");
       expect(body["source_ids"]).toEqual(["a:1"]);
     }
