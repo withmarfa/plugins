@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { check } from "./check.js";
@@ -57,15 +64,21 @@ async function writeSource(
 /** Serves the files of `dir` over HTTP, as a release's download address does. */
 async function serve(dir: string): Promise<{ url: string; server: Server }> {
   const server = createServer((request, response) => {
-    const name = (request.url ?? "").replace(/^\/+/, "");
-    readFile(join(dir, name)).then(
-      (bytes) => {
-        response.writeHead(200).end(bytes);
-      },
-      () => {
-        response.writeHead(404).end();
-      },
-    );
+    const asked = (request.url ?? "").replace(/^\/+/, "");
+    readdir(dir)
+      .then((names) => {
+        const name = names.find((held) => held === asked);
+        if (name === undefined) throw new Error(`${asked} is not served`);
+        return readFile(join(dir, name));
+      })
+      .then(
+        (bytes) => {
+          response.writeHead(200).end(bytes);
+        },
+        () => {
+          response.writeHead(404).end();
+        },
+      );
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   return {
