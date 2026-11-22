@@ -26,7 +26,7 @@ Where the token is not set, `connectGoogle` raises the condition `google:sign-in
 
 ## Stopping for the owner
 
-Google ends a grant with `invalid_grant` and refuses an unknown client with `invalid_client`. Only the owner can mend either, so the connector raises the condition and throws `SettingsRefused` with the condition's message, caused by the `GoogleError`. The kit fails the run and exits with code 4, and the connector's host waits for the settings to change instead of restarting it.
+Google ends a grant with `invalid_grant` and refuses a client it does not know or has not authorized with `invalid_client` or `unauthorized_client`. A grant that belongs to another Google account than the connector's rows is refused by the connector itself. Only the owner can mend any of these, so the connector raises the condition and throws `SettingsRefused` with the condition's message, caused by the `GoogleError`. The kit fails the run and exits with code 4, and the connector's host waits for the settings to change instead of restarting it.
 
 ## Use in a connector
 
@@ -110,22 +110,22 @@ A condition appears on the connector in Marfa until a run no longer raises it. E
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
 | `google:sign-in`               | No token is kept: the owner has not signed in. The process exits with code 4.                                              | Set the client ID and secret, then run `marfa plugins sign-in <connector>`.                         |
 | `google:reconnect`             | Google answers `invalid_grant`: access was revoked, went unused for six months, ended, or the project is still in Testing. | Run `marfa plugins sign-in <connector>` again. The process exits with code 4.                       |
-| `google:client`                | Google answers `invalid_client`.                                                                                           | Check `google_client_id` and `google_client_secret` are those of a Web application client, sign in. |
+| `google:client`                | Google answers `invalid_client` or `unauthorized_client`.                                                                  | Check `google_client_id` and `google_client_secret` are those of a Web application client, sign in. |
 | `google:scope:<scope>`         | The grant lacks a scope the connector needs. One condition per scope.                                                      | Sign in again and leave every permission ticked.                                                    |
 | `google:account`               | The grant belongs to another account than the one the connector keeps, or than the connector's rows came from.             | Sign in again with the original account, or use another instance.                                   |
 | `google:refresh-token-changed` | Google issued a new refresh token during a run. The connector keeps it in memory only.                                     | Sign in again before the connector restarts.                                                        |
 | `google:refresh-token-expires` | Google granted time-based access, which ends on a stated date.                                                             | Before that date, sign in again and choose ongoing access.                                          |
 
-After `google:reconnect` or `google:client`, the connector stops with exit code 4 and makes no further Google calls. It does not retry a grant Google has already refused.
+After `google:reconnect`, `google:client` or `google:account`, the connector stops with exit code 4 and makes no further Google calls. It does not retry a grant Google has already refused.
 
 ## How errors are classified
 
-`google.json` and `google.fetch` callers see `GoogleError`, with a `kind`. The two kinds only the owner can mend, `reconnect` and `client`, arrive as a `SettingsRefused` whose `cause` is the `GoogleError`:
+`google.json` and `google.fetch` callers see `GoogleError`, with a `kind`. The three kinds only the owner can mend, `reconnect`, `client` and `account`, arrive as a `SettingsRefused` whose `cause` is the `GoogleError`:
 
 | Kind        | Google answered                                                                                                      | Meaning                                                        |
 | ----------- | -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `reconnect` | `invalid_grant`                                                                                                      | The grant is over. Raises `google:reconnect`.                  |
-| `client`    | `invalid_client`                                                                                                     | The client is wrong. Raises `google:client`.                   |
+| `client`    | `invalid_client` or `unauthorized_client`                                                                            | The client is wrong. Raises `google:client`.                   |
 | `account`   | (not an answer)                                                                                                      | The grant belongs to another account. Raises `google:account`. |
 | `passing`   | `429`, any `5xx`, a `403` with `rateLimitExceeded` or `userRateLimitExceeded`, no answer, or a body that is not JSON | It can pass. Try again later.                                  |
 | `quota`     | A `403` with `quotaExceeded` or `dailyLimitExceeded`                                                                 | The usage limit holds until Google resets it.                  |

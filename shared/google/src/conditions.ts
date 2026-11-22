@@ -10,7 +10,7 @@ function signIn(plugin: string): string {
 export function signInCondition(plugin: string): Condition {
   return {
     key: "google:sign-in",
-    message: `This connector has not signed in to Google yet, so it makes no Google calls. Set google_client_id and google_client_secret if they are not set, then sign in with ${signIn(plugin)} and open the address it prints.`,
+    message: `This connector has not signed in to Google yet, so it makes no Google calls. Sign in with ${signIn(plugin)} and open the address it prints.`,
   };
 }
 
@@ -21,10 +21,10 @@ export function reconnectCondition(plugin: string): Condition {
   };
 }
 
-export function clientCondition(plugin: string): Condition {
+export function clientCondition(plugin: string, code: string): Condition {
   return {
     key: "google:client",
-    message: `Google does not recognize this connector's OAuth client (invalid_client). Check that google_client_id and google_client_secret are those of a Web application client in your Google Cloud project, then sign in again with ${signIn(plugin)}. Until the settings change, this connector makes no Google calls.`,
+    message: `Google does not accept this connector's OAuth client (${code}). Check that google_client_id and google_client_secret are those of a Web application client in your Google Cloud project, then sign in again with ${signIn(plugin)}. Until the settings change, this connector makes no Google calls.`,
   };
 }
 

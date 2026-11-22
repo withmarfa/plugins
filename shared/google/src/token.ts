@@ -166,14 +166,14 @@ export async function requestTokens(
         condition: reconnectCondition(settings.plugin),
       });
     }
-    if (code === "invalid_client") {
+    if (code === "invalid_client" || code === "unauthorized_client") {
       throw new GoogleError(
-        `Google does not know the OAuth client (${said})`,
+        `Google does not accept the OAuth client (${said})`,
         "client",
         {
           status: response.status,
           reason: code,
-          condition: clientCondition(settings.plugin),
+          condition: clientCondition(settings.plugin, code),
         },
       );
     }

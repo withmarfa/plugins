@@ -75,7 +75,6 @@ export class GoogleStub {
 
   get endpoints() {
     return {
-      authorization: `${this.url}/auth`,
       token: `${this.url}/token`,
       userinfo: `${this.url}/userinfo`,
       api: this.url,

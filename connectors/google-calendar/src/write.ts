@@ -93,7 +93,7 @@ async function open(context: WriteContext, writing: Writing): Promise<Session> {
   for (const scope of [eventsScope, calendarListScope]) {
     if (!access.has(scope)) {
       throw new Unreachable(
-        `The Google grant lacks ${scope}, so nothing is changed in Google Calendar until setup is run again`,
+        `The Google grant lacks ${scope}, so nothing is changed in Google Calendar until you sign in again with \`marfa plugins sign-in ${needs.plugin}\``,
         { scope: "google-calendar:scope" },
       );
     }

@@ -150,6 +150,21 @@ describe("through the kit", () => {
     );
   });
 
+  it("stops with exit 4 and a condition to sign in again where Google says the client may not use this grant", async () => {
+    stub.onToken = () => ({
+      status: 400,
+      json: {
+        error: "unauthorized_client",
+        error_description: "Client is unauthorized to retrieve access tokens.",
+      },
+    });
+    expect(await start(connector([A]), signedIn())).toBe(exitCode.settings);
+    expect(Object.keys(harness.problems())).toEqual(["google:client"]);
+    expect(harness.problems()["google:client"]).toContain(
+      "`marfa plugins sign-in test`",
+    );
+  });
+
   it("stops with exit 4 and a condition to sign in where no token was ever kept, without calling Google", async () => {
     harness.server.settings = { ...clientSettings };
     let read = false;
@@ -212,7 +227,7 @@ describe("through the kit", () => {
     expect(harness.kept()["state"]).toEqual({ google_account: stub.sub });
 
     stub.sub = other;
-    expect(await start(writer(), signedIn())).toBe(1);
+    expect(await start(writer(), signedIn())).toBe(exitCode.settings);
     expect(harness.lastRun().outcome).toBe("failed");
     expect(Object.keys(harness.problems())).toContain("google:account");
     expect(
@@ -234,7 +249,7 @@ describe("through the kit", () => {
     };
     cleared();
     stub.sub = other;
-    expect(await start(writer(), signedIn())).toBe(1);
+    expect(await start(writer(), signedIn())).toBe(exitCode.settings);
     expect(Object.keys(harness.problems())).toContain("google:account");
     expect(
       harness.server.rows.filter((row) =>
@@ -272,7 +287,7 @@ describe("through the kit", () => {
       { title: "Another account's", vendor_id: `${other}:event-9` },
       testType.id,
     );
-    expect(await start(writer(), signedIn())).toBe(1);
+    expect(await start(writer(), signedIn())).toBe(exitCode.settings);
     expect(Object.keys(harness.problems())).toContain("google:account");
     expect(harness.kept()["state"]).toEqual({});
   });
@@ -281,7 +296,7 @@ describe("through the kit", () => {
     expect(await start(writer(), signedIn())).toBe(0);
     harness.server.insert(undefined, { title: "Mine" }, testType.id, "person");
     stub.sub = other;
-    expect(await start(writer(), signedIn())).toBe(1);
+    expect(await start(writer(), signedIn())).toBe(exitCode.settings);
     expect(posts()).toBe(0);
     expect(Object.keys(harness.problems())).toContain("google:account");
 

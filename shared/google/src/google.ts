@@ -396,9 +396,9 @@ export class Google {
 
   /**
    * Raises the condition of an error that carries one, then rethrows it. An
-   * error that only the owner can mend, a token or client Google refuses,
-   * is rethrown as `SettingsRefused`, so the connector stops until the owner
-   * signs in again or changes the settings.
+   * error that only the owner can mend, a token or client Google refuses or
+   * a grant for another account, is rethrown as `SettingsRefused`, so the
+   * connector stops until the owner signs in again or changes the settings.
    */
   private async guarded<T>(work: () => Promise<T>): Promise<T> {
     try {
@@ -412,7 +412,9 @@ export class Google {
       }
       if (
         error instanceof GoogleError &&
-        (error.kind === "reconnect" || error.kind === "client")
+        (error.kind === "reconnect" ||
+          error.kind === "client" ||
+          error.kind === "account")
       ) {
         throw new SettingsRefused(error.condition?.message ?? error.message, {
           cause: error,

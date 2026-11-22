@@ -293,6 +293,30 @@ describe("a grant Google no longer accepts", () => {
     expect(stub.token).toHaveLength(1);
   });
 
+  it("treats unauthorized_client as the client condition too, and stops calling Google", async () => {
+    const token = freshToken();
+    stub.onToken = () => ({
+      status: 400,
+      json: {
+        error: "unauthorized_client",
+        error_description: "Client is unauthorized to retrieve access tokens.",
+      },
+    });
+    const seen = run(token);
+    const error = await failure(
+      connectGoogle(seen.context, needs([A]), options()).ready(),
+    );
+    expect(error.kind).toBe("client");
+    expect([...seen.conditions.keys()]).toEqual(["google:client"]);
+    expect(seen.conditions.get("google:client")).toContain(
+      "unauthorized_client",
+    );
+    await refusal(
+      connectGoogle(run(token).context, needs([A]), options()).ready(),
+    );
+    expect(stub.token).toHaveLength(1);
+  });
+
   it("is told apart from a server error, a rate limit, a timeout and a body that is not JSON, which pass", async () => {
     const token = freshToken();
     const seen = run(token);

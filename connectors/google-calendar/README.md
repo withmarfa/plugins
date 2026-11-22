@@ -52,8 +52,8 @@ The key holds write on `google.calendar.calendar`, `google.calendar.event`, `goo
 
 Then sign it in to Google:
 
-1. In your own Google Cloud project, turn on the Google Calendar API and create an OAuth client of the type **Web application**.
-2. Add `<sign-in address>/connect/oauth/callback` as an authorized redirect URI, where `<sign-in address>` is the address Marfa's owner signs in at, such as `https://marfa.example.com`.
+1. In your own Google Cloud project, turn on the Google Calendar API and configure the OAuth consent screen first, then create an OAuth client of the type **Web application**. While the consent screen is in Testing, add your Google account as a test user; Google then ends the sign-in after 7 days for an External app, so publish the app for a lasting one.
+2. Add `<sign-in address>/connect/oauth/callback` as an authorized redirect URI, where `<sign-in address>` is the address Marfa's owner signs in at, such as `https://marfa.example.com`. Google accepts only an HTTPS address on a domain name, not an IP address; `localhost` is the one exception and may use HTTP.
 3. Set the client's ID and secret in Marfa:
 
    ```bash
