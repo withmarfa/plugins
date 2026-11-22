@@ -63,7 +63,7 @@ export const GROUPS = [
   { name: "outbound", instance: "shared", statements: 1, seconds: 2 },
   { name: "inbound-retry", instance: "shared", statements: 6, seconds: 9 },
   { name: "retry-archive", instance: "shared", statements: 1, seconds: 1 },
-  { name: "plugins", instance: "shared", statements: 4, seconds: 30 },
+  { name: "plugins", instance: "shared", statements: 4, seconds: 2 },
   { name: "readwise-reader", instance: "reader", statements: 14, seconds: 120 },
 ] as const satisfies readonly Group[];
 

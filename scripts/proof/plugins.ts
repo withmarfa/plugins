@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,7 @@ import {
   releaseAddress,
   type Target,
 } from "../release/only-adds.ts";
-import { findPlugins, runMarfa } from "../release/plugins.ts";
+import { findPlugins, root, runMarfa } from "../release/plugins.ts";
 import { build } from "../release/release.ts";
 
 type Fields = Record<string, { type: "string" }>;
@@ -230,6 +231,13 @@ export async function provePlugins(
     await check(
       "plugins: every plugin of this repository installs as the latest published release has it, then as the source at the next version, or alone when no release lists it",
       async () => {
+        // The folders are read from where the proof runs, built or not, so a
+        // root found wrongly would read as no plugins.
+        if (!existsSync(join(root, "types", "README.md"))) {
+          throw new Error(
+            `${root} is not this repository: it has no types/README.md`,
+          );
+        }
         const { plugins, problems } = findPlugins();
         if (problems.length > 0) throw new Error(problems.join("; "));
         const address = releaseAddress();

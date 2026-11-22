@@ -1,8 +1,9 @@
+import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { checkPlugins } from "../check-plugins.js";
-import { findPlugins } from "../release/plugins.js";
+import { findPlugins, root } from "../release/plugins.js";
 import { emptyTree, remove, widget, writePlugin } from "./plugin-fixtures.js";
 
 async function fresh(): Promise<string> {
@@ -13,6 +14,11 @@ async function fresh(): Promise<string> {
 }
 
 describe("which folders are plugins", () => {
+  it("reads the repository from its root, which holds the pin and the families", () => {
+    expect(existsSync(join(root, "scripts", "monorepo.commit"))).toBe(true);
+    expect(existsSync(join(root, "types", "README.md"))).toBe(true);
+  });
+
   it("finds a family of types and a connector's generated plugin, and leaves README.md alone", async () => {
     const base = await fresh();
     try {

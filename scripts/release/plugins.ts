@@ -8,9 +8,23 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
-export const root = resolve(import.meta.dirname, "../..");
+/**
+ * The repository root, found from where this file runs: `scripts/release/`
+ * as source, `scripts/dist/release/` as built.
+ */
+function repositoryRoot(): string {
+  let folder = import.meta.dirname;
+  while (!existsSync(join(folder, "scripts", "monorepo.commit"))) {
+    const parent = dirname(folder);
+    if (parent === folder) throw new Error("the repository root was not found");
+    folder = parent;
+  }
+  return folder;
+}
+
+export const root = repositoryRoot();
 
 export interface Plugin {
   /** The folder from the repository root, with forward slashes. */
