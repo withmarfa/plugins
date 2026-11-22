@@ -460,8 +460,9 @@ const ending = new Set<Cause>(["key", "registration", "address"]);
  * Carries out each rewrite the owner asked for: every row a kind wrote on its
  * own type, under the connector's source and outside the bin, is moved to
  * the kind's target, its fields the target lacks cleared. A request is
- * cleared only once each of its kinds is done; one a row refused, or whose
- * target is gone, waits for the next run, and a condition says why.
+ * cleared only once each of its kinds is done; one a row refused, whose
+ * target is gone or that is turned off waits for a later run, and a
+ * condition says why.
  */
 async function carryOutRewrites<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
@@ -483,9 +484,11 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         continue;
       }
       if (planned.off !== undefined) {
-        // A kind the owner turned off brings nothing, so its rows stay.
-        if (mapping.kinds[name]?.enabled !== false)
-          unfinished.push(planned.off);
+        unfinished.push(
+          mapping.kinds[name]?.enabled === false
+            ? `the kind ${name} is turned off, so its rows move once it is on again`
+            : planned.off,
+        );
         continue;
       }
       if (planned.target === planned.own) continue;
@@ -539,10 +542,26 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
 }
 
 /**
+ * Whether the mapping's read says no installed plugin's connector holds this
+ * key: `403` to a connector key, which only the plugin's own connector key
+ * passes, or `404` to a key holding `connectors.manage`.
+ */
+function noPluginHolds(error: unknown): boolean {
+  return (
+    error instanceof Refusal &&
+    ((error.status === 403 && error.code === "forbidden") ||
+      (error.status === 404 &&
+        (error.code === "plugin_not_found" ||
+          error.code === "plugin_connector_not_found")))
+  );
+}
+
+/**
  * Reads the owner's mapping and works out what each kind does this run. Where
- * Marfa does not answer the read, the run applies the mapping the last run
- * kept, and says so; with none kept, it does not start, since writing a
- * kind's own type where the owner chose another would be wrong. Registers
+ * the read fails, the run applies the mapping the last run kept, and says
+ * so; with none kept, or where Marfa says no plugin now holds a key that once
+ * had a mapping, it does not start, since writing a kind's own type where the
+ * owner chose another would be wrong. Registers
  * the read-only types again where the mapping's version or the types moved,
  * and carries out the rewrites the owner asked for.
  */
@@ -560,32 +579,41 @@ async function applyMapping<E extends SettingsDeclaration>(
   });
   let mapping: Mapping;
   let fresh = true;
+  let unmapped = false;
   try {
     mapping = await marfa.mapping(plugin, setup.signal);
   } catch (error) {
     if (setup.signal.aborted || ending.has(causeOf(error)))
       return failed(error);
-    // A key no installed plugin's connector holds has no owner's mapping, so
-    // every kind lands on its own type, as the mapping's default says.
-    if (
-      error instanceof Refusal &&
-      (error.status === 403 || error.status === 404)
-    )
-      mapping = defaultMapping();
-    else {
-      let kept: Mapping | undefined;
-      try {
-        kept = (await new Store(marfa, setup.connectorId, setup.process).load())
-          .mapping;
-      } catch {
-        kept = undefined;
-      }
-      if (kept === undefined) {
-        logger.error(
-          `the connector's mapping could not be read from Marfa, and no run kept one, so this run does not start: ${describe(error)}`,
+    let kept: Mapping | undefined;
+    try {
+      kept = (await new Store(marfa, setup.connectorId, setup.process).load())
+        .mapping;
+    } catch (unread) {
+      logger.error(
+        `the connector's mapping could not be read from Marfa, nor the one the last run kept, so this run does not start: ${describe(error)}`,
+      );
+      return failed(unread);
+    }
+    if (noPluginHolds(error)) {
+      if (kept !== undefined) {
+        const gone = new Error(
+          `Marfa says no installed plugin's connector holds this key, though a run kept the owner's mapping of ${plugin}, so this run does not start and writes no kind on its own type: ${describe(error)}`,
         );
-        return failed(error);
+        logger.error(gone.message);
+        return failed(gone);
       }
+      // No plugin's connector holds this key and none ever did, so there is
+      // no owner's mapping: every kind lands on its own type, and nothing
+      // is kept that a later run would take for one.
+      mapping = defaultMapping();
+      unmapped = true;
+    } else if (kept === undefined) {
+      logger.error(
+        `the connector's mapping could not be read from Marfa, and no run kept one, so this run does not start: ${describe(error)}`,
+      );
+      return failed(error);
+    } else {
       mapping = kept;
       fresh = false;
       conditions.set(
@@ -628,7 +656,12 @@ async function applyMapping<E extends SettingsDeclaration>(
       );
     return failed(error);
   }
-  return { plan, mapping, conditions, failure: undefined };
+  return {
+    plan,
+    mapping: unmapped ? undefined : mapping,
+    conditions,
+    failure: undefined,
+  };
 }
 
 export async function runOnce<E extends SettingsDeclaration>(

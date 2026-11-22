@@ -266,6 +266,30 @@ describe("a rewrite the owner asks for", () => {
     expect(harness.server.rewritesDone).toEqual([3]);
     expect(harness.problems()).not.toHaveProperty("rewrite:3");
   });
+  it("is not cleared while a kind it names is turned off, and is carried out once the kind is on again", async () => {
+    const held = vendor([one]);
+    expect(await harness.twoWay(held)).toBe(0);
+    const a = harness.server.row("a:1");
+    turnOff(1);
+    harness.server.mapping.rewrites = [
+      {
+        number: 4,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T09:00:00.000Z",
+      },
+    ];
+    expect(await quiet(held)).toBe(0);
+    expect(harness.server.byId(a.id).type).toBe(linkedType.id);
+    expect(harness.server.rewritesDone).toEqual([]);
+    expect(harness.problems()["rewrite:4"]).toContain("turned off");
+
+    mapTo(target, { version: 2 });
+    expect(await quiet(held)).toBe(0);
+    expect(harness.server.byId(a.id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([4]);
+    expect(harness.problems()).not.toHaveProperty("rewrite:4");
+  });
 });
 
 describe("the mapping's read", () => {
@@ -300,6 +324,58 @@ describe("the mapping's read", () => {
       expect(harness.server.row("a:1").type).toBe(linkedType.id);
       expect(harness.problems()).not.toHaveProperty("mapping-unread");
     }
+  });
+
+  it("applies the kept mapping, says so and keeps it, where the read is refused for another reason", async () => {
+    mapTo(target);
+    const held = vendor([one]);
+    expect(await harness.twoWay(held)).toBe(0);
+    for (const [status, code] of [
+      [404, "not_found"],
+      [400, "validation_error"],
+    ] as const) {
+      harness.server.refuseNext(
+        "GET /plugins/test/connector/mapping",
+        status,
+        code,
+      );
+      held.entries = [one, two];
+      expect(await quiet(held)).toBe(0);
+      expect(harness.server.row("a:2").type).toBe(target);
+      expect(harness.problems()["mapping-unread"]).toContain(
+        "applies version 1, the last one read",
+      );
+    }
+  });
+
+  it("stops the run and keeps the mapping where a run kept one and the read now says no plugin holds the key", async () => {
+    mapTo(target);
+    const held = vendor([one]);
+    expect(await harness.twoWay(held)).toBe(0);
+    for (const [status, code] of [
+      [404, "plugin_not_found"],
+      [403, "forbidden"],
+    ] as const) {
+      harness.server.refuseNext(
+        "GET /plugins/test/connector/mapping",
+        status,
+        code,
+      );
+      held.entries = [one, two];
+      expect(await quiet(held)).toBe(1);
+      expect(harness.server.rows.map((row) => row.source_id)).toEqual(["a:1"]);
+    }
+    // The kept mapping still stands for a read Marfa does not answer.
+    harness.server.refuseNext(
+      "GET /plugins/test/connector/mapping",
+      503,
+      "unavailable",
+    );
+    expect(await quiet(held)).toBe(0);
+    expect(harness.server.row("a:2").type).toBe(target);
+    expect(harness.problems()["mapping-unread"]).toContain(
+      "applies version 1, the last one read",
+    );
   });
 
   it("starts no run where Marfa does not answer it and no run kept one", async () => {
