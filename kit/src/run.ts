@@ -126,6 +126,8 @@ export interface RunSetup<E extends SettingsDeclaration> {
   plugin?: string;
   /** What every run of the process shares of the mapping. */
   mapped?: Mapped;
+  /** The run request this run read at its start, which its report names. */
+  requested?: string | undefined;
 }
 
 /** What the runs of one process share of the owner's mapping: the version
@@ -588,7 +590,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
  * key: `403` to a connector key, which only the plugin's own connector key
  * passes, or `404` to a key holding `connectors.manage`.
  */
-function noPluginHolds(error: unknown): boolean {
+export function noPluginHolds(error: unknown): boolean {
   return (
     error instanceof Refusal &&
     ((error.status === 403 && error.code === "forbidden") ||
@@ -4113,6 +4115,9 @@ export async function runOnce<E extends SettingsDeclaration>(
         started_at: startedAt.toISOString(),
         finished_at: finishedAt.toISOString(),
         summary: cap(logger.redact(summarize(counts, standing, shown))),
+        ...(setup.requested !== undefined && {
+          run_requested_at: setup.requested,
+        }),
         ...(failure !== undefined && {
           error: cap(logger.redact(describe(failure))),
         }),

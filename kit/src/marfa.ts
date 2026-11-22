@@ -9,6 +9,7 @@ import {
 import type { Item, TypeDefinition } from "./define.js";
 import type {
   Mapping,
+  PreviewResult,
   ResolvedType,
   Rewrite,
   StatusField,
@@ -26,6 +27,8 @@ export type InboundEndpoint = components["schemas"]["InboundEndpoint"];
 export type InboundOutcome = NonNullable<InboundDeliveryRow["outcome"]>;
 type Version = components["schemas"]["Version"];
 export type Key = components["schemas"]["ApiKey"];
+export type Control = components["schemas"]["PluginConnectorControl"];
+export type Preview = components["schemas"]["ConnectorPreview"];
 export type Tombstone = components["schemas"]["Tombstone"];
 export type Edge = components["schemas"]["Edge"];
 
@@ -535,6 +538,54 @@ export class Marfa {
     );
     if (data === undefined) throw refusal(response, error);
     return data;
+  }
+
+  /** What the owner chose for the plugin's connector: paused, run now, and
+   *  the previews that wait. */
+  async control(plugin: string, signal?: AbortSignal): Promise<Control> {
+    const { data, error, response } = await this.client.GET(
+      "/plugins/{name}/connector",
+      {
+        params: { path: { name: plugin } },
+        ...(signal !== undefined && { signal }),
+      },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data;
+  }
+
+  /** The mapping previews that wait on the connector, oldest first. */
+  async pendingPreviews(
+    plugin: string,
+    signal?: AbortSignal,
+  ): Promise<Preview[]> {
+    const { data, error, response } = await this.client.GET(
+      "/plugins/{name}/connector/previews",
+      {
+        params: { path: { name: plugin }, query: { status: "pending" } },
+        ...(signal !== undefined && { signal }),
+      },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data.data;
+  }
+
+  /** Answers a preview with the item as it would land, or why it cannot. */
+  async answerPreview(
+    plugin: string,
+    id: string,
+    answer: { result: PreviewResult } | { error: string },
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const { data, error, response } = await this.client.POST(
+      "/plugins/{name}/connector/previews/{id}",
+      {
+        params: { path: { name: plugin, id } },
+        body: answer,
+        ...(signal !== undefined && { signal }),
+      },
+    );
+    if (data === undefined) throw refusal(response, error);
   }
 
   /** Clears a rewrite the connector carried out, answering those that wait. */

@@ -33,6 +33,7 @@ export interface Run {
   finished_at: string;
   summary?: string;
   error?: string;
+  run_requested_at?: string | null;
 }
 
 interface TableRowHeld {
@@ -469,6 +470,26 @@ export class ScriptedServer {
     }[];
   } = { version: 0, kinds: {}, rewrites: [] };
   mappingReads = 0;
+  /** What the owner chose for the connector, as its control door answers it. */
+  control: { paused: boolean; run_requested_at: string | null } = {
+    paused: false,
+    run_requested_at: null,
+  };
+  controlReads = 0;
+  /** An answer the control door gives in place of the choices. */
+  controlRefusal: { status: number; code: string } | undefined;
+  /** The mapping previews, as the preview doors hold them. */
+  previews: {
+    id: string;
+    kind: string;
+    item_id: string | null;
+    mapping: Record<string, unknown> | null;
+    status: "pending" | "ready" | "failed";
+    result: Record<string, unknown> | null;
+    error: string | null;
+  }[] = [];
+  /** Every answer a preview took, in order. */
+  readonly previewAnswers: { id: string; body: Record<string, unknown> }[] = [];
   /** The numbers of the rewrites the connector cleared, in order. */
   readonly rewritesDone: number[] = [];
   /** The key is refused as a revoked one is: 401 at every door. */
@@ -1488,6 +1509,68 @@ export class ScriptedServer {
     if (
       parts[0] === "plugins" &&
       parts[2] === "connector" &&
+      parts.length === 3 &&
+      method === "GET"
+    ) {
+      this.controlReads += 1;
+      if (this.controlRefusal !== undefined) {
+        refuse(this.controlRefusal.status, this.controlRefusal.code);
+        return;
+      }
+      send(200, {
+        plugin: parts[1],
+        source: this.source,
+        host: null,
+        registration: null,
+        ...this.control,
+        mapping_version: this.mapping.version,
+        rewrites: this.mapping.rewrites.length,
+        previews: this.previews.filter((one) => one.status === "pending")
+          .length,
+      });
+      return;
+    }
+    if (
+      parts[0] === "plugins" &&
+      parts[2] === "connector" &&
+      parts[3] === "previews"
+    ) {
+      if (method === "GET" && parts.length === 4) {
+        send(200, {
+          data: this.previews.filter(
+            (one) =>
+              url.searchParams.get("status") === null ||
+              one.status === url.searchParams.get("status"),
+          ),
+          next_cursor: null,
+        });
+        return;
+      }
+      if (method === "POST" && parts.length === 5) {
+        const held = this.previews.find((one) => one.id === parts[4]);
+        if (held === undefined) {
+          refuse(404, "connector_preview_not_found");
+          return;
+        }
+        if (held.status !== "pending") {
+          refuse(409, "connector_preview_answered");
+          return;
+        }
+        this.previewAnswers.push({ id: held.id, body: input });
+        if (input["result"] !== undefined) {
+          held.status = "ready";
+          held.result = input["result"] as Record<string, unknown>;
+        } else {
+          held.status = "failed";
+          held.error = input["error"] as string;
+        }
+        send(200, held);
+        return;
+      }
+    }
+    if (
+      parts[0] === "plugins" &&
+      parts[2] === "connector" &&
       parts[3] === "mapping"
     ) {
       if (method === "GET" && parts.length === 4) {
@@ -1551,6 +1634,13 @@ export class ScriptedServer {
         return;
       }
       this.runs.push(run);
+      const named: unknown = run.run_requested_at;
+      if (
+        typeof named === "string" &&
+        this.control.run_requested_at !== null &&
+        Date.parse(named) === Date.parse(this.control.run_requested_at)
+      )
+        this.control.run_requested_at = null;
       send(201, {
         ...run,
         id: `run-${String(this.runs.length)}`,

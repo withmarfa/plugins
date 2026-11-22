@@ -14,6 +14,7 @@ import {
   readEnvironment,
   type Environment,
 } from "./environment.js";
+import { controlReadMs, Wake } from "./control.js";
 import { exitCode } from "./exit.js";
 import {
   readSettings,
@@ -31,13 +32,16 @@ import {
   Refusal,
   retryAfterOf,
   type Cause,
+  type Control,
   type EdgeType,
   keyNarrowerThanTypes,
   type Key,
 } from "./marfa.js";
+import { answerPreviews } from "./preview.js";
 import { Hold, type Ended } from "./hold.js";
 import {
   describe,
+  noPluginHolds,
   runOnce,
   specsOf,
   waitingInMarfa,
@@ -412,6 +416,7 @@ function looks<E extends SettingsDeclaration>(
 async function awaitChanges<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   held: (trigger: Trigger) => Promise<RunResult | undefined>,
+  wake: Wake,
   everyMs: number,
   next: number,
   cursor: string | undefined,
@@ -424,8 +429,8 @@ async function awaitChanges<E extends SettingsDeclaration>(
   while (!stopped()) {
     const left = next - clock.now().getTime();
     if (left <= 0) return;
-    await clock.sleep(Math.min(left, everyMs), signal);
-    if (stopped() || clock.now().getTime() >= next) return;
+    const woken = await wake.sleep(Math.min(left, everyMs), signal);
+    if (woken || stopped() || clock.now().getTime() >= next) return;
     let waiting = false;
     try {
       if (connector.inbound !== undefined) {
@@ -455,7 +460,7 @@ async function awaitChanges<E extends SettingsDeclaration>(
     if (!waiting || stopped()) continue;
     const run = await held("look");
     if (run === undefined || !run.succeeded || !run.settled) {
-      await clock.sleep(Math.max(0, next - clock.now().getTime()), signal);
+      await wake.sleep(Math.max(0, next - clock.now().getTime()), signal);
       return;
     }
     peeked = run.cursor;
@@ -481,6 +486,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
+    "It reads what the owner chose for it at the start of every run: a paused connector skips the run, SIGUSR1 runs it now, and it answers the mapping previews that wait.",
     "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing, a value is invalid, or a run found settings only the owner can mend (SettingsRefused).",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
@@ -597,6 +603,8 @@ interface Shared<E extends SettingsDeclaration> {
   readonly clock: Runtime["clock"];
   readonly random: () => number;
   readonly stop: AbortController;
+  /** Wakes the schedule when the host asks for a run now. */
+  readonly wake: Wake;
   readonly print: (text: string) => void;
   readonly telemetry: Telemetry;
 }
@@ -653,6 +661,10 @@ export async function start<E extends SettingsDeclaration>(
     return exitCode.definition;
   }
   const logger = new Logger(write, clock, [environment.key]);
+  const wake = new Wake(clock);
+  runtime.onWake(() => {
+    wake.request();
+  });
   const shared = (telemetry: Telemetry): Shared<E> => ({
     connector,
     build: (values) => build(values),
@@ -669,6 +681,7 @@ export async function start<E extends SettingsDeclaration>(
     clock,
     random: runtime.random,
     stop: new AbortController(),
+    wake,
     print: (text) => {
       (runtime.print ?? runtime.write)(text);
     },
@@ -749,6 +762,7 @@ async function serve<E extends SettingsDeclaration>(
     clock,
     random,
     stop,
+    wake,
     print,
     telemetry,
   } = shared;
@@ -1100,10 +1114,66 @@ async function serve<E extends SettingsDeclaration>(
     return undefined;
   };
   let heldUntil: string | undefined;
+  // A key that is no plugin connector's has no choices of an owner to read.
+  let unowned = false;
+  let controlFailing = false;
+  /** What the owner chose for the connector, read once as a run starts.
+   *  Answers nothing where the key is no plugin connector's, or Marfa did
+   *  not answer, and the run goes ahead as scheduled. */
+  const controlled = async (): Promise<Control | undefined> => {
+    if (unowned) return undefined;
+    try {
+      const read = await marfa.control(
+        setup.plugin ?? connector.name,
+        AbortSignal.any([lasting, AbortSignal.timeout(controlReadMs)]),
+      );
+      if (controlFailing)
+        logger.info("the connector's control door is answered again");
+      controlFailing = false;
+      return read;
+    } catch (error) {
+      if (over()) return undefined;
+      if (noPluginHolds(error)) {
+        unowned = true;
+        return undefined;
+      }
+      const cause = causeOf(error);
+      if (ends(cause)) {
+        end(cause, error);
+        return undefined;
+      }
+      if (!controlFailing) {
+        logger.warn(
+          `the owner's choices to pause the connector or run it now could not be read, so it runs as scheduled until they can: ${describe(error)}`,
+        );
+        controlFailing = true;
+      }
+      return undefined;
+    }
+  };
   const held = async (trigger: Trigger): Promise<RunResult | undefined> => {
     heldUntil = undefined;
+    const control = await controlled();
+    if (over()) return undefined;
+    if (control?.paused === true) {
+      logger.info(
+        "the owner paused this connector, so this run does not start and reports nothing",
+      );
+      return undefined;
+    }
     const unprepared = await prepare();
     if (unprepared !== undefined || over()) return unprepared;
+    if (control !== undefined && control.previews > 0) {
+      await answerPreviews({
+        connector: setup.connector,
+        values: setup.values,
+        marfa,
+        plugin: setup.plugin ?? connector.name,
+        logger,
+        signal: lasting,
+      });
+      if (over()) return undefined;
+    }
     let taken;
     try {
       taken = await hold.take();
@@ -1133,6 +1203,7 @@ async function serve<E extends SettingsDeclaration>(
           marfa: marfa.scoped(hold.signal),
           signal: AbortSignal.any([lasting, hold.signal]),
           fenced: () => hold.check(),
+          requested: control?.run_requested_at ?? undefined,
         },
         trigger,
       ),
@@ -1264,7 +1335,7 @@ async function serve<E extends SettingsDeclaration>(
         const run = await held("schedule");
         if (over()) break;
         if (run === undefined) {
-          await clock.sleep(
+          await wake.sleep(
             untilLapsed(heldUntil, clock.now().getTime(), schedule.intervalMs),
             lasting,
           );
@@ -1286,10 +1357,17 @@ async function serve<E extends SettingsDeclaration>(
         }
         const next = clock.now().getTime() + wait;
         if (!looks(setup.connector, setup.values) || !run.settled) {
-          await clock.sleep(wait, lasting);
+          await wake.sleep(wait, lasting);
           continue;
         }
-        await awaitChanges(setup, held, schedule.lookMs, next, run.cursor);
+        await awaitChanges(
+          setup,
+          held,
+          wake,
+          schedule.lookMs,
+          next,
+          run.cursor,
+        );
       }
     }
   } finally {
