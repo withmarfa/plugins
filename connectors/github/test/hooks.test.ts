@@ -61,22 +61,22 @@ afterEach(async () => {
 });
 
 function env(
-  extra: Record<string, string> = {},
-): Record<string, string | undefined> {
+  extra: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     ...extra,
     PATH: process.env["PATH"],
     MARFA_API_URL: marfa.url,
     MARFA_API_KEY: marfa.key,
-    GITHUB_APP_ID: "12345",
-    GITHUB_PRIVATE_KEY: key,
-    GITHUB_WEBHOOK_SECRET: secret,
+    github_app_id: "12345",
+    github_private_key: key,
+    github_webhook_secret: secret,
     ...github.settings,
   };
 }
 
 async function once(): Promise<void> {
-  await run("node", [built, "--once"], { env: env() });
+  await run("node", [built, "--once"], { env: marfa.processEnv(env()) });
 }
 
 function deliver(
@@ -112,10 +112,10 @@ async function until(holds: () => boolean, what: string): Promise<void> {
 
 async function watching(
   body: () => Promise<void>,
-  extra: Record<string, string> = {},
+  extra: Record<string, unknown> = {},
 ): Promise<void> {
   const child = spawn("node", [built, "--every", "1h", "--look-every", "1s"], {
-    env: env(extra),
+    env: marfa.processEnv(env(extra)),
     stdio: "ignore",
   });
   const exited = new Promise<void>((done) =>
@@ -1280,7 +1280,7 @@ describe("what the webhooks review found", () => {
   });
 });
 
-describe("a delivery for a repository GITHUB_REPOSITORIES leaves out", () => {
+describe("a delivery for a repository github_repositories leaves out", () => {
   it("writes nothing", async () => {
     github.addRepository("someone/tracker");
     const outside = github.addRepository("someone/elsewhere");
@@ -1294,7 +1294,7 @@ describe("a delivery for a repository GITHUB_REPOSITORIES leaves out", () => {
           marfa.rows.some((one) => one.properties["github_id"] === issue.node),
         ).toBe(false);
       },
-      { GITHUB_REPOSITORIES: "someone/tracker" },
+      { github_repositories: "someone/tracker" },
     );
   });
 });

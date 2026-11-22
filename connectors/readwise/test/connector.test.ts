@@ -14,7 +14,7 @@ afterEach(async () => {
   for (const stop of stopping.splice(0)) await stop();
 });
 
-async function fixture(settings: Record<string, string> = {}) {
+async function fixture(settings: Record<string, unknown> = {}) {
   const marfa = await new ScriptedServer("readwise", {
     types: ["readwise.source", "readwise.highlight", "readwise.file"],
     edges: ["excerpt-of", "references", "attached-to"],
@@ -58,26 +58,26 @@ async function fixture(settings: Record<string, string> = {}) {
     content: "Reader passage",
     notes: "Note",
   });
-  const once = async (extra: Record<string, string> = {}) => {
+  const once = async (extra: Record<string, unknown> = {}) => {
     await exec("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        READWISE_ACCOUNT: "primary",
-        READWISE_ACCESS_TOKEN: "reader-fixture-token",
-        READWISE_API_URL: `${vendor.base}/v2/`,
-        READWISE_READER_API_URL: `${vendor.base}/v3/`,
+        readwise_account: "primary",
+        readwise_access_token: "reader-fixture-token",
+        readwise_api_url: `${vendor.base}/v2/`,
+        readwise_reader_api_url: `${vendor.base}/v3/`,
         ...settings,
         ...extra,
-      },
+      }),
     });
   };
   const rows = (type: string) => marfa.rows.filter((row) => row.type === type);
   return { marfa, vendor, once, rows };
 }
 
-const readerOn = { READWISE_READER: "true" };
+const readerOn = { readwise_reader: true };
 
 describe("with Reader off", () => {
   it("brings in the export's sources and highlights and sends nothing to Readwise", async () => {
@@ -110,7 +110,7 @@ describe("with Reader off", () => {
 });
 
 describe("with Reader on", () => {
-  const adopted = async (settings: Record<string, string> = {}) => {
+  const adopted = async (settings: Record<string, unknown> = {}) => {
     const found = await fixture({ ...readerOn, ...settings });
     await found.once();
     await found.once();
@@ -181,8 +181,8 @@ describe("with Reader on", () => {
   });
 
   it.each([
-    ["off", { READWISE_READER: "false" }],
-    ["inbound only", { READWISE_READER_INBOUND_ONLY: "true" }],
+    ["off", { readwise_reader: false }],
+    ["inbound only", { readwise_reader_inbound_only: true }],
   ])(
     "keeps an unanswered Reader write while Reader is %s, and sends it once Reader may be written",
     async (_, paused) => {
@@ -229,8 +229,8 @@ describe("with Reader on", () => {
   );
 
   it.each([
-    ["off", { READWISE_READER: "false" }],
-    ["inbound only", { READWISE_READER_INBOUND_ONLY: "true" }],
+    ["off", { readwise_reader: false }],
+    ["inbound only", { readwise_reader_inbound_only: true }],
   ])(
     "says a lost save is why nothing imports while Reader is %s, and settles it once Reader is back",
     async (_, paused) => {
@@ -348,7 +348,7 @@ describe("with Reader on", () => {
     expect(kept.vendor.documents.has("hi-1")).toBe(true);
 
     const deleted = await adopted({
-      READWISE_READER_PROPAGATE_PURGE: "true",
+      readwise_reader_propagate_purge: true,
     });
     deleted.marfa.purge("primary:highlight:11");
     await deleted.once();
@@ -360,7 +360,7 @@ describe("with Reader on", () => {
 });
 
 describe("what goes back to Readwise", () => {
-  const values = (settings: Record<string, string | undefined>) =>
+  const values = (settings: Record<string, unknown>) =>
     ({
       readwise_account: "primary",
       readwise_access_token: "token",
@@ -370,16 +370,16 @@ describe("what goes back to Readwise", () => {
   it("is nothing unless Reader is on and may be written", () => {
     const carries = connector().carries;
     expect(carries?.(values({}))).toEqual([]);
-    expect(carries?.(values({ readwise_reader: "false" }))).toEqual([]);
+    expect(carries?.(values({ readwise_reader: false }))).toEqual([]);
     expect(
       carries?.(
         values({
-          readwise_reader: "true",
-          readwise_reader_inbound_only: "true",
+          readwise_reader: true,
+          readwise_reader_inbound_only: true,
         }),
       ),
     ).toEqual([]);
-    expect(carries?.(values({ readwise_reader: "true" }))).toEqual([
+    expect(carries?.(values({ readwise_reader: true }))).toEqual([
       "readwise.source",
       "readwise.highlight",
     ]);

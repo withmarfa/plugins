@@ -87,9 +87,9 @@ export async function proveReadwise(
       },
     );
     const runner = new ConnectorUnderProof("readwise", url, key, {
-      READWISE_ACCOUNT: "proof",
-      READWISE_ACCESS_TOKEN: "readwise-proof-token",
-      READWISE_API_URL: base,
+      readwise_account: "proof",
+      readwise_access_token: "readwise-proof-token",
+      readwise_api_url: base,
     });
     const once = async (): Promise<void> => {
       const result = await runner.once();
@@ -207,7 +207,7 @@ export async function proveReadwise(
       async () => {
         const before = await all();
         const failed = await runner.run(["--once"], {
-          READWISE_ACCESS_TOKEN: "readwise-wrong-token",
+          readwise_access_token: "readwise-wrong-token",
         });
         if (failed.code === 0 || !failed.output.includes("401"))
           throw new Error("Readwise authentication failure was not reported");

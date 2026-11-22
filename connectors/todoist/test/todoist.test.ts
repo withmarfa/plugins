@@ -185,18 +185,18 @@ afterEach(async () => {
 });
 
 async function once(
-  env: Record<string, string | undefined> = {},
+  env: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        TODOIST_API_TOKEN: token,
-        TODOIST_API_URL: todoistUrl,
+        todoist_api_token: token,
+        todoist_api_url: todoistUrl,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -744,7 +744,7 @@ describe("the connector, run as a process", () => {
 
   it("fails the run when Todoist refuses the token, and never prints it", async () => {
     const { code, output } = await once({
-      TODOIST_API_TOKEN: "a-wrong-token-value",
+      todoist_api_token: "a-wrong-token-value",
     });
     expect(code).toBe(1);
     expect(marfa.runs.at(-1)?.error).toContain("refused the token");

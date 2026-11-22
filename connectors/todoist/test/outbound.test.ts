@@ -63,18 +63,18 @@ afterEach(async () => {
 });
 
 async function once(
-  env: Record<string, string> = {},
+  env: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        TODOIST_API_TOKEN: token,
-        TODOIST_API_URL: todoist.url,
+        todoist_api_token: token,
+        todoist_api_url: todoist.url,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -3136,7 +3136,7 @@ describe("read only", () => {
     const row = await synced("a");
     marfa.edit(row.id, { title: "From Marfa" });
     personsRow({ title: "Made in Marfa", status: "pending" });
-    const { code, output } = await once({ TODOIST_READ_ONLY: "true" });
+    const { code, output } = await once({ todoist_read_only: true });
     expect(code, output).toBe(0);
     expect(todoist.commands()).toEqual([]);
     expect(marfa.byId(row.id).properties["title"]).toBe("Task a");
@@ -3146,13 +3146,13 @@ describe("read only", () => {
 
 async function looking(during: () => Promise<void>): Promise<void> {
   const child = spawn("node", [built, "--every", "1h", "--look-every", "1s"], {
-    env: {
+    env: marfa.processEnv({
       PATH: process.env["PATH"],
       MARFA_API_URL: marfa.url,
       MARFA_API_KEY: marfa.key,
-      TODOIST_API_TOKEN: token,
-      TODOIST_API_URL: todoist.url,
-    },
+      todoist_api_token: token,
+      todoist_api_url: todoist.url,
+    }),
     stdio: "ignore",
   });
   const exited = new Promise((done) => child.once("exit", done));
@@ -3207,13 +3207,13 @@ describe("a change made in Marfa between runs", () => {
       "node",
       [built, "--every", "1h", "--look-every", "1s"],
       {
-        env: {
+        env: marfa.processEnv({
           PATH: process.env["PATH"],
           MARFA_API_URL: marfa.url,
           MARFA_API_KEY: marfa.key,
-          TODOIST_API_TOKEN: token,
-          TODOIST_API_URL: todoist.url,
-        },
+          todoist_api_token: token,
+          todoist_api_url: todoist.url,
+        }),
         stdio: "ignore",
       },
     );

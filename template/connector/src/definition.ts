@@ -77,10 +77,10 @@ function checkAddress(value: string): void {
   try {
     url = new URL(value);
   } catch {
-    throw new Error("EXAMPLE_URL is not an address");
+    throw new Error("example_url is not an address");
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("EXAMPLE_URL is not an http or https address");
+    throw new Error("example_url is not an http or https address");
   }
 }
 

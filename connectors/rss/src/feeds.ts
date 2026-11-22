@@ -80,11 +80,11 @@ function countTags(text: string): void {
 }
 
 export interface Feed {
-  /** Its place in RSS_FEEDS, counted from 1, by which a condition names it
+  /** Its place in rss_feeds, counted from 1, by which a condition names it
    *  where its address may not go. */
   position: number;
   url: string;
-  /** What its entries are keyed by: its name in RSS_FEEDS, else its address.
+  /** What its entries are keyed by: its name in rss_feeds, else its address.
    *  Owned by the configuration, never by what the feed says of itself. */
   key: string;
   /** The key of its address, which its validators belong to. */
@@ -136,8 +136,8 @@ export function feedList(value: string): Feed[] {
   if (bad.length > 0) {
     throw new Error(
       bad.length === 1
-        ? "RSS_FEEDS holds an entry that is not an http or https address"
-        : `RSS_FEEDS holds ${String(bad.length)} entries that are not http or https addresses`,
+        ? "rss_feeds holds an entry that is not an http or https address"
+        : `rss_feeds holds ${String(bad.length)} entries that are not http or https addresses`,
     );
   }
   const byKey = new Map<string, Feed>();
@@ -148,7 +148,7 @@ export function feedList(value: string): Feed[] {
       const other = byName.get(name);
       if (other !== undefined && other.address !== address) {
         throw new Error(
-          `RSS_FEEDS gives entries ${String(other.position)} and ${String(position)} one name`,
+          `rss_feeds gives entries ${String(other.position)} and ${String(position)} one name`,
         );
       }
       byName.set(name, { position, address });
@@ -161,7 +161,7 @@ export function feedList(value: string): Feed[] {
 
 // Never the path or query: a private feed carries its token in either.
 export function feedName(feed: Feed): string {
-  return `feed ${String(feed.position)} in RSS_FEEDS (${new URL(feed.url).origin})`;
+  return `feed ${String(feed.position)} in rss_feeds (${new URL(feed.url).origin})`;
 }
 
 export interface Validators {
@@ -221,9 +221,9 @@ export function decodeFeed(
   return new TextDecoder("utf-8").decode(bytes);
 }
 
-/** Hosts the owner allows to resolve to this machine or a private network, from `RSS_PRIVATE_HOSTS`. */
+/** Hosts the owner allows to resolve to this machine or a private network, from `rss_private_hosts`. */
 export function privateHosts(value: string | undefined): Set<string> {
-  return privateHostSet(value, "RSS_PRIVATE_HOSTS");
+  return privateHostSet(value, "rss_private_hosts");
 }
 
 export async function fetchFeed(

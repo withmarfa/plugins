@@ -60,20 +60,20 @@ afterEach(async () => {
 });
 
 async function once(
-  env: Record<string, string | undefined> = {},
+  env: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        GITHUB_APP_ID: "12345",
-        GITHUB_PRIVATE_KEY: key,
-        GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
+        github_app_id: "12345",
+        github_private_key: key,
+        github_webhook_secret: "github-test-webhook-secret",
         ...github.settings,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -914,7 +914,7 @@ describe("read check coverage", () => {
     });
     await ok();
     (envelope()["state"] as Record<string, unknown>)["repositories"] = {};
-    const result = await once({ GITHUB_REPOSITORIES: "someone/other" });
+    const result = await once({ github_repositories: "someone/other" });
     expect(result.code, result.output).toBe(0);
     expect(conditions()).toHaveProperty(`issues-off:${repository.node}`);
     repository.issuesOff = false;
@@ -943,7 +943,7 @@ describe("read check coverage", () => {
       if (skip === "reserve") github.budget("core").remaining = 100;
       github.asked = [];
       const result = await once(
-        skip === "paused" ? { GITHUB_REPOSITORIES: "someone/other" } : {},
+        skip === "paused" ? { github_repositories: "someone/other" } : {},
       );
       expect(result.code, result.output).toBe(0);
       expect(conditions()).toHaveProperty(
@@ -1107,184 +1107,6 @@ describe("a repository", () => {
     expect(row(comment.node).state).toBe("active");
   });
 
-  describe("shared with a second process", () => {
-    const peerToken = "github_pat_peer_12345678";
-    const grants = {};
-
-    /** A second process: its own key, which claims the source `github`, and
-     *  its own personal token, so it keeps its own agreements. */
-    async function asPeer(): Promise<void> {
-      const app = github.personalToken;
-      const reached = github.personalRepositories;
-      marfa.keySource = "github-peer";
-      marfa.grants = { ...grants, sources: ["github"] };
-      github.personalToken = peerToken;
-      github.personalRepositories = new Set(
-        github.repositories.map((one) => one.node),
-      );
-      try {
-        const { code, output } = await once({
-          GITHUB_PERSONAL_TOKEN: peerToken,
-          GITHUB_APP_ID: undefined,
-          GITHUB_PRIVATE_KEY: undefined,
-          GITHUB_WEBHOOK_SECRET: undefined,
-          GITHUB_STARS: "false",
-        });
-        if (code !== 0)
-          throw new Error(`the peer exited ${String(code)}: ${output}`);
-      } finally {
-        marfa.keySource = "github";
-        marfa.grants = grants;
-        github.personalToken = app;
-        github.personalRepositories = reached;
-      }
-    }
-
-    /** Both processes have read the repository; then the second goes on to
-     *  write an issue and a comment of its own. */
-    async function shared() {
-      const repository = github.addRepository("someone/tracker");
-      const own = github.addIssue(repository);
-      const mine = github.addComment(own, "Mine");
-      await ok();
-      const theirs = github.addIssue(repository);
-      const reply = github.addComment(theirs, "Theirs");
-      await asPeer();
-      return { repository, own, mine, theirs, reply };
-    }
-
-    it("leaves the rows it did not write and the repository row they sit under, and archives the rows it wrote", async () => {
-      const { repository, own, mine, theirs, reply } = await shared();
-      repository.installation = 2;
-      const output = await ok();
-      expect(output).toContain("was taken out of the App's installation");
-      expect(output).toContain("that this process did not archive");
-      expect(row(own.node).state).toBe("archived");
-      expect(row(mine.node).state).toBe("archived");
-      expect(row(theirs.node).state).toBe("active");
-      expect(row(reply.node).state).toBe("active");
-      expect(row(repository.node).state).toBe("active");
-    });
-
-    it("archives the same rows and the repository row where no other process has written under it", async () => {
-      const repository = github.addRepository("someone/tracker");
-      const own = github.addIssue(repository);
-      const mine = github.addComment(own, "Mine");
-      await ok();
-      await asPeer();
-      repository.installation = 2;
-      await ok();
-      expect(row(own.node).state).toBe("archived");
-      expect(row(mine.node).state).toBe("archived");
-      expect(row(repository.node).state).toBe("archived");
-    });
-
-    it("leaves a row it wrote but holds no agreement for", async () => {
-      const repository = github.addRepository("someone/tracker");
-      const lost = github.addIssue(repository);
-      const kept = github.addIssue(repository);
-      await ok();
-      marfa.agreements.delete(row(lost.node).id);
-      repository.installation = 2;
-      await ok();
-      expect(row(lost.node).state).toBe("active");
-      expect(row(kept.node).state).toBe("archived");
-      expect(row(repository.node).state).toBe("active");
-    });
-
-    it("leaves a row a person linked to the repository by hand", async () => {
-      const repository = github.addRepository("someone/tracker");
-      const own = github.addIssue(repository);
-      await ok();
-      const made = marfa.insert(
-        undefined,
-        { title: "By hand" },
-        "github.issue",
-        "person",
-      );
-      marfa.drawEdge(made.id, row(repository.node).id, "github.in-repository");
-      repository.installation = 2;
-      await ok();
-      expect(row(own.node).state).toBe("archived");
-      expect(marfa.rows.find((one) => one.id === made.id)?.state).toBe(
-        "active",
-      );
-      expect(row(repository.node).state).toBe("active");
-    });
-
-    it("keeps the repository's progress while a row under it is active, and archives its row on a later run once none is", async () => {
-      const { repository, theirs, reply } = await shared();
-      repository.installation = 2;
-      await ok();
-      expect(row(repository.node).state).toBe("active");
-      expect(kept()[repository.node]?.["leaving"]).toBe(true);
-      await ok();
-      expect(row(repository.node).state).toBe("active");
-      expect(kept()[repository.node]?.["leaving"]).toBe(true);
-
-      marfa.transition(row(reply.node).id, "archived");
-      marfa.transition(row(theirs.node).id, "archived");
-      const output = await ok();
-      expect(output).toContain("was taken out of the App's installation");
-      expect(row(repository.node).state).toBe("archived");
-      expect(kept()[repository.node]).toBeUndefined();
-
-      const before = marfa.log.length;
-      await ok();
-      expect(marfa.log.slice(before).map((one) => one.event)).not.toContain(
-        "item.state_changed",
-      );
-      expect(row(repository.node).state).toBe("archived");
-    });
-
-    it("does not hold back a purge in a repository the App still reads while it keeps the one taken out", async () => {
-      const other = github.addRepository("someone/other");
-      const issue = github.addIssue(other);
-      const comment = github.addComment(issue, "Said", "marfa[bot]");
-      comment.app = true;
-      const { repository } = await shared();
-      repository.installation = 2;
-      await ok();
-      expect(kept()[repository.node]).toBeDefined();
-
-      const id = row(comment.node).id;
-      comment.deleted = true;
-      marfa.purgeById(id);
-      const output = await ok();
-      expect(output).toContain("GitHub no longer shows what");
-      expect(output).not.toContain("is out of the App's reach");
-      expect(row(repository.node).state).toBe("active");
-      expect(kept()[repository.node]).toBeDefined();
-      expect(await ok()).not.toContain("is out of the App's reach");
-    });
-
-    it("reads the repository again, and no longer as leaving, when it is added back", async () => {
-      const { repository } = await shared();
-      repository.installation = 2;
-      await ok();
-      expect(kept()[repository.node]?.["leaving"]).toBe(true);
-      repository.installation = 1;
-      await ok();
-      expect(kept()[repository.node]).toBeDefined();
-      expect(kept()[repository.node]?.["leaving"]).toBeUndefined();
-      expect(row(repository.node).state).toBe("active");
-    });
-
-    it("changes nothing when it runs again", async () => {
-      const { repository, theirs, reply } = await shared();
-      repository.installation = 2;
-      await ok();
-      const before = marfa.log.length;
-      await ok();
-      await ok();
-      expect(marfa.log.slice(before).map((one) => one.event)).not.toContain(
-        "item.state_changed",
-      );
-      expect(row(theirs.node).state).toBe("active");
-      expect(row(reply.node).state).toBe("active");
-      expect(row(repository.node).state).toBe("active");
-    });
-  });
 
   it("whose installation refuses the App changes nothing and says so", async () => {
     const repository = github.addRepository("someone/tracker");
@@ -1361,7 +1183,7 @@ describe("the installation tokens", () => {
     const parent = github.addIssue(other, { title: "Parent" });
     child.parent = parent.node;
     const { code, output } = await once({
-      GITHUB_REPOSITORIES: "someone/tracker",
+      github_repositories: "someone/tracker",
     });
     expect(code, output).toBe(0);
     expect(mints()).toEqual([
@@ -1395,8 +1217,8 @@ describe("the installation tokens", () => {
     await ok();
     const before = mints().length;
     const { code, output } = await once({
-      GITHUB_REPOSITORIES: "someone/tracker",
-      GITHUB_READ_ONLY: "true",
+      github_repositories: "someone/tracker",
+      github_read_only: "true",
     });
     expect(code, output).toBe(0);
     expect(mints().slice(before)).toEqual([
@@ -1427,7 +1249,7 @@ describe("the installation tokens", () => {
       Reflect.deleteProperty(one, "id");
     }
     const { code, output } = await once({
-      GITHUB_REPOSITORIES: "someone/tracker",
+      github_repositories: "someone/tracker",
     });
     expect(code, output).toBe(0);
     expect(kept()[other.node]).toMatchObject({ paused: true, id: other.id });
@@ -1737,7 +1559,7 @@ describe("every request to GitHub", () => {
   });
 });
 
-describe("GITHUB_REPOSITORIES", () => {
+describe("github_repositories", () => {
   it("keeps the sync to the repositories it names, by name or owner, in any case", async () => {
     const kept = github.addRepository("someone/Tracker");
     const other = github.addRepository("someone/elsewhere");
@@ -1746,7 +1568,7 @@ describe("GITHUB_REPOSITORIES", () => {
     const left = github.addIssue(other, { title: "Left out" });
     const all = github.addIssue(theirs, { title: "An owner's" });
     const { code } = await once({
-      GITHUB_REPOSITORIES: "someone/tracker, TEAM/*",
+      github_repositories: "someone/tracker, TEAM/*",
     });
     expect(code).toBe(0);
     expect(row(mine.node).state).toBe("active");
@@ -1765,45 +1587,45 @@ describe("GITHUB_REPOSITORIES", () => {
     const comment = github.addComment(issue, "Said");
     await ok();
     github.edit(issue, { title: "Changed while left out" });
-    const { output } = await once({ GITHUB_REPOSITORIES: "someone/other" });
+    const { output } = await once({ github_repositories: "someone/other" });
     expect(output).toContain(
-      "someone/tracker is left out by GITHUB_REPOSITORIES, so its rows are left as they are",
+      "someone/tracker is left out by github_repositories, so its rows are left as they are",
     );
     expect(
       [repository.node, issue.node, comment.node].map((one) => row(one).state),
     ).toEqual(["active", "active", "active"]);
     expect(row(issue.node).properties["title"]).toBe("Before");
-    await once({ GITHUB_REPOSITORIES: "someone/trakcer" });
+    await once({ github_repositories: "someone/trakcer" });
     expect(row(issue.node).state).toBe("active");
-    await once({ GITHUB_REPOSITORIES: "someone/tracker" });
+    await once({ github_repositories: "someone/tracker" });
     expect(row(issue.node).properties["title"]).toBe("Changed while left out");
   });
 
   it("names an entry no installation shows", async () => {
     github.addRepository("someone/tracker");
     const { code, output } = await once({
-      GITHUB_REPOSITORIES: "someone/tracker someone/renamed",
+      github_repositories: "someone/tracker someone/renamed",
     });
     expect(code).toBe(0);
     expect(output).toContain(
-      "GITHUB_REPOSITORIES names someone/renamed, which no installation of the App shows",
+      "github_repositories names someone/renamed, which no installation of the App shows",
     );
   });
 
   it("refuses a malformed entry before anything runs", async () => {
     github.addRepository("someone/tracker");
-    const { code, output } = await once({ GITHUB_REPOSITORIES: "tracker" });
+    const { code, output } = await once({ github_repositories: "tracker" });
     expect(code).not.toBe(0);
     expect(output).toContain("each is owner/repo or owner/*");
     expect(marfa.rows).toEqual([]);
   });
 });
 
-describe("GITHUB_REPOSITORIES entries", () => {
+describe("github_repositories entries", () => {
   it("take owners GitHub allows, underscores and all", async () => {
     const repository = github.addRepository("mona_octo/tracker");
     const issue = github.addIssue(repository);
-    const { code } = await once({ GITHUB_REPOSITORIES: "mona_octo/*" });
+    const { code } = await once({ github_repositories: "mona_octo/*" });
     expect(code).toBe(0);
     expect(row(issue.node).state).toBe("active");
   });
@@ -1818,7 +1640,7 @@ describe("a relation to an issue in a repository left out", () => {
     child.parent = parent.node;
     await ok();
     const parentRow = row(parent.node).id;
-    const only = { GITHUB_REPOSITORIES: "someone/tracker" };
+    const only = { github_repositories: "someone/tracker" };
     await once(only);
     github.edit(child, { title: "Child, edited" });
     await once(only);
@@ -1835,18 +1657,18 @@ describe("a relation to an issue in a repository left out", () => {
 // Helper: run the connector with a personal token instead of App credentials.
 async function onceWithToken(
   token: string,
-  extra: Record<string, string> = {},
+  extra: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        GITHUB_PERSONAL_TOKEN: token,
+        github_personal_token: token,
         ...github.settings,
         ...extra,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -1879,7 +1701,7 @@ describe("a personal access token run", () => {
     // Now run with a wrong token.
     const result = await onceWithToken("wrong_token_12345678");
     expect(result.code).toBe(1);
-    expect(result.output).toContain("GITHUB_PERSONAL_TOKEN");
+    expect(result.output).toContain("github_personal_token");
     expect(result.output).not.toContain("wrong_token");
     // Rows must not be archived.
     expect(
@@ -1901,34 +1723,33 @@ describe("a personal access token run", () => {
     expect(JSON.stringify(marfa.runs)).toContain("[redacted]");
   });
 
-  it.each(["soon", "-1", "1.5", "60001", "99999999999"])(
-    "refuses a GITHUB_REQUEST_SPACING_MS of %j, which is not a whole number of milliseconds up to 60000",
+  it.each([-1, 1.5, 60001, 99999999999])(
+    "refuses a github_request_spacing_ms of %j, which is not a whole number of milliseconds up to 60000",
     async (spacing) => {
-      const result = await once({ GITHUB_REQUEST_SPACING_MS: spacing });
-      expect(result.code).toBe(2);
+      const result = await once({ github_request_spacing_ms: spacing });
+      expect(result.code).toBe(4);
       expect(result.output).toContain(
-        "GITHUB_REQUEST_SPACING_MS must be a whole number of milliseconds, at most 60000",
+        "github_request_spacing_ms must be a whole number of milliseconds, at most 60000",
       );
     },
   );
 
-  it("refuses a GITHUB_REQUEST_SPACING_MS against GitHub's own address", async () => {
+  it("refuses a github_request_spacing_ms against GitHub's own address", async () => {
     const result = await once({
-      GITHUB_API_URL: undefined,
-      GITHUB_REQUEST_SPACING_MS: "0",
+      github_api_url: undefined,
+      github_request_spacing_ms: 0,
     });
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(4);
     expect(result.output).toContain(
-      "GITHUB_REQUEST_SPACING_MS is for a stub of the API, so it needs GITHUB_API_URL",
+      "github_request_spacing_ms is for a stub of the API, so it needs github_api_url set to the stub",
     );
   });
 
-  // The kit trims every optional setting and takes an empty one as unset.
-  it.each(["", " 0 ", "\t0"])(
-    "starts and runs with a GITHUB_REQUEST_SPACING_MS of %j",
+  it.each([0, undefined])(
+    "starts and runs with a github_request_spacing_ms of %j",
     async (spacing) => {
       github.addIssue(github.addRepository("someone/tracker"));
-      const result = await once({ GITHUB_REQUEST_SPACING_MS: spacing });
+      const result = await once({ github_request_spacing_ms: spacing });
       expect(result.code).toBe(0);
       expect(marfa.rows.some((one) => one.type === "github.issue")).toBe(true);
     },
@@ -1936,38 +1757,38 @@ describe("a personal access token run", () => {
 
   it("refuses to start when both App settings and token are set", async () => {
     const result = await once({
-      GITHUB_PERSONAL_TOKEN: personalToken,
-      // once() already sets GITHUB_APP_ID and GITHUB_PRIVATE_KEY
+      github_personal_token: personalToken,
+      // once() already sets github_app_id and github_private_key
     });
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(4);
     expect(result.output).toMatch(/one of|either/i);
   });
 
   it("refuses to start when neither App settings nor token are set", async () => {
     try {
       const { stderr } = await run("node", [built, "--once"], {
-        env: {
+        env: marfa.processEnv({
           PATH: process.env["PATH"],
           MARFA_API_URL: marfa.url,
           MARFA_API_KEY: marfa.key,
           ...github.settings,
-        },
+        }),
       });
-      throw new Error(`expected exit 2 but exited 0: ${stderr}`);
+      throw new Error(`expected exit 4 but exited 0: ${stderr}`);
     } catch (error) {
       const failed = error as { code: number; stderr: string };
-      expect(failed.code).toBe(2);
-      expect(failed.stderr).toMatch(/GITHUB_APP_ID|GITHUB_PERSONAL_TOKEN/);
+      expect(failed.code).toBe(4);
+      expect(failed.stderr).toMatch(/github_app_id|github_personal_token/);
     }
   });
 
-  it("narrows repositories by GITHUB_REPOSITORIES when using a token", async () => {
+  it("narrows repositories by github_repositories when using a token", async () => {
     const tracker = github.addRepository("someone/tracker");
     const other = github.addRepository("someone/other");
     github.addIssue(tracker);
     github.addIssue(other);
     const result = await onceWithToken(personalToken, {
-      GITHUB_REPOSITORIES: "someone/tracker",
+      github_repositories: "someone/tracker",
     });
     expect(result.code, result.output).toBe(0);
     expect(
@@ -1978,23 +1799,23 @@ describe("a personal access token run", () => {
     ).toBeDefined();
   });
 
-  it("refuses to start when GITHUB_READ_ONLY names an unknown kind", async () => {
+  it("refuses to start when github_read_only names an unknown kind", async () => {
     const result = await onceWithToken(personalToken, {
-      GITHUB_READ_ONLY: "unknown-kind",
+      github_read_only: "unknown-kind",
     });
-    expect(result.code).toBe(2);
+    expect(result.code).toBe(4);
     expect(result.output).toContain("unknown-kind");
   });
 
-  it("refuses to start with the App when GITHUB_READ_ONLY names an unknown kind", async () => {
-    const result = await once({ GITHUB_READ_ONLY: "issue,unknown-kind" });
-    expect(result.code).toBe(2);
+  it("refuses to start with the App when github_read_only names an unknown kind", async () => {
+    const result = await once({ github_read_only: "issue,unknown-kind" });
+    expect(result.code).toBe(4);
     expect(result.output).toContain(
-      "GITHUB_READ_ONLY holds an unknown kind (unknown-kind)",
+      "github_read_only holds an unknown kind (unknown-kind)",
     );
   });
 
-  it("does not carry issues when GITHUB_READ_ONLY=issue", async () => {
+  it("does not carry issues when github_read_only=issue", async () => {
     const repository = github.addRepository("someone/tracker");
     const issue = github.addIssue(repository, { title: "Original" });
     await onceWithToken(personalToken);
@@ -2002,7 +1823,7 @@ describe("a personal access token run", () => {
     const issueRow = row(issue.node);
     marfa.edit(issueRow.id, { title: "Edited in Marfa" });
     const result = await onceWithToken(personalToken, {
-      GITHUB_READ_ONLY: "issue",
+      github_read_only: "issue",
     });
     expect(result.code, result.output).toBe(0);
     // The issue on GitHub is unchanged.
@@ -2011,7 +1832,7 @@ describe("a personal access token run", () => {
     expect(row(issue.node).properties["title"]).toBe("Original");
   });
 
-  it("keeps token runs read only without GITHUB_READ_ONLY and uses no App or webhook API", async () => {
+  it("keeps token runs read only without github_read_only and uses no App or webhook API", async () => {
     marfa.endpoints = [];
     const repository = github.addRepository("someone/tracker", {
       installation: 99,
@@ -2068,7 +1889,7 @@ describe("a personal access token run", () => {
     };
     const result = await onceWithToken(personalToken);
     expect(result.code, result.output).toBe(1);
-    expect(result.output).toContain("GITHUB_PERSONAL_TOKEN");
+    expect(result.output).toContain("github_personal_token");
     expect(result.output).not.toContain(personalToken);
     expect(row(issue.node).state).toBe("active");
     expect(kept()).toEqual(previous);

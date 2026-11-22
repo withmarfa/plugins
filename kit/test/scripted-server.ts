@@ -640,6 +640,26 @@ export class ScriptedServer {
     });
   }
 
+  /**
+   * What a connector's process is started with, from one record: a name in
+   * capitals, such as `MARFA_API_URL` or `PATH`, is its environment, and a
+   * setting's own name, in lowercase, is set in this server for its settings
+   * door, which is where the connector reads it.
+   */
+  processEnv(
+    values: Readonly<Record<string, unknown>>,
+  ): Record<string, string | undefined> {
+    const env: Record<string, string | undefined> = {};
+    const settings: Record<string, unknown> = {};
+    for (const [name, value] of Object.entries(values)) {
+      if (/^[a-z]/.test(name)) {
+        if (value !== undefined) settings[name] = value;
+      } else env[name] = value === undefined ? undefined : String(value);
+    }
+    this.settings = settings;
+    return env;
+  }
+
   refuseNext(
     route: string,
     status: number,

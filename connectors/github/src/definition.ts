@@ -110,7 +110,7 @@ function appOf(values: {
     values.github_private_key === undefined
   )
     throw new Error(
-      "GitHub writes require GITHUB_APP_ID and GITHUB_PRIVATE_KEY",
+      "GitHub writes require github_app_id and github_private_key",
     );
   return {
     appId: values.github_app_id,
@@ -350,7 +350,7 @@ export function connector(settings: Settings = {}) {
           about,
         ],
       },
-      // GitHub is the source of these, whatever GITHUB_READ_ONLY says: no
+      // GitHub is the source of these, whatever github_read_only says: no
       // kind outside `carries` goes back, so the kit puts back every edit.
       {
         name: "repository_file",
@@ -533,11 +533,11 @@ export function connector(settings: Settings = {}) {
       if (values.github_personal_token !== undefined) {
         if (app.some((one) => one !== undefined))
           throw new Error(
-            "choose either GITHUB_PERSONAL_TOKEN or the GitHub App settings",
+            "choose either github_personal_token or the GitHub App settings",
           );
       } else if (app.some((one) => one === undefined)) {
         throw new Error(
-          "set GITHUB_PERSONAL_TOKEN or all of GITHUB_APP_ID, GITHUB_PRIVATE_KEY and GITHUB_WEBHOOK_SECRET",
+          "set github_personal_token or all of github_app_id, github_private_key and github_webhook_secret",
         );
       }
     },

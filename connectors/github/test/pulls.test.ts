@@ -45,22 +45,22 @@ afterEach(async () => {
   await marfa.stop();
   await github.stop();
 });
-async function once(env: Record<string, string | undefined> = {}) {
+async function once(env: Record<string, unknown> = {}) {
   try {
     const result = await run(
       "node",
       [resolve(import.meta.dirname, "../dist/main.js"), "--once"],
       {
-        env: {
+        env: marfa.processEnv({
           PATH: process.env["PATH"],
           MARFA_API_URL: marfa.url,
           MARFA_API_KEY: marfa.key,
-          GITHUB_APP_ID: "12345",
-          GITHUB_PRIVATE_KEY: key,
-          GITHUB_WEBHOOK_SECRET: "test-secret",
+          github_app_id: "12345",
+          github_private_key: key,
+          github_webhook_secret: "test-secret",
           ...github.settings,
           ...env,
-        },
+        }),
       },
     );
     return { code: 0, output: result.stderr };
@@ -69,7 +69,7 @@ async function once(env: Record<string, string | undefined> = {}) {
     return { code: result.code, output: result.stderr };
   }
 }
-async function ok(env: Record<string, string | undefined> = {}) {
+async function ok(env: Record<string, unknown> = {}) {
   const result = await once(env);
   expect(result.code, result.output).toBe(0);
   return result.output;
@@ -263,7 +263,7 @@ describe("pull request reading", () => {
     const pr = github.addPullRequest(repo);
     const comment = github.addComment(issue, "Before", "marfa[bot]");
     comment.app = true;
-    const env = { GITHUB_READ_ONLY: "pull_request" };
+    const env = { github_read_only: "pull_request" };
     await ok(env);
     marfa.edit(row(issue.node).id, { title: "After" });
     marfa.edit(row(comment.node).id, { body: "After" });
@@ -280,11 +280,11 @@ describe("pull request reading", () => {
     const pr = github.addPullRequest(repo, { closing_issues: [issue.node] });
     github.personalToken = "github_pat_pull_test";
     const env = {
-      GITHUB_PERSONAL_TOKEN: github.personalToken,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
-      GITHUB_READ_ONLY: "false",
+      github_personal_token: github.personalToken,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
+      github_read_only: "false",
     };
     await ok(env);
     marfa.edit(row(pr.node).id, { title: "Local edit" });
@@ -302,10 +302,10 @@ describe("pull request reading", () => {
   describe("a personal token without the Checks permission", () => {
     const personal = "github_pat_no_checks";
     const env = {
-      GITHUB_PERSONAL_TOKEN: personal,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
+      github_personal_token: personal,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
     };
     const queries = (): number =>
       github.asked.filter(
@@ -649,10 +649,10 @@ describe("pull request checks as table rows", () => {
   it("leaves the table as it was where GitHub refuses the token its checks", async () => {
     const personal = "github_pat_no_checks";
     const env = {
-      GITHUB_PERSONAL_TOKEN: personal,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
+      github_personal_token: personal,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
     };
     github.personalToken = personal;
     const repo = github.addRepository("someone/tracker");

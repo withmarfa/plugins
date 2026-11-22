@@ -479,10 +479,25 @@ export class Harness {
     await this.server.stop();
   }
 
+  /** A runtime whose environment holds what `values` names in capitals.
+   *  Where it names a setting, in lowercase, the server's settings become
+   *  those it names beside the test token; otherwise they stay as set. */
   runtime(
     argv: readonly string[],
-    env: Record<string, string | undefined> = {},
+    values: Readonly<Record<string, unknown>> = {},
   ): Runtime {
+    const env: Record<string, string | undefined> = {};
+    const settings: Record<string, unknown> = { test_token: secretToken };
+    let named = false;
+    for (const [name, value] of Object.entries(values)) {
+      if (!/^[a-z]/.test(name)) {
+        env[name] = value === undefined ? undefined : String(value);
+        continue;
+      }
+      named = true;
+      if (value !== undefined) settings[name] = value;
+    }
+    if (named) this.server.settings = settings;
     return {
       argv,
       env: {

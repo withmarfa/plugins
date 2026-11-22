@@ -48,8 +48,8 @@ export async function proveTodoist(
       typePermission: "todoist.task",
     });
     const runner = new ConnectorUnderProof("todoist", url, key.key, {
-      TODOIST_API_TOKEN: "todoist-proof-token",
-      TODOIST_API_URL: todoist.url,
+      todoist_api_token: "todoist-proof-token",
+      todoist_api_url: todoist.url,
     });
     const runOnce = async (): Promise<void> => {
       const { code, output } = await runner.once();
@@ -941,12 +941,12 @@ export async function proveTodoist(
     );
 
     await check(
-      "todoist: with TODOIST_READ_ONLY=true nothing goes back to Todoist, and an edit made in Marfa is put back",
+      "todoist: with todoist_read_only=true nothing goes back to Todoist, and an edit made in Marfa is put back",
       async () => {
         const readOnly = new ConnectorUnderProof("todoist", url, key.key, {
-          TODOIST_API_TOKEN: "todoist-proof-token",
-          TODOIST_API_URL: todoist.url,
-          TODOIST_READ_ONLY: "true",
+          todoist_api_token: "todoist-proof-token",
+          todoist_api_url: todoist.url,
+          todoist_read_only: "true",
         });
         const before = await row("a");
         const held = todoist.tasks.get("a")?.content;
@@ -995,8 +995,8 @@ export async function proveTodoist(
         const before = await rows();
         const sent = todoist.commands().length;
         const refused = new ConnectorUnderProof("todoist", url, wide.key, {
-          TODOIST_API_TOKEN: "todoist-proof-token",
-          TODOIST_API_URL: todoist.url,
+          todoist_api_token: "todoist-proof-token",
+          todoist_api_url: todoist.url,
         });
         const { code, output } = await refused.once();
         const changed = moved(before, await rows());

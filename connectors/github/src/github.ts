@@ -404,7 +404,7 @@ export function asPersonalToken(
   origin: Origin,
   secret: Secret,
   signal: AbortSignal,
-  name = "GITHUB_PERSONAL_TOKEN",
+  name = "github_personal_token",
 ): Client {
   secret(token);
   const fingerprint = createHash("sha256").update(token).digest("hex");

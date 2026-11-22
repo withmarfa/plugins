@@ -1653,7 +1653,7 @@ function deletedBy(
 }
 
 /**
- * What `GOOGLE_CALENDAR_CONFIRM_DELETES` takes to let a held batch through:
+ * What `google_calendar_confirm_deletes` takes to let a held batch through:
  * how many events it deletes, and a short hash of which, so a confirmation
  * lets that batch through and no other, of the same size or not.
  */
@@ -1668,7 +1668,7 @@ function confirmationOf(doomed: readonly string[]): string {
 /**
  * Holds a batch of trashes and purges that would delete more than
  * `deleteLimit` events of one calendar and more than `deleteShare` of the
- * events it holds, unless `GOOGLE_CALENDAR_CONFIRM_DELETES` names that
+ * events it holds, unless `google_calendar_confirm_deletes` names that
  * batch.
  */
 export async function preflight(
@@ -1685,7 +1685,7 @@ export async function preflight(
   const given = context.env.google_calendar_confirm_deletes;
   if (given === confirmation) {
     context.log.info(
-      `GOOGLE_CALENDAR_CONFIRM_DELETES confirms deleting ${String(doomed.length)} events from Google Calendar`,
+      `google_calendar_confirm_deletes confirms deleting ${String(doomed.length)} events from Google Calendar`,
     );
     return;
   }
@@ -1699,8 +1699,8 @@ export async function preflight(
   const stale =
     given === undefined || given === ""
       ? ""
-      : ` GOOGLE_CALENDAR_CONFIRM_DELETES is ${given}, which names another batch, so it lets none through.`;
-  const message = `Rows trashed or purged in Marfa would delete ${listed.join(" and ")} in Google Calendar, more than ${String(deleteLimit)} events and a quarter of a calendar at once, so nothing is carried to Google and the connector stops.${stale}${undo} To delete them, set GOOGLE_CALENDAR_CONFIRM_DELETES=${confirmation} for one run, then remove it.`;
+      : ` google_calendar_confirm_deletes is ${given}, which names another batch, so it lets none through.`;
+  const message = `Rows trashed or purged in Marfa would delete ${listed.join(" and ")} in Google Calendar, more than ${String(deleteLimit)} events and a quarter of a calendar at once, so nothing is carried to Google and the connector stops.${stale}${undo} To delete them, set google_calendar_confirm_deletes=${confirmation} for one run, then remove it.`;
   context.log.condition("deletes-held", message);
   throw new Error(message);
 }

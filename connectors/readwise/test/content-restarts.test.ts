@@ -63,7 +63,6 @@ it.each(["same bytes", "changed bytes"])(
     }
     async function once() {
       server.grants = {
-        sources: ["readwise"],
         type_permissions: {
           [sourceType.id]: "write",
           [readerFileType.id]: "write",

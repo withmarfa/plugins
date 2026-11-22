@@ -25,13 +25,13 @@ quietRun({
       marfa,
       async run() {
         await run("node", [built, "--once"], {
-          env: {
+          env: marfa.processEnv({
             PATH: process.env["PATH"],
             MARFA_API_URL: marfa.url,
             MARFA_API_KEY: marfa.key,
-            TODOIST_API_TOKEN: token,
-            TODOIST_API_URL: todoist.url,
-          },
+            todoist_api_token: token,
+            todoist_api_url: todoist.url,
+          }),
         });
       },
       async stop() {

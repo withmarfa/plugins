@@ -139,7 +139,7 @@ export class Stars {
     private readonly missed: ReadonlySet<string>,
     private readonly reader: Reader | undefined,
     private readonly state: State,
-    /** Whether this process holds the star fields, which GITHUB_STARS
+    /** Whether this process holds the star fields, which github_stars
      *  turns off. */
     private readonly holds: boolean,
   ) {}
@@ -153,7 +153,7 @@ export class Stars {
    * is set and the listing failed or was not asked for, and where it
    * succeeded, since the rows tell a star missed once from one never made. A
    * run without a token carries no marks. `listing` is whether the run would
-   * list the stars: a scheduled run with GITHUB_STARS on.
+   * list the stars: a scheduled run with github_stars on.
    */
   static async open(
     context: Context,

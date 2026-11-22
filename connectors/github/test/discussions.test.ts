@@ -66,19 +66,19 @@ afterEach(async () => {
   await github.stop();
 });
 
-async function once(env: Record<string, string | undefined> = {}) {
+async function once(env: Record<string, unknown> = {}) {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        GITHUB_APP_ID: String(github.appId),
-        GITHUB_PRIVATE_KEY: key,
-        GITHUB_WEBHOOK_SECRET: "github-test-webhook-secret",
+        github_app_id: String(github.appId),
+        github_private_key: key,
+        github_webhook_secret: "github-test-webhook-secret",
         ...github.settings,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -87,14 +87,14 @@ async function once(env: Record<string, string | undefined> = {}) {
   }
 }
 
-async function ok(env: Record<string, string | undefined> = {}) {
+async function ok(env: Record<string, unknown> = {}) {
   const result = await once(env);
   expect(result.code, result.output).toBe(0);
   return result.output;
 }
 
 /** A run, then another that must send GitHub nothing more. */
-async function settled(env: Record<string, string | undefined> = {}) {
+async function settled(env: Record<string, unknown> = {}) {
   const output = await ok(env);
   const before = github.writes().length;
   await ok(env);
@@ -318,10 +318,10 @@ describe("reading discussions", () => {
     github.addDiscussion(repository);
     const issue = github.addIssue(repository);
     const result = await once({
-      GITHUB_PERSONAL_TOKEN: personalToken,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
+      github_personal_token: personalToken,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
     });
     expect(result.code, result.output).toBe(0);
     expect(result.output).toContain("Discussions");
@@ -408,7 +408,7 @@ describe("a discussion changed in Marfa", () => {
   it("is put back and sent nowhere where discussions are read only", async () => {
     await ok();
     marfa.edit(row(discussion.node).id, { title: "New" });
-    await settled({ GITHUB_READ_ONLY: "discussion" });
+    await settled({ github_read_only: "discussion" });
     expect(discussion.title).toBe("Original");
     expect(row(discussion.node).properties["title"]).toBe("Original");
     expect(written()).toEqual([]);
@@ -420,8 +420,8 @@ describe("a discussion changed in Marfa", () => {
     await ok();
     // A person's own link from one comment to another.
     marfa.drawEdge(row(first.node).id, row(second.node).id, "parent-of");
-    await ok({ GITHUB_READ_ONLY: "comment" });
-    await ok({ GITHUB_READ_ONLY: "comment" });
+    await ok({ github_read_only: "comment" });
+    await ok({ github_read_only: "comment" });
     expect(links(first.node, "parent-of")).toEqual([second.node]);
     expect(links(second.node, "comments-on")).toEqual([discussion.node]);
   });
@@ -432,7 +432,7 @@ describe("a discussion changed in Marfa", () => {
     await ok();
     marfa.edit(row(discussion.node).id, { title: "New" });
     marfa.edit(row(comment.node).id, { body: "Edited" });
-    await settled({ GITHUB_READ_ONLY: "comment" });
+    await settled({ github_read_only: "comment" });
     expect(discussion.title).toBe("New");
     expect(comment.body).toBe("Mine");
   });
@@ -503,10 +503,10 @@ describe("a discussion changed in Marfa", () => {
   it("is put back through a personal token, which cannot write", async () => {
     github.personalToken = personalToken;
     const env = {
-      GITHUB_PERSONAL_TOKEN: personalToken,
-      GITHUB_APP_ID: undefined,
-      GITHUB_PRIVATE_KEY: undefined,
-      GITHUB_WEBHOOK_SECRET: undefined,
+      github_personal_token: personalToken,
+      github_app_id: undefined,
+      github_private_key: undefined,
+      github_webhook_secret: undefined,
     };
     await ok(env);
     marfa.edit(row(discussion.node).id, { title: "New" });

@@ -15,7 +15,7 @@ export function scopeOf(value: string | undefined): Scope | undefined {
   const malformed = entries.filter((one) => !entry.test(one));
   if (malformed.length > 0) {
     throw new Error(
-      `GITHUB_REPOSITORIES holds ${malformed.join(", ")}, where each is owner/repo or owner/*`,
+      `github_repositories holds ${malformed.join(", ")}, where each is owner/repo or owner/*`,
     );
   }
   if (entries.length === 0) return undefined;

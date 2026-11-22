@@ -250,11 +250,12 @@ describe("settings read from Marfa", () => {
   it("witness: the same connector with the secret in a setting that is not secret says it", async () => {
     const value = "not-a-secret-value-123";
     const open = defineConnector({
-      ...typed([]),
+      name: "test",
+      source: "test",
+      types: [{ type: testType, fields: testFields }],
       settings: [
         { name: "test_note", label: "Note", kind: "text", required: true },
       ] as const,
-      checkEnv: undefined,
       async run(context) {
         context.log.info(`the note is ${context.env.test_note}`);
         await context.upsert(testType.id, [entry]);
@@ -278,8 +279,12 @@ describe("settings read from Marfa", () => {
   it("starts a connector that declares no setting without reading the settings door", async () => {
     harness.server.hosted = false;
     const bare = defineConnector({
-      ...testConnector(vendor([entry])),
-      settings: [] as const,
+      name: "test",
+      source: "test",
+      types: [{ type: testType, fields: testFields }],
+      async run(context) {
+        await context.upsert(testType.id, [entry]);
+      },
     });
     expect(await start(bare, harness.runtime(["--once"]))).toBe(
       exitCode.stopped,

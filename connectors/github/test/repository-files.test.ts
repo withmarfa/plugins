@@ -71,19 +71,19 @@ afterEach(async () => {
 const setting = "someone/agents:runbooks,skills/skills";
 
 async function exec(
-  env: Record<string, string> = {},
+  env: Record<string, unknown> = {},
 ): Promise<{ code: number; output: string }> {
   try {
     const { stderr } = await run("node", [built, "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
         ...github.settings,
-        GITHUB_PERSONAL_TOKEN: token,
-        GITHUB_FILES: setting,
+        github_personal_token: token,
+        github_files: setting,
         ...env,
-      },
+      }),
     });
     return { code: 0, output: stderr };
   } catch (error) {
@@ -92,7 +92,7 @@ async function exec(
   }
 }
 
-async function sync(env: Record<string, string> = {}): Promise<string> {
+async function sync(env: Record<string, unknown> = {}): Promise<string> {
   const result = await exec(env);
   expect(result.code, result.output).toBe(0);
   return result.output;
@@ -205,12 +205,12 @@ describe("repository files", () => {
     expect(marfa.log.length).toBe(events);
   });
 
-  it("puts back an edit made in Marfa, whatever GITHUB_READ_ONLY says", async () => {
+  it("puts back an edit made in Marfa, whatever github_read_only says", async () => {
     await sync();
     const row = file("runbooks/access.md");
     if (row === undefined) throw new Error("no row");
     marfa.edit(row.id, { body: "Edited in Marfa", title: "Mine" });
-    await sync({ GITHUB_READ_ONLY: "false" });
+    await sync({ github_read_only: "false" });
     expect(file("runbooks/access.md")?.properties).toMatchObject({
       body: "# Access\n",
       title: "access",
@@ -281,7 +281,7 @@ describe("repository files", () => {
     await sync();
     for (const path of [...files().keys()])
       if (path.startsWith("runbooks/")) files().delete(path);
-    await sync({ GITHUB_FILES: "someone/agents:runbooks,skills/skills,nope" });
+    await sync({ github_files: "someone/agents:runbooks,skills/skills,nope" });
     expect(file("runbooks/access.md")?.state).toBe("active");
     expect(conditions()[`files-missing:${repository.node}`]).toContain(
       "someone/agents:nope, someone/agents:runbooks",
@@ -335,18 +335,18 @@ describe("repository files", () => {
   });
 
   it("names a repository the run does not sync, and leaves a paused one unread", async () => {
-    await sync({ GITHUB_FILES: `${setting} someone/elsewhere:docs` });
+    await sync({ github_files: `${setting} someone/elsewhere:docs` });
     expect(conditions()["files-unsynced:someone/elsewhere"]).toContain(
       "does not sync",
     );
     github.addRepository("someone/other");
     const reads = gitReads();
     files().delete("runbooks/access.md");
-    await sync({ GITHUB_REPOSITORIES: "someone/other" });
+    await sync({ github_repositories: "someone/other" });
     expect(gitReads()).toBe(reads);
     expect(file("runbooks/access.md")?.state).toBe("active");
     expect(conditions()["files-unsynced:someone/agents"]).toContain(
-      "GITHUB_REPOSITORIES leaves out",
+      "github_repositories leaves out",
     );
   });
 
@@ -420,7 +420,7 @@ describe("repository files", () => {
     expect(file("runbooks/access.md")?.properties["private"]).toBe(false);
     expect(folder("runbooks")?.properties["private"]).toBe(false);
     repository.private = true;
-    await sync({ GITHUB_REPOSITORIES: "someone/other" });
+    await sync({ github_repositories: "someone/other" });
     expect(
       [...rowsOf("github.repository_file"), ...rowsOf("github.directory")].map(
         (one) => one.properties["private"],
@@ -503,9 +503,9 @@ describe("repository files", () => {
       "someone/agents:../up",
       "agents:docs",
     ]) {
-      const result = await exec({ GITHUB_FILES: value });
+      const result = await exec({ github_files: value });
       expect(result.code).not.toBe(0);
-      expect(result.output).toContain(`GITHUB_FILES holds ${value},`);
+      expect(result.output).toContain(`github_files holds ${value},`);
     }
   });
 });

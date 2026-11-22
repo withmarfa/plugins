@@ -59,20 +59,20 @@ afterEach(async () => {
   await github.stop();
 });
 
-function env(): Record<string, string | undefined> {
+function env(): Record<string, unknown> {
   return {
     PATH: process.env["PATH"],
     MARFA_API_URL: marfa.url,
     MARFA_API_KEY: marfa.key,
-    GITHUB_APP_ID: String(github.appId),
-    GITHUB_PRIVATE_KEY: key,
-    GITHUB_WEBHOOK_SECRET: secret,
+    github_app_id: String(github.appId),
+    github_private_key: key,
+    github_webhook_secret: secret,
     ...github.settings,
   };
 }
 
 async function once(): Promise<string> {
-  const { stderr } = await run("node", [built, "--once"], { env: env() });
+  const { stderr } = await run("node", [built, "--once"], { env: marfa.processEnv(env()) });
   return stderr;
 }
 
@@ -101,7 +101,7 @@ async function until(holds: () => boolean, what: string): Promise<void> {
  *  the body, which delivers webhooks to it. */
 async function watching(body: () => Promise<void>): Promise<void> {
   const child = spawn("node", [built, "--every", "1h", "--look-every", "1s"], {
-    env: env(),
+    env: marfa.processEnv(env()),
     stdio: "ignore",
   });
   const exited = new Promise<void>((done) =>

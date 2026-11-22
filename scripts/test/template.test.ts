@@ -62,13 +62,13 @@ it("builds and runs once copied to a connector's place", async () => {
       }
     }
     await run("node", [join(copied, "dist", "main.js"), "--once"], {
-      env: {
+      env: marfa.processEnv({
         PATH: process.env["PATH"],
         MARFA_API_URL: marfa.url,
         MARFA_API_KEY: marfa.key,
-        EXAMPLE_URL: `http://127.0.0.1:${String((vendor.address() as AddressInfo).port)}/`,
-        EXAMPLE_TOKEN: "example-vendor-token",
-      },
+        example_url: `http://127.0.0.1:${String((vendor.address() as AddressInfo).port)}/`,
+        example_token: "example-vendor-token",
+      }),
     });
     expect(marfa.requestsTo("POST", "/types")).toEqual([]);
     // Copying the template into connectors/ is all it takes to have a plugin

@@ -80,10 +80,10 @@ export async function proveGitHubPullRequests(
     const marfa = createClient({ baseUrl: url, credential: key.key });
     const run = async () => {
       const runner = new ConnectorUnderProof("github", url, key.key, {
-        GITHUB_APP_ID: "12345",
-        GITHUB_PRIVATE_KEY: github.appPem,
-        GITHUB_WEBHOOK_SECRET: "github-pull-proof-secret",
-        GITHUB_API_URL: github.url,
+        github_app_id: "12345",
+        github_private_key: github.appPem,
+        github_webhook_secret: "github-pull-proof-secret",
+        github_api_url: github.url,
       });
       const result = await runner.once();
       if (result.code !== 0)

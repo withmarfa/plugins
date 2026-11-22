@@ -104,10 +104,10 @@ export async function proveGitHub(
     const comment = github.addComment(parent, "First!");
     let key = { id: "", key: "" };
     const env = {
-      GITHUB_APP_ID: "12345",
-      GITHUB_PRIVATE_KEY: github.appPem,
-      GITHUB_WEBHOOK_SECRET: "github-proof-webhook-secret",
-      GITHUB_API_URL: github.url,
+      github_app_id: "12345",
+      github_private_key: github.appPem,
+      github_webhook_secret: "github-proof-webhook-secret",
+      github_api_url: github.url,
     };
     const runOnce = async (installs = true): Promise<string> => {
       const runner = new ConnectorUnderProof(
@@ -502,7 +502,7 @@ export async function proveGitHub(
     const post = async (
       event: string,
       said: Record<string, unknown>,
-      signedWith = env.GITHUB_WEBHOOK_SECRET,
+      signedWith = env.github_webhook_secret,
     ): Promise<number> => {
       const body = JSON.stringify(said);
       const answer = await fetch(`${url}${path}`, {
@@ -726,7 +726,7 @@ export async function proveGitHub(
     );
 
     await check(
-      "github: with GITHUB_REPOSITORIES naming one of the installation's repositories, the token that lists them names none, those that read name it and the paused ones but never the one left out and never synced, the one that reads Discussions and those that write name it alone, all by id, and a token revoked mid-run is replaced",
+      "github: with github_repositories naming one of the installation's repositories, the token that lists them names none, those that read name it and the paused ones but never the one left out and never synced, the one that reads Discussions and those that write name it alone, all by id, and a token revoked mid-run is replaced",
       async () => {
         const other = github.addRepository("someone/other");
         github.addIssue(other, { title: "Left out" });
@@ -737,7 +737,7 @@ export async function proveGitHub(
         github.revokeAfter = 3;
         const runner = new ConnectorUnderProof(source, url, key.key, {
           ...env,
-          GITHUB_REPOSITORIES: "someone/tracker",
+          github_repositories: "someone/tracker",
         });
         const { code, output } = await runner.once();
         if (code !== 0 || /answered 401|refused it/.test(output)) {
@@ -838,7 +838,7 @@ export async function proveGitHub(
     );
 
     await check(
-      "github: GITHUB_FILES mirrors a path's Markdown files as notes in a collection for each directory, the directories nested through the instance's parent-of, and an edit made in Marfa is put back",
+      "github: github_files mirrors a path's Markdown files as notes in a collection for each directory, the directories nested through the instance's parent-of, and an edit made in Marfa is put back",
       async () => {
         repository.files = new Map<string, string | Buffer>([
           ["docs/guide.md", "# Guide\n"],
@@ -849,7 +849,7 @@ export async function proveGitHub(
         const runFiles = async (): Promise<void> => {
           const runner = new ConnectorUnderProof(source, url, key.key, {
             ...env,
-            GITHUB_FILES: "someone/tracker:docs",
+            github_files: "someone/tracker:docs",
           });
           const { code, output } = await runner.once();
           if (code !== 0)
@@ -941,11 +941,11 @@ export async function proveGitHubCoverage(
     let readOnly = false;
     const runner = () =>
       new ConnectorUnderProof(source, url, key.key, {
-        GITHUB_APP_ID: "12345",
-        GITHUB_PRIVATE_KEY: privateKey,
-        GITHUB_WEBHOOK_SECRET: "github-coverage-webhook-secret",
-        GITHUB_API_URL: github.url,
-        GITHUB_READ_ONLY: String(readOnly),
+        github_app_id: "12345",
+        github_private_key: privateKey,
+        github_webhook_secret: "github-coverage-webhook-secret",
+        github_api_url: github.url,
+        github_read_only: String(readOnly),
       });
     const privateKey = appKey();
     github.appPem = privateKey;

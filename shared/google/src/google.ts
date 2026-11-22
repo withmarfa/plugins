@@ -163,7 +163,7 @@ export function connectGoogle(
     refreshToken === undefined
   ) {
     throw new Error(
-      "a Google connector needs GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and GOOGLE_REFRESH_TOKEN in its environment",
+      "a Google connector needs google_client_id, google_client_secret and google_refresh_token in its environment",
     );
   }
   const used = settings(options);

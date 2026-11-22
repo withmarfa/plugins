@@ -510,7 +510,7 @@ async function preserve(
       context.log.condition(
         `readwise:content:${digest(job.canonical)}`,
         exceededLimit !== undefined
-          ? `Reader content exceeds READWISE_CONTENT_MAX_BYTES (${String(exceededLimit)} bytes); the last acknowledged file is retained`
+          ? `Reader content exceeds readwise_content_max_bytes (${String(exceededLimit)} bytes); the last acknowledged file is retained`
           : "Reader content remains pending; the last acknowledged file is retained",
       );
     } finally {

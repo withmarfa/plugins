@@ -1,7 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import { appKey, GitHubStub } from "../../../scripts/proof/github-stub.js";
@@ -12,7 +10,6 @@ const built = resolve(import.meta.dirname, "../dist/main.js");
 
 let marfa: ScriptedServer;
 let github: GitHubStub;
-let dir: string;
 
 beforeEach(async () => {
   marfa = await new ScriptedServer("github", {
@@ -48,30 +45,34 @@ beforeEach(async () => {
   github = await new GitHubStub().start();
   github.appId = 424242;
   github.appPem = appKey();
-  dir = await mkdtemp(join(tmpdir(), "github-setup-"));
 });
 
 afterEach(async () => {
   await marfa.stop();
   await github.stop();
-  await rm(dir, { recursive: true, force: true });
 });
 
+/** Runs setup, answering what it logged and the commands it printed on
+ *  standard output. */
 function setup(
-  file: string,
-  env: Record<string, string>,
+  env: Record<string, unknown>,
   seen: (line: string) => void,
-): Promise<{ code: number | null; output: string }> {
-  const child = spawn("node", [built, "--setup", file], {
-    env: {
+): Promise<{ code: number | null; output: string; printed: string }> {
+  const child = spawn("node", [built, "--setup"], {
+    env: marfa.processEnv({
       PATH: process.env["PATH"],
       MARFA_API_URL: marfa.url,
       MARFA_API_KEY: marfa.key,
       ...github.settings,
       ...env,
-    },
+    }),
   });
   let output = "";
+  let printed = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    printed += chunk;
+  });
   child.stderr.setEncoding("utf8");
   child.stderr.on("data", (chunk: string) => {
     output += chunk;
@@ -79,7 +80,7 @@ function setup(
   });
   return new Promise((done) => {
     child.on("close", (code) => {
-      done({ code, output });
+      done({ code, output, printed });
     });
   });
 }
@@ -120,16 +121,15 @@ describe("read-only kinds", () => {
   });
 
   it("rejects unknown kinds and empty list members", () => {
-    expect(() => readOnly("isssue")).toThrow("GITHUB_READ_ONLY");
-    expect(() => readOnly("issue,,comment")).toThrow("GITHUB_READ_ONLY");
+    expect(() => readOnly("isssue")).toThrow("github_read_only");
+    expect(() => readOnly("issue,,comment")).toThrow("github_read_only");
     expect(() => readOnly("discussions")).toThrow("unknown kind (discussions)");
     expect(readOnly("discussions", "issue")).toBe(false);
   });
 });
 
 describe("setup", () => {
-  it("registers the App from a manifest, with its webhook at the instance's public address, and writes its secrets", async () => {
-    const file = join(dir, "secrets.json");
+  it("registers the App from a manifest, with its webhook at the instance's public address, and prints the commands that set its settings in Marfa", async () => {
     let visited: Promise<void> | undefined;
     const seenPage: {
       action?: string;
@@ -137,8 +137,7 @@ describe("setup", () => {
       onward?: string | undefined;
     } = {};
     const finished = await setup(
-      file,
-      { GITHUB_PUBLIC_URL: "https://marfa.example/behind/a/prefix/" },
+      { github_public_url: "https://marfa.example/behind/a/prefix/" },
       (line) => {
         const opened = / open (\S+) in a browser/.exec(line)?.[1];
         if (opened === undefined) return;
@@ -196,16 +195,14 @@ describe("setup", () => {
     expect(hook).toMatch(
       /^https:\/\/marfa\.example\/behind\/a\/prefix\/inbound\/in_/,
     );
-    const written = JSON.parse(await readFile(file, "utf8")) as Record<
-      string,
-      string
-    >;
-    expect(written).toEqual({
-      GITHUB_APP_ID: "424242",
-      GITHUB_PRIVATE_KEY: github.appPem,
-      GITHUB_WEBHOOK_SECRET: "stub-webhook-secret-from-github",
-    });
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(finished.printed).toBe(
+      [
+        "marfa plugins settings github --set github_app_id=424242",
+        `printf '%s' '${github.appPem}' | marfa plugins secret github github_private_key`,
+        "printf '%s' stub-webhook-secret-from-github | marfa plugins secret github github_webhook_secret",
+        "",
+      ].join("\n"),
+    );
     expect(finished.output).toContain(
       "install it on the repositories to sync at https://github.com/apps/marfa-sync-test/installations/new",
     );
@@ -222,10 +219,9 @@ describe("setup", () => {
   });
 
   it("asks only to read where the connector runs read only, and leaves the webhook off without a public address", async () => {
-    const file = join(dir, "secrets.json");
     let manifest: Record<string, unknown> | undefined;
     let visited: Promise<void> | undefined;
-    const finished = await setup(file, { GITHUB_READ_ONLY: "true" }, (line) => {
+    const finished = await setup({ github_read_only: "true" }, (line) => {
       const opened = / open (\S+) in a browser/.exec(line)?.[1];
       if (opened === undefined) return;
       visited = (async () => {
@@ -256,10 +252,9 @@ describe("setup", () => {
     expect(finished.output).toContain("its webhook is off");
   });
 
-  it("uses no code GitHub sent back with another state, and keeps no file", async () => {
-    const file = join(dir, "secrets.json");
+  it("uses no code GitHub sent back with another state, and prints nothing", async () => {
     let visited: Promise<void> | undefined;
-    const finished = await setup(file, {}, (line) => {
+    const finished = await setup({}, (line) => {
       const opened = / open (\S+) in a browser/.exec(line)?.[1];
       if (opened === undefined) return;
       visited = (async () => {
@@ -275,56 +270,50 @@ describe("setup", () => {
     await visited;
     expect(finished.code).toBe(1);
     expect(finished.output).toContain("carried another state");
-    await expect(stat(file)).rejects.toThrow();
+    expect(finished.printed).toBe("");
     expect(github.manifestCode).toBe("manifest-code");
   });
 
-  it("points an App already in the environment at this instance, with a new secret", async () => {
-    const file = join(dir, "secrets.json");
+  it("points an App already in its settings at this instance, with a new secret", async () => {
     const finished = await setup(
-      file,
       {
-        GITHUB_APP_ID: "424242",
-        GITHUB_PRIVATE_KEY: github.appPem,
-        GITHUB_PUBLIC_URL: "https://marfa.example",
+        github_app_id: "424242",
+        github_private_key: github.appPem,
+        github_public_url: "https://marfa.example",
       },
       () => undefined,
     );
     expect(finished.code).toBe(0);
-    const written = JSON.parse(await readFile(file, "utf8")) as Record<
-      string,
-      string
-    >;
-    expect(Object.keys(written)).toEqual(["GITHUB_WEBHOOK_SECRET"]);
+    const secret =
+      /^printf '%s' (\S+) \| marfa plugins secret github github_webhook_secret\n$/.exec(
+        finished.printed,
+      )?.[1];
+    expect(secret).toMatch(/^[0-9a-f]{64}$/);
     expect(String(github.hook?.["url"])).toMatch(
       /^https:\/\/marfa\.example\/inbound\/in_/,
     );
     expect(github.hook?.["content_type"]).toBe("json");
-    expect(github.hook?.["secret"]).toBe(written["GITHUB_WEBHOOK_SECRET"]);
-    expect(finished.output).not.toContain(written["GITHUB_WEBHOOK_SECRET"]);
+    expect(github.hook?.["secret"]).toBe(secret);
+    expect(finished.output).not.toContain(secret);
   });
 
   it("with a personal token set, requires no setup and exits cleanly", async () => {
-    const file = join(dir, "secrets.json");
     const finished = await setup(
-      file,
-      { GITHUB_PERSONAL_TOKEN: "github_pat_test_12345678" },
+      { github_personal_token: "github_pat_test_12345678" },
       () => undefined,
     );
     expect(finished.code).toBe(0);
     expect(finished.output).toContain("personal access token");
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({});
+    expect(finished.printed).toBe("");
     expect(marfa.endpoints).toHaveLength(1);
     expect(github.asked).toEqual([]);
   });
 
   it("keeps write permission for comments when only issues are read only", async () => {
-    const file = join(dir, "secrets.json");
     let manifest: Record<string, unknown> | undefined;
     let visited: Promise<void> | undefined;
     const finished = await setup(
-      file,
-      { GITHUB_READ_ONLY: "issue" },
+      { github_read_only: "issue" },
       (line) => {
         const opened = / open (\S+) in a browser/.exec(line)?.[1];
         if (opened === undefined) return;
@@ -349,13 +338,11 @@ describe("setup", () => {
     });
   });
 
-  it("asks only to read for GITHUB_READ_ONLY listing both issue and comment", async () => {
-    const file = join(dir, "secrets.json");
+  it("asks only to read for github_read_only listing both issue and comment", async () => {
     let manifest: Record<string, unknown> | undefined;
     let visited: Promise<void> | undefined;
     const finished = await setup(
-      file,
-      { GITHUB_READ_ONLY: "issue,comment" },
+      { github_read_only: "issue,comment" },
       (line) => {
         const opened = / open (\S+) in a browser/.exec(line)?.[1];
         if (opened === undefined) return;
@@ -386,12 +373,10 @@ describe("setup", () => {
   async function manifestFor(
     readOnlyValue: string,
   ): Promise<Record<string, unknown> | undefined> {
-    const file = join(dir, "secrets.json");
     let manifest: Record<string, unknown> | undefined;
     let visited: Promise<void> | undefined;
     const finished = await setup(
-      file,
-      { GITHUB_READ_ONLY: readOnlyValue },
+      { github_read_only: readOnlyValue },
       (line) => {
         const opened = / open (\S+) in a browser/.exec(line)?.[1];
         if (opened === undefined) return;

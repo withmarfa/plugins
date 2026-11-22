@@ -34,7 +34,7 @@ export function picturesSetting(value: string | undefined): PicturesSetting {
   if (value === undefined) return "addresses";
   const setting = picturesSettings.find((one) => one === value);
   if (setting === undefined) {
-    throw new Error("RSS_PICTURES must be addresses, save or save-in-library");
+    throw new Error("rss_pictures must be addresses, save or save-in-library");
   }
   return setting;
 }

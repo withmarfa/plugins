@@ -23,7 +23,7 @@ import type { Scope } from "./scope.js";
 
 export const notificationType = "github.notification";
 
-export const tokenName = "GITHUB_NOTIFICATIONS_TOKEN";
+export const tokenName = "github_notifications_token";
 
 /** The conditions a read of notifications raises, each cleared by a scheduled
  *  run that asks GitHub and finds it gone. */
@@ -79,7 +79,7 @@ export interface Options extends Origin {
   /** Absent, nothing is read and nothing is reported. */
   readonly token: string | undefined;
   readonly scope: Scope | undefined;
-  /** `GITHUB_REPOSITORIES` as set; a change to it forces a whole read. */
+  /** `github_repositories` as set; a change to it forces a whole read. */
   readonly scopeText: string | undefined;
 }
 

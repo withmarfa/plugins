@@ -88,11 +88,11 @@ export async function proveReadwiseWithReader(
       });
     const readerKey = await key("reader-proof");
     const options = (account: string, reader = true) => ({
-      READWISE_ACCOUNT: account,
-      READWISE_ACCESS_TOKEN: "reader-fixture-token",
-      READWISE_API_URL: `${vendor.base}/v2/`,
-      READWISE_READER_API_URL: `${vendor.base}/v3/`,
-      READWISE_READER: String(reader),
+      readwise_account: account,
+      readwise_access_token: "reader-fixture-token",
+      readwise_api_url: `${vendor.base}/v2/`,
+      readwise_reader_api_url: `${vendor.base}/v3/`,
+      readwise_reader: String(reader),
     });
     // One registration, run with Reader off and then on.
     const exportOnly = new ConnectorUnderProof(
@@ -624,7 +624,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a trash over a lost create keeps the document, leaves it out of the import and a restore takes it back",
       async () => {
         const { runner, item, saves, imported } = await overtaken("overtrash", {
-          READWISE_READER_PROPAGATE_PURGE: "true",
+          readwise_reader_propagate_purge: "true",
         });
         // The first run claims the document, its sync keeps the claim and
         // the second settles the trash; the third finds nothing to do.
@@ -660,7 +660,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a purge with propagation on over a lost create keeps the document and never imports it",
       async () => {
         const { runner, item, imported } = await overtaken("overpurge", {
-          READWISE_READER_PROPAGATE_PURGE: "true",
+          readwise_reader_propagate_purge: "true",
         });
         const purged = await admin.POST("/items/{id}/purge", {
           params: { path: { id: item.id } },
@@ -759,7 +759,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           freshKey.key,
-          { ...options("fresh"), READWISE_READER_INBOUND_ONLY: "true" },
+          { ...options("fresh"), readwise_reader_inbound_only: "true" },
         );
         const freshRows = async () =>
           new Map(
@@ -860,7 +860,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           lifecycleKey.key,
-          { ...options("lifecycle"), READWISE_READER_INBOUND_ONLY: "true" },
+          { ...options("lifecycle"), readwise_reader_inbound_only: "true" },
         );
         await once(exportOnly);
         const historical = await row("lifecycle:highlight:102");

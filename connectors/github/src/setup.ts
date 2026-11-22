@@ -78,7 +78,7 @@ export function readOnly(value: string | undefined, kind?: string): boolean {
   // Only the whole-value check refuses; `carries` asks per kind before the settings are checked.
   if (kind === undefined && unknown.length > 0)
     throw new Error(
-      `GITHUB_READ_ONLY holds an unknown kind (${unknown.join(", ")}); use true, false, or a comma-separated list of ${kindsOf.join(", ")}`,
+      `github_read_only holds an unknown kind (${unknown.join(", ")}); use true, false, or a comma-separated list of ${kindsOf.join(", ")}`,
     );
   return kind === undefined
     ? ["issue", "comment", "discussion"].every((one) => kinds.includes(one))
@@ -170,7 +170,7 @@ export async function setUp<E extends SettingsDeclaration>(
       env.github_webhook_secret !== undefined
     )
       throw new Error(
-        "choose either GITHUB_PERSONAL_TOKEN or the GitHub App settings",
+        "choose either github_personal_token or the GitHub App settings",
       );
     log.info(
       "a personal access token needs no setup; sync runs read only on the schedule",
@@ -191,7 +191,7 @@ export async function setUp<E extends SettingsDeclaration>(
   if (env.github_app_id !== undefined && env.github_private_key !== undefined) {
     if (hook === undefined) {
       throw new Error(
-        "GITHUB_PUBLIC_URL names no address, so the App's webhook has nowhere to point",
+        "github_public_url names no address, so the App's webhook has nowhere to point",
       );
     }
     const app: App = {
@@ -261,7 +261,7 @@ export async function setUp<E extends SettingsDeclaration>(
       webhookSecret = randomBytes(32).toString("hex");
       secret(webhookSecret);
       log.warn(
-        `GitHub gave the App no webhook secret and would not take one (${error instanceof Error ? error.message : String(error)}); set GITHUB_WEBHOOK_SECRET as the App's webhook secret in its settings`,
+        `GitHub gave the App no webhook secret and would not take one (${error instanceof Error ? error.message : String(error)}); set github_webhook_secret as the App's webhook secret in its settings`,
       );
     }
   } else {
@@ -278,7 +278,7 @@ export async function setUp<E extends SettingsDeclaration>(
   );
   if (hook === undefined) {
     log.info(
-      "its webhook is off until this instance has a public address: run the setup again with GITHUB_PUBLIC_URL, and the App in the environment, to point it here",
+      "its webhook is off until this instance has a public address: set github_public_url and run the setup again, with the App's settings set, to point it here",
     );
   }
   return {

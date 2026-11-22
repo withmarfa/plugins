@@ -36,7 +36,7 @@ describe("Reader content boundaries", () => {
       const fetcher = vi.fn<typeof fetch>();
       await expect(
         download(allowed, signal, { fetch: fetcher, maxBytes: maximum }),
-      ).rejects.toThrow("READWISE_CONTENT_MAX_BYTES");
+      ).rejects.toThrow("readwise_content_max_bytes");
       expect(fetcher).not.toHaveBeenCalled();
     },
   );

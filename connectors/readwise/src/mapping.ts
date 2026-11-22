@@ -26,7 +26,7 @@ export function identity(
 ): string {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(account))
     throw new Error(
-      "READWISE_ACCOUNT must be a stable label of 1–64 letters, digits, dots, underscores or hyphens, starting with a letter or digit",
+      "readwise_account must be a stable label of 1–64 letters, digits, dots, underscores or hyphens, starting with a letter or digit",
     );
   if (!Number.isSafeInteger(id) || id <= 0)
     throw new Error("Readwise ID must be a positive safe integer");
