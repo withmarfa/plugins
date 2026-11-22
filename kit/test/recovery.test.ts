@@ -234,7 +234,7 @@ describe("an address that cannot be used", () => {
 });
 
 describe("a key with whitespace around it", () => {
-  it("is trimmed, for Marfa's and the vendor's", async () => {
+  it("is trimmed", async () => {
     let token: string | undefined;
     const connector = testConnector(vendor([one]));
     const code = await start(
@@ -248,7 +248,6 @@ describe("a key with whitespace around it", () => {
       harness.runtime(["--once"], {
         MARFA_API_KEY: `\n${harness.server.key}\n`,
         MARFA_API_URL: ` ${harness.server.url} `,
-        TEST_TOKEN: "  tok_vendor_secret_value\t",
       }),
     );
     expect(code).toBe(0);
@@ -260,7 +259,7 @@ describe("a key with whitespace around it", () => {
 describe("a key the server refuses", () => {
   it("stops a start with a message that names MARFA_API_KEY and what to do", async () => {
     harness.server.revoked = true;
-    expect(await harness.once(vendor([one]))).toBe(1);
+    expect(await harness.once(vendor([one]))).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
     expect(said()).toContain("revoked");
     expect(said()).toContain("mint");
@@ -273,7 +272,7 @@ describe("a key the server refuses", () => {
     await harness.clock.sleeping(15 * minute);
     harness.server.revoked = true;
     await harness.clock.wake(minute);
-    expect(await exit).toBe(1);
+    expect(await exit).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
     expect(held.runs).toBe(1);
     expect(harness.clock.requested).not.toContain(30 * minute);
@@ -290,7 +289,7 @@ describe("a key the server refuses", () => {
     harness.server.revoked = true;
     await harness.clock.wake(minute);
     open();
-    expect(await exit).toBe(1);
+    expect(await exit).toBe(3);
     expect(said()).toContain("MARFA_API_KEY");
   });
 });

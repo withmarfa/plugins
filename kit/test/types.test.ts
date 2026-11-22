@@ -164,7 +164,7 @@ describe("a connector of several types", () => {
       type_permissions: { "test.entry": "write", "test.note": "read" },
     };
     const held: Held = { entries: [], notes: [], archived: [], changes: [] };
-    expect(await once(held)).toBe(1);
+    expect(await once(held)).toBe(3);
     expect(harness.lastRun().error).toContain(
       "may not write type test.note, which the connector writes",
     );
@@ -184,22 +184,22 @@ describe("a connector of several types", () => {
         "test.other": "read",
       },
     };
-    expect(await once(held)).toBe(1);
+    expect(await once(held)).toBe(3);
     expect(harness.lastRun().error).toContain("type test.other=read");
   });
 });
 
 describe("the definition", () => {
-  it("is refused at start where a type carried back names no link", async () => {
+  it("is refused before its first run where a type carried back names no link", async () => {
     const carried = defineConnector({
       ...twoTypes({ entries: [], notes: [], archived: [], changes: [] }),
       carries: () => ["test.entry", "test.note"],
     });
     expect(await start(carried, harness.runtime(["--once"]))).toBe(2);
     expect(harness.lines.join("\n")).toContain(
-      "test.note is carried back, so its type needs a link_field",
+      "a link_field on each type it carries back, where test.note has none",
     );
-    expect(harness.server.requests).toEqual([]);
+    expect(harness.server.rows).toEqual([]);
   });
 
   it("is refused at start where a link or read-only field is not among its fields, or a type repeats", async () => {

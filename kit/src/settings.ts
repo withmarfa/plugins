@@ -140,7 +140,9 @@ export function readSettings<E extends SettingsDeclaration>(
     problems.push(`a setting holds a value the connector cannot use: ${invalid.join("; ")}`);
   }
   if (problems.length > 0) {
-    return { problem: `the connector cannot run with its settings: ${problems.join(". ")}` };
+    return {
+      problem: `the connector cannot run with its settings: ${problems.join("; ")}`,
+    };
   }
   return { values: values as SettingValues<E> };
 }

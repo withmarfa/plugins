@@ -410,10 +410,10 @@ export class Marfa {
 
   /** The connector's settings, its secrets opened, as its own key reads
    *  them. */
-  async settings(id: string, signal: AbortSignal): Promise<HeldSettings> {
+  async settings(id: string, signal?: AbortSignal): Promise<HeldSettings> {
     const { data, error, response } = await this.client.GET(
       "/connectors/{id}/settings",
-      { params: { path: { id } }, signal },
+      { params: { path: { id } }, ...(signal !== undefined && { signal }) },
     );
     if (data === undefined) throw refusal(response, error);
     return data;

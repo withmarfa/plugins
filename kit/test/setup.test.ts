@@ -1,14 +1,3 @@
-import {
-  mkdir,
-  mkdtemp,
-  readFile,
-  realpath,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defineConnector,
@@ -20,14 +9,12 @@ import { start } from "./installed.js";
 import { Harness, testFields, testType } from "./harness.js";
 
 let harness: Harness;
-let dir: string;
 beforeEach(async () => {
   harness = await Harness.create();
-  dir = await mkdtemp(join(tmpdir(), "kit-setup-"));
+  harness.server.settings = {};
 });
 afterEach(async () => {
   await harness.close();
-  await rm(dir, { recursive: true, force: true });
 });
 
 const made = "pem_private_key_made_by_the_vendor";
@@ -87,10 +74,9 @@ async function until(holds: () => boolean): Promise<void> {
 }
 
 describe("--setup", () => {
-  it("sets the connector up through a local redirect and its own endpoint, and writes the secrets to a new file its owner alone may read", async () => {
+  it("sets the connector up through a local redirect and its own endpoint, and prints the commands that give Marfa what it made, writing no file", async () => {
     const held: Held = {};
-    const file = join(dir, "secrets.json");
-    const exit = start(withSetup(held), harness.runtime(["--setup", file]));
+    const exit = start(withSetup(held), harness.runtime(["--setup"]));
     await until(() => held.opened !== undefined);
     const local = held.opened;
     if (local === undefined) throw new Error("setup listened nowhere");
@@ -104,10 +90,9 @@ describe("--setup", () => {
     expect((await fetch(`${local.callback}?code=abc`)).status).toBe(200);
     expect(await exit).toBe(0);
 
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
-      TEST_APP_KEY: made,
-    });
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
+    expect(harness.printed).toEqual([
+      `printf '%s' ${made} | marfa plugins secret test test_app_key`,
+    ]);
     expect(held.endpoint?.path).toMatch(/^\/inbound\/in_/);
     expect(held.endpoint?.url).toBe(
       new URL(held.endpoint?.path ?? "", harness.server.url).toString(),
@@ -122,7 +107,9 @@ describe("--setup", () => {
     const lines = harness.lines.join("\n");
     expect(lines).toContain(`open ${local.url} in a browser`);
     expect(lines).toContain("code abc became [redacted]");
-    expect(lines).toContain(`setup wrote TEST_APP_KEY to ${file}`);
+    expect(lines).toContain(
+      "setup made test_app_key: run the commands it printed on standard output",
+    );
     const endpoint = harness.server.endpoints.at(-1);
     expect(endpoint?.retired_at).toBeNull();
     expect(lines).toContain(
@@ -136,7 +123,6 @@ describe("--setup", () => {
 
   it("serves a page made from the address the vendor sends the browser back to", async () => {
     const held: Held = {};
-    const file = join(dir, "secrets.json");
     const exit = start(
       withSetup(held, async (context) => {
         held.opened = await context.listen(
@@ -145,7 +131,7 @@ describe("--setup", () => {
         await held.opened.redirected;
         return { test_app_key: made };
       }),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     await until(() => held.opened !== undefined);
     const local = held.opened;
@@ -159,7 +145,6 @@ describe("--setup", () => {
 
   it("sends the browser the vendor redirected on to where setup says, once it knows", async () => {
     const held: Held = {};
-    const file = join(dir, "secrets.json");
     const exit = start(
       withSetup(held, async (context) => {
         held.opened = await context.listen("<form></form>");
@@ -169,7 +154,7 @@ describe("--setup", () => {
         );
         return { test_app_key: made };
       }),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     await until(() => held.opened !== undefined);
     const local = held.opened;
@@ -186,14 +171,13 @@ describe("--setup", () => {
 
   it("tells a browser held at the callback that setup failed", async () => {
     const held: Held = {};
-    const file = join(dir, "secrets.json");
     const exit = start(
       withSetup(held, async (context) => {
         held.opened = await context.listen("<form></form>");
         await held.opened.redirected;
         throw new Error("the vendor refused the code");
       }),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     await until(() => held.opened !== undefined);
     const answer = await fetch(`${held.opened?.callback ?? ""}?code=abc`);
@@ -203,7 +187,6 @@ describe("--setup", () => {
 
   it("tells the browser setup failed where it failed after the browser arrived, and answers the callback once", async () => {
     const held: Held = {};
-    const file = join(dir, "secrets.json");
     let answered: Promise<Response> | undefined;
     const exit = start(
       withSetup(held, async (context) => {
@@ -212,7 +195,7 @@ describe("--setup", () => {
         await held.opened.redirected;
         throw new Error("the vendor refused the code");
       }),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     expect(await exit).toBe(1);
     expect(await (await answered)?.text()).toContain("Setup failed");
@@ -230,7 +213,7 @@ describe("--setup", () => {
         await plain.opened.redirected;
         return { test_app_key: made };
       }),
-      harness.runtime(["--setup", join(dir, "one.json")]),
+      harness.runtime(["--setup"]),
     );
     await until(() => plain.opened !== undefined);
     const done = await fetch(`${plain.opened?.callback ?? ""}?code=abc`);
@@ -245,7 +228,7 @@ describe("--setup", () => {
           local.onward("https://vendor.example/next");
           return { test_app_key: made };
         }),
-        harness.runtime(["--setup", join(dir, "two.json")]),
+        harness.runtime(["--setup"]),
       ),
     ).toBe(1);
     expect(harness.lines.join("\n")).toContain("which has not arrived");
@@ -258,7 +241,7 @@ describe("--setup", () => {
         elsewhere.opened.onward("javascript:alert(1)");
         return { test_app_key: made };
       }),
-      harness.runtime(["--setup", join(dir, "three.json")]),
+      harness.runtime(["--setup"]),
     );
     await until(() => elsewhere.opened !== undefined);
     const told = await fetch(`${elsewhere.opened?.callback ?? ""}?code=abc`);
@@ -269,8 +252,7 @@ describe("--setup", () => {
     );
   });
 
-  it("fails, keeping no file, where the page cannot be made", async () => {
-    const file = join(dir, "secrets.json");
+  it("fails, printing nothing, where the page cannot be made", async () => {
     const exit = start(
       withSetup({}, async (context) => {
         await context.listen(() => {
@@ -278,57 +260,78 @@ describe("--setup", () => {
         });
         return { test_app_key: made };
       }),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     expect(await exit).toBe(1);
-    await expect(stat(file)).rejects.toThrow();
+    expect(harness.printed).toEqual([]);
     expect(harness.lines.join("\n")).toContain(
       "the manifest could not be written",
     );
   });
 
-  it("writes over no file, and is refused for a connector without a setup", async () => {
-    const file = join(dir, "secrets.json");
-    await writeFile(file, "kept");
-    expect(await start(withSetup({}), harness.runtime(["--setup", file]))).toBe(
-      2,
-    );
-    expect(await readFile(file, "utf8")).toBe("kept");
+  it("is refused for a connector without a setup", async () => {
     const without = { ...withSetup({}) };
     Reflect.deleteProperty(without, "setup");
-    expect(
-      await start(without, harness.runtime(["--setup", join(dir, "new")])),
-    ).toBe(2);
+    expect(await start(without, harness.runtime(["--setup"]))).toBe(2);
     expect(harness.lines.join("\n")).toContain(
       "--setup is for a connector with a setup",
     );
     expect(harness.server.requests).toEqual([]);
   });
 
-  it("makes the file before setup runs, and removes it where setup fails", async () => {
-    const file = join(dir, "secrets.json");
-    let during: number | undefined;
+  it("prints nothing where setup fails", async () => {
     const failing = withSetup({}, async () => {
-      during = (await stat(file)).mode & 0o777;
       throw new Error("the vendor refused the manifest");
     });
-    expect(await start(failing, harness.runtime(["--setup", file]))).toBe(1);
-    expect(during).toBe(0o600);
-    await expect(stat(file)).rejects.toThrow();
+    expect(await start(failing, harness.runtime(["--setup"]))).toBe(1);
+    expect(harness.printed).toEqual([]);
     expect(harness.lines.join("\n")).toContain(
-      `setup failed, and ${file} was removed: the vendor refused the manifest`,
+      "setup failed: the vendor refused the manifest",
     );
   });
 
+  it("reads the settings Marfa holds, a required one unset included, and hands them to setup", async () => {
+    let seen: unknown;
+    harness.server.settings = { test_region: "north" };
+    expect(
+      await start(
+        withSetup({}, (context) => {
+          seen = { ...context.env };
+          return Promise.resolve({ test_region: "south side" });
+        }),
+        harness.runtime(["--setup"]),
+      ),
+    ).toBe(0);
+    expect(seen).toEqual({ test_app_key: undefined, test_region: "north" });
+    expect(harness.printed).toEqual([
+      "marfa plugins settings test --set 'test_region=south side'",
+    ]);
+  });
+
+  it("quotes a value with characters a shell would read, so the command sets it as made", async () => {
+    const pem = "-----BEGIN KEY-----\nit's $HOME `x`\n-----END KEY-----";
+    expect(
+      await start(
+        withSetup({}, (context) => {
+          context.secret(pem);
+          return Promise.resolve({ test_app_key: pem });
+        }),
+        harness.runtime(["--setup"]),
+      ),
+    ).toBe(0);
+    expect(harness.printed).toEqual([
+      `printf '%s' '-----BEGIN KEY-----\nit'\\''s $HOME \`x\`\n-----END KEY-----' | marfa plugins secret test test_app_key`,
+    ]);
+  });
+
   it("retires the endpoints it made where setup fails, so no address it handed out stays live", async () => {
-    const file = join(dir, "secrets.json");
     const failing = withSetup({}, async (context) => {
       await context.endpoint({ label: "vendor" });
       await context.endpoint();
       throw new Error("the vendor refused the manifest");
     });
     const before = harness.server.endpoints.length;
-    expect(await start(failing, harness.runtime(["--setup", file]))).toBe(1);
+    expect(await start(failing, harness.runtime(["--setup"]))).toBe(1);
     const made = harness.server.endpoints.slice(before);
     expect(made).toHaveLength(2);
     expect(made.every((endpoint) => endpoint.retired_at !== null)).toBe(true);
@@ -350,7 +353,6 @@ describe("--setup", () => {
   });
 
   it("names an endpoint it could not retire, and how to retire it by hand", async () => {
-    const file = join(dir, "secrets.json");
     const failing = withSetup({}, async (context) => {
       await context.endpoint();
       throw new Error("the vendor refused the manifest");
@@ -365,7 +367,7 @@ describe("--setup", () => {
         );
       }
     };
-    expect(await start(failing, harness.runtime(["--setup", file]))).toBe(1);
+    expect(await start(failing, harness.runtime(["--setup"]))).toBe(1);
     const endpoint = harness.server.endpoints.at(-1);
     expect(endpoint?.retired_at).toBeNull();
     expect(harness.lines.join("\n")).toContain(
@@ -373,37 +375,13 @@ describe("--setup", () => {
     );
   });
 
-  it("refuses to write its file inside a git working tree, before it reaches the server", async () => {
-    for (const [tree, mark] of [
-      ["repository", "directory"],
-      ["worktree", "file"],
-    ] as const) {
-      const root = join(dir, tree);
-      await mkdir(join(root, "connectors"), { recursive: true });
-      if (mark === "directory") await mkdir(join(root, ".git"));
-      else await writeFile(join(root, ".git"), "gitdir: elsewhere\n");
-      const file = join(root, "connectors", "secrets.json");
-      expect(
-        await start(withSetup({}), harness.runtime(["--setup", file])),
-      ).toBe(2);
-      await expect(stat(file)).rejects.toThrow();
-      expect(harness.lines.join("\n")).toContain(
-        `${file} is inside the git working tree at ${await realpath(root)}`,
-      );
-    }
-    expect(harness.server.requests).toEqual([]);
-  });
-
-  it("keeps a name the connector does not declare in the file, and says so", async () => {
-    const file = join(dir, "secrets.json");
+  it("prints nothing for a name the connector does not declare, and says so", async () => {
     const exit = start(
       withSetup({}, () => Promise.resolve({ OTHER_KEY: made })),
-      harness.runtime(["--setup", file]),
+      harness.runtime(["--setup"]),
     );
     expect(await exit).toBe(1);
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({
-      OTHER_KEY: made,
-    });
+    expect(harness.printed).toEqual([]);
     expect(harness.lines.join("\n")).toContain(
       "setup answered OTHER_KEY, which the connector does not declare",
     );

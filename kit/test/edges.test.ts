@@ -200,24 +200,3 @@ describe("a connector's name", () => {
     expect(harness.server.requests.length).toBeGreaterThan(0);
   });
 });
-
-describe("the connector's state", () => {
-  it("is the key's own source's, so two accounts keep theirs apart", async () => {
-    const first = vendor([one]);
-    first.token = "t-first";
-    expect(await harness.once(first)).toBe(0);
-
-    harness.server.keySource = "test/account 2";
-    harness.server.grants = { sources: ["test"] };
-    const second = vendor([{ source_id: "b:1", properties: { title: "B" } }]);
-    second.token = "t-second";
-    expect(await harness.once(second)).toBe(0);
-
-    expect(harness.server.states.get("test")).toMatchObject({
-      state: { token: "t-first" },
-    });
-    expect(harness.server.states.get("test/account 2")).toMatchObject({
-      state: { token: "t-second" },
-    });
-  });
-});

@@ -75,19 +75,19 @@ describe("built-in references", () => {
 
   it("refuses a metadata entry on edge types", async () => {
     harness.server.grants.metadata_permissions = { edge_types: "write" };
-    expect(await harness.once(referencing())).toBe(1);
+    expect(await harness.once(referencing())).toBe(3);
     expect(harness.lastRun().error).toContain("metadata edge_types=write");
   });
 
   it("requires references permission and refuses unrelated edge permissions", async () => {
     harness.server.grants.edge_permissions = {};
-    expect(await harness.once(referencing())).toBe(1);
+    expect(await harness.once(referencing())).toBe(3);
     expect(harness.lastRun().error).toContain("may not write edge references");
     harness.server.grants.edge_permissions = {
       references: "write",
       "in-thread": "write",
     };
-    expect(await harness.once(referencing())).toBe(1);
+    expect(await harness.once(referencing())).toBe(3);
     expect(harness.lastRun().error).toContain("edge in-thread=write");
   });
 

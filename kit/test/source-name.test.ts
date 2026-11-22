@@ -142,7 +142,7 @@ describe("a connector's source name and mark", () => {
         named({ sourceName: "Test Vendor" }),
         harness.runtime(["--once"]),
       ),
-    ).toBe(1);
+    ).toBe(3);
     expect(patches()).toEqual([]);
   });
 });

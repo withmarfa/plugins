@@ -214,7 +214,7 @@ describe("attached-to", () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write", "test.file": "write" },
     };
-    expect(await once(held)).toBe(1);
+    expect(await once(held)).toBe(3);
     expect(harness.lastRun().error).toContain("may not write edge attached-to");
   });
 });

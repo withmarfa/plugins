@@ -100,7 +100,7 @@ function startBackoff(intervalMs: number, attempts: number): number {
 function appKeyProblem(key: Key, guide: string): string | undefined {
   return key.oauth_client_id === undefined
     ? undefined
-    : `the key ${key.id} is refused: an app made it, and it stays that app's. Mint the connector a key of its own as ${guide} says: run \`marfa keys create\` from any computer signed in as the owner.`;
+    : `the key ${key.id} is refused: an app made it, and it stays that app's. Start the connector with the key its connector host mints for it, as ${guide} says.`;
 }
 
 /** Where an owner is told to mint the connector's key. */
@@ -308,11 +308,12 @@ async function nameSource<E extends SettingsDeclaration>(
 }
 
 /**
- * Checks the key, registers, then checks the installed types against the
- * build. The settings are read only after, since their door is the
- * registration's: until then the registration holds every type read only, so
- * no edit is taken that the settings might not carry back, and the first run
- * registers again with the types its settings carry back.
+ * Checks the key, registers, reads the settings, then checks the installed
+ * types against the build. The settings' door is the registration's, so until
+ * they are read the registration holds every type read only, and no edit is
+ * taken that the settings might not carry back; the first run registers again
+ * with the types its settings carry back. They are read before anything else
+ * Marfa answers, so a secret an answer echoes is already redacted.
  */
 async function registerAndCheck<E extends SettingsDeclaration>(
   connector: Connector<E>,
@@ -323,15 +324,33 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   const refusal = appKeyProblem(key, keyGuide(connector));
   if (refusal !== undefined) return { refusal };
   const readOnly = connector.types.map((kind) => kind.type.id);
-  const id = await marfa.register(
-    connector.name,
-    connector.description,
-    readOnly,
-  );
+  let id: string;
+  try {
+    id = await marfa.register(connector.name, connector.description, readOnly);
+  } catch (error) {
+    // The registration is the connector's own door, so a 403 there is the key.
+    if (error instanceof Refusal && error.status === 403) {
+      return {
+        refusal: `could not start: the server will not register this connector (${describe(error)}). MARFA_API_KEY must be the key a connector host minted for the connector itself, not an app's or a session's.`,
+      };
+    }
+    throw error;
+  }
+  let held: HeldSettings | undefined;
+  if ((connector.settings ?? []).length > 0) {
+    try {
+      held = await marfa.settings(id);
+      logger.keep(secretsOf(connector.settings ?? [], held));
+    } catch {
+      // Read again before the first run, which says why it cannot be.
+      held = undefined;
+    }
+  }
   const problems = keyProblems(connector, key);
   const stopped = (problem: string, keyRefused = false): Started => ({
     id,
     readOnly,
+    held,
     narrowed: undefined,
     problem,
     keyRefused,
@@ -353,6 +372,7 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   return {
     id,
     readOnly,
+    held,
     narrowed: step.narrowed,
     problem: undefined,
     keyRefused: false,
@@ -369,6 +389,8 @@ interface Started {
   readonly id: string;
   /** The types the registration names read only. */
   readonly readOnly: readonly string[];
+  /** The settings as read on registering, which the first run uses. */
+  readonly held: HeldSettings | undefined;
   readonly narrowed: Narrowed | undefined;
   readonly problem: string | undefined;
   /** Whether the problem is the key, which Marfa or the kit refused. */
@@ -502,15 +524,6 @@ function startProblem(error: unknown, server: string, guide: string): string {
     return `could not start: the server at MARFA_API_URL (${server}) will not register this connector (${describe(error)}). MARFA_API_KEY must be a key minted for the connector itself, not an app's or a session's.`;
   }
   return `could not start against the server at MARFA_API_URL (${server}): ${describe(error)}`;
-}
-
-/** Whether Marfa refused the key: `401`, or `403` on the registration,
- *  which is the connector's own door. */
-function keyRefusal(error: unknown): boolean {
-  return (
-    causeOf(error) === "key" ||
-    (error instanceof Refusal && error.status === 403)
-  );
 }
 
 /** Why the settings door refused this key, where it did: `404` for a key a
@@ -757,7 +770,7 @@ async function serve<E extends SettingsDeclaration>(
           logger,
           startProblem(error, environment.url, keyGuide(connector)),
         );
-        return keyRefusal(error) ? exitCode.key : exitCode.failed;
+        return causeOf(error) === "key" ? exitCode.key : exitCode.failed;
       }
       const wait = Math.max(
         startBackoff(intervalMs, failures),
@@ -799,11 +812,17 @@ async function serve<E extends SettingsDeclaration>(
   if (stopped()) return exitCode.stopped;
 
   /** Reads the settings, their secrets redacted from every later line as
-   *  soon as they arrive. */
+   *  soon as they arrive. The first read takes what registering read. */
+  let fresh = started.held;
   const readHeld = async (
     signal: AbortSignal,
   ): Promise<HeldSettings | undefined> => {
     if ((connector.settings ?? []).length === 0) return undefined;
+    if (fresh !== undefined) {
+      const held = fresh;
+      fresh = undefined;
+      return held;
+    }
     const held = await marfa.settings(connectorId, signal);
     logger.keep(secretsOf(connector.settings ?? [], held));
     return held;

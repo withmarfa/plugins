@@ -24,6 +24,9 @@ function typed(id: string): TypeDefinition {
 }
 
 function two(carried: () => string[]) {
+  harness.server.grants = {
+    type_permissions: { "test.mirrored": "write", "test.carried": "write" },
+  };
   return defineConnector({
     name: "test",
     source: "test",
@@ -46,8 +49,10 @@ describe("read_only_types on registration", () => {
 
   it("leaves the field out for a connector that carries every type back", async () => {
     await harness.twoWay(vendor());
-    expect(sent()).toHaveLength(1);
-    expect(sent()[0]).not.toHaveProperty("read_only_types");
+    // Every type until the settings are read, then the ones they carry back.
+    expect(sent()).toHaveLength(2);
+    expect(sent()[0]?.["read_only_types"]).toEqual(["test.entry"]);
+    expect(sent()[1]).not.toHaveProperty("read_only_types");
   });
 
   it("names only the types left out of what it carries", async () => {
@@ -55,7 +60,7 @@ describe("read_only_types on registration", () => {
       two(() => ["test.carried"]),
       harness.runtime(["--once"]),
     );
-    expect(sent()[0]?.["read_only_types"]).toEqual(["test.mirrored"]);
+    expect(sent().at(-1)?.["read_only_types"]).toEqual(["test.mirrored"]);
   });
 
   it("is replaced by a registration that follows a change of configuration", async () => {
@@ -77,7 +82,9 @@ describe("read_only_types on registration", () => {
       harness.runtime(["--once"]),
     );
     expect(harness.server.readOnlyTypes).toEqual([]);
-    expect(harness.server.registrations).toBe(3);
+    // Each start registers every type read only, then again where its
+    // settings carry one back.
+    expect(harness.server.registrations).toBe(5);
   });
 });
 

@@ -227,7 +227,7 @@ it("does not park lost key or incomplete file/replay input", async () => {
     const a = context.forScope("A", { retry });
     await a.upsert(testType.id, [bad]);
   };
-  expect(await harness.once(held)).toBe(1);
+  expect(await harness.once(held)).toBe(3);
   expect(inbound()).toBeUndefined();
 });
 it("does not save speculative intent after an applied/lost state response", async () => {

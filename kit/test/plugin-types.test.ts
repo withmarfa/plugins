@@ -114,7 +114,7 @@ describe("a start on the types a plugin install holds", () => {
         metadata_permissions: level,
       };
       const held = vendor([entry]);
-      expect(await harness.once(held)).toBe(1);
+      expect(await harness.once(held)).toBe(3);
       const [name = "", value = ""] = Object.entries(level)[0] ?? [];
       expect(harness.lastRun().error).toContain(
         `is refused: metadata ${name}=${value}`,

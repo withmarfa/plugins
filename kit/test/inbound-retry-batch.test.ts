@@ -314,7 +314,7 @@ it.each([401, 503])(
       await scope.upsert(testType.id, bad);
       await scope.state.checkpoint("page", 2);
     };
-    expect(await harness.once(source)).toBe(1);
+    expect(await harness.once(source)).toBe(status === 401 ? 3 : 1);
     expect(harness.kept()["state"]).toEqual({ page: 1 });
     expect(records()).toHaveLength(2);
   },

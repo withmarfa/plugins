@@ -17,10 +17,7 @@ describe("the schedule arguments", () => {
     expect(readSchedule(["--help"])).toEqual({ mode: "help" });
     expect(readSchedule(["-h"])).toEqual({ mode: "help" });
     expect(readSchedule(["--once"])).toEqual({ mode: "once" });
-    expect(readSchedule(["--setup", "keys.env"])).toEqual({
-      mode: "setup",
-      file: "keys.env",
-    });
+    expect(readSchedule(["--setup"])).toEqual({ mode: "setup" });
     expect(readSchedule(["--every", "15m"])).toEqual({
       mode: "every",
       intervalMs: 900_000,
@@ -39,10 +36,6 @@ describe("the schedule arguments", () => {
     expect(readSchedule(["--every=15m", "--look-every=30s"])).toMatchObject({
       intervalMs: 900_000,
       lookMs: 30_000,
-    });
-    expect(readSchedule(["--setup=keys.env"])).toEqual({
-      mode: "setup",
-      file: "keys.env",
     });
   });
 
@@ -76,9 +69,10 @@ describe("the schedule arguments", () => {
     ["--once given twice", ["--once", "--once"]],
     ["--help beside another flag", ["--help", "--once"]],
     ["--help given a value", ["--help=now"]],
-    ["--setup with no file", ["--setup"]],
-    ["--setup with an empty file", ["--setup="]],
-    ["--setup beside --once", ["--setup", "keys.env", "--once"]],
+    ["--setup with a file, which it no longer writes", ["--setup", "keys.env"]],
+    ["--setup with a value", ["--setup=keys.env"]],
+    ["--setup with an empty value", ["--setup="]],
+    ["--setup beside --once", ["--setup", "--once"]],
     ["a word that is not a flag", ["now"]],
     ["a word after a schedule", ["--every", "15m", "now"]],
     ["a flag it does not know", ["--every", "15m", "--deliver-every", "30s"]],
