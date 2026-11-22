@@ -1,0 +1,423 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Entry, TypeDefinition } from "../src/define.js";
+import { previewOf, type ResolvedType } from "../src/mapping.js";
+import { templateCharacters } from "../src/template.js";
+import {
+  Harness,
+  linkedType,
+  testFields,
+  vendor,
+  type Vendor,
+} from "./harness.js";
+
+/** The kind's own type: a status field with no `canceled` word. */
+const ownType: TypeDefinition = {
+  ...linkedType,
+  fields: {
+    ...linkedType.fields,
+    status: {
+      type: "status",
+      status_values: [
+        { value: "open", group: "not_started" },
+        { value: "doing", group: "in_progress" },
+        { value: "waiting", group: "in_progress" },
+        { value: "done", group: "completed" },
+      ],
+    },
+  },
+};
+const kindFields = [...testFields, "status"];
+
+/** The target: no `completed` word, and no link field of its own. */
+const target = "common.ticket.task";
+const targetType = {
+  id: target,
+  label: "Task",
+  fields: {
+    title: { type: "string" },
+    summary: { type: "string" },
+    label: { type: "string" },
+    status: {
+      type: "status",
+      status_values: [
+        { value: "not_started", group: "not_started" },
+        { value: "backlog", group: "not_started" },
+        { value: "in_progress", group: "in_progress" },
+        { value: "blocked", group: "in_progress" },
+        { value: "canceled", group: "canceled" },
+      ],
+    },
+  },
+  display_hints: { title_field: "title" },
+};
+
+type FieldSource = { from: string } | { fixed: unknown } | { template: string };
+
+let harness: Harness;
+beforeEach(async () => {
+  harness = await Harness.create();
+  harness.server.types.set(ownType.id, { ...ownType });
+  harness.server.installType({ ...targetType });
+});
+afterEach(async () => {
+  await harness.close();
+});
+
+function mapFields(
+  fields: Record<string, FieldSource>,
+  options: {
+    overrides?: Record<string, string>;
+    version?: number;
+    type?: string;
+  } = {},
+): void {
+  harness.server.mapping.version = options.version ?? 1;
+  harness.server.mapping.kinds["entry"] = {
+    enabled: true,
+    target_type: options.type ?? target,
+    tier: "feed",
+    status_overrides: options.overrides ?? {},
+    fields,
+  };
+}
+
+const standard: Record<string, FieldSource> = {
+  title: { template: "{{ title }} ({{ vendor_id }})" },
+  summary: { from: "note" },
+  status: { from: "status" },
+  label: { fixed: "imported" },
+};
+
+const one: Entry = {
+  source_id: "a:1",
+  properties: {
+    title: "One",
+    note: "first",
+    link: "https://vendor.test/1",
+    vendor_id: "v1",
+    status: "waiting",
+  },
+};
+
+function held(entries: Entry[] = [one]): Vendor {
+  return { ...vendor(entries), kindType: ownType, kindFields };
+}
+
+async function quiet(given: Vendor): Promise<number> {
+  given.changes.length = 0;
+  return harness.twoWay(given);
+}
+
+function creates(): Record<string, unknown>[] {
+  return harness.server
+    .requestsTo("POST", "/items/bulk")
+    .flatMap(
+      (request) => (request.body as { items: Record<string, unknown>[] }).items,
+    );
+}
+
+describe("a kind's fields mapped onto the target's", () => {
+  it("renders a template from the entry's fields, writes a fixed value, fills a field from another and lands a status word in its group", async () => {
+    mapFields(standard);
+    expect(await harness.twoWay(held()), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.type).toBe(target);
+    expect(row.properties).toEqual({
+      title: "One (v1)",
+      summary: "first",
+      label: "imported",
+      status: "in_progress",
+      vendor_id: "v1",
+    });
+  });
+
+  it("lands a status word on the word its override names", async () => {
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    expect(await harness.twoWay(held())).toBe(0);
+    expect(harness.server.row("a:1").properties["status"]).toBe("blocked");
+  });
+
+  it("leaves a field whose template names a value the entry does not hold unwritten, with a condition, and writes the rest", async () => {
+    mapFields({ ...standard, title: { template: "{{ nope }}" } });
+    expect(await harness.twoWay(held()), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.properties).not.toHaveProperty("title");
+    expect(row.properties["summary"]).toBe("first");
+    expect(harness.problems()["mapping-template:entry:title"]).toContain(
+      "undefined value",
+    );
+  });
+
+  it("reads a field the entry does not hold as nothing, not as an undefined name", async () => {
+    mapFields({ ...standard, title: { template: "{{ title }}{{ link }}" } });
+    const given = held([
+      { ...one, properties: { title: "One", vendor_id: "v1" } },
+    ]);
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(harness.server.row("a:1").properties["title"]).toBe("One");
+    expect(harness.problems()).not.toHaveProperty(
+      "mapping-template:entry:title",
+    );
+  });
+
+  it("keeps what a row holds in a field whose template stops rendering", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    mapFields({ ...standard, title: { template: "{{ nope }}" } }, { version: 2 });
+    given.entries = [{ ...one, properties: { ...one.properties, note: "1" } }];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.properties["title"]).toBe("One (v1)");
+    expect(row.properties["summary"]).toBe("1");
+    expect(given.changes).toEqual([]);
+  });
+
+  it("cuts off a template that loops past the render's bound, leaving that field unwritten and the rest written", async () => {
+    mapFields({
+      ...standard,
+      title: {
+        template:
+          "{% for i in range(99999) %}{% for j in range(99999) %}x{% endfor %}{% endfor %}",
+      },
+    });
+    expect(await harness.twoWay(held()), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.properties).not.toHaveProperty("title");
+    expect(row.properties["label"]).toBe("imported");
+    expect(harness.problems()["mapping-template:entry:title"]).toContain(
+      "more work than a render may",
+    );
+  });
+
+  it("cuts off a template whose text grows past the size bound, leaving that field unwritten and the rest written", async () => {
+    mapFields({ ...standard, title: { template: "{{ note }}{{ note }}" } });
+    const long = "x".repeat(templateCharacters / 2 + 1);
+    expect(
+      await harness.twoWay(
+        held([{ ...one, properties: { ...one.properties, note: long } }]),
+      ),
+      harness.lines.join("\n"),
+    ).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.properties).not.toHaveProperty("title");
+    expect(row.properties["summary"]).toBe(long);
+    expect(harness.problems()["mapping-template:entry:title"]).toContain(
+      "more than 100,000 characters",
+    );
+  });
+
+  it("carries no change made in Marfa to a templated or fixed field back, and puts it back; a field filled from the kind's carries back", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(await quiet(given)).toBe(0);
+    const row = harness.server.row("a:1");
+    harness.server.edit(row.id, { title: "By a person", label: "mine" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+    expect(harness.server.row("a:1").properties["title"]).toBe("One (v1)");
+    expect(harness.server.row("a:1").properties["label"]).toBe("imported");
+
+    // The witness: a field filled from the kind's own carries back, named
+    // by the kind's field.
+    harness.server.edit(row.id, { summary: "edited in Marfa" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes.map((change) => [...change.changed])).toEqual([["note"]]);
+    expect(given.changes[0]?.item.properties["note"]).toBe("edited in Marfa");
+    expect(given.changes[0]?.item.type).toBe(linkedType.id);
+  });
+
+  it("keeps a target field the mapping does not fill, which someone else wrote, through the kit's next write", async () => {
+    mapFields({
+      title: { template: "{{ title }}" },
+      status: { from: "status" },
+    });
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const row = harness.server.row("a:1");
+    harness.server.edit(row.id, { summary: "a note from an app" });
+    given.entries = [{ ...one, properties: { ...one.properties, title: "1" } }];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+    expect(harness.server.row("a:1").properties).toMatchObject({
+      title: "1",
+      summary: "a note from an app",
+    });
+  });
+});
+
+describe("status words carried back", () => {
+  it("maps a target word back to the kind's word of its group", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(await quiet(given)).toBe(0);
+    harness.server.edit(harness.server.row("a:1").id, { status: "backlog" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes.map((change) => [...change.changed])).toEqual([
+      ["status"],
+    ]);
+    expect(given.changes[0]?.item.properties["status"]).toBe("open");
+  });
+
+  it("maps a word an override lands on back to the word overridden", async () => {
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    const given = held([
+      { ...one, properties: { ...one.properties, status: "doing" } },
+    ]);
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(harness.server.row("a:1").properties["status"]).toBe("in_progress");
+    harness.server.edit(harness.server.row("a:1").id, { status: "blocked" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes[0]?.item.properties["status"]).toBe("waiting");
+  });
+
+  it("writes nothing for a word whose group the target lacks, with a condition, and the rest of the row", async () => {
+    mapFields(standard);
+    expect(
+      await harness.twoWay(
+        held([{ ...one, properties: { ...one.properties, status: "done" } }]),
+      ),
+      harness.lines.join("\n"),
+    ).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.properties).not.toHaveProperty("status");
+    expect(row.properties["title"]).toBe("One (v1)");
+    expect(harness.problems()["mapping-status:entry:done"]).toContain(
+      "holds no word in its group",
+    );
+  });
+
+  it("carries nothing back for a target word whose group the kind lacks, and raises a condition", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    expect(await quiet(given)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    harness.server.edit(id, { status: "canceled" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+    expect(harness.server.row("a:1").properties["status"]).toBe("canceled");
+    expect(harness.problems()["mapping-status-back:entry:canceled"]).toContain(
+      id,
+    );
+
+    // The vendor's next change to the word is written over it.
+    given.entries = [
+      { ...one, properties: { ...one.properties, status: "open" } },
+    ];
+    expect(await quiet(given)).toBe(0);
+    expect(given.changes).toEqual([]);
+    expect(harness.server.row("a:1").properties["status"]).toBe("not_started");
+  });
+});
+
+describe("a preview of a kind's mapping", () => {
+  const own: ResolvedType = {
+    id: ownType.id,
+    fields: new Set([...Object.keys(ownType.fields)]),
+    tables: new Set(),
+    link: "vendor_id",
+    above: [],
+    status: {
+      field: "status",
+      words: [
+        { value: "open", group: "not_started" },
+        { value: "doing", group: "in_progress" },
+        { value: "waiting", group: "in_progress" },
+        { value: "done", group: "completed" },
+      ],
+    },
+  };
+  const resolvedTarget: ResolvedType = {
+    id: target,
+    fields: new Set(Object.keys(targetType.fields)),
+    tables: new Set(),
+    link: undefined,
+    above: [],
+    status: {
+      field: "status",
+      words: targetType.fields.status.status_values.map(
+        ({ value, group }) => ({
+          value,
+          group: group as "not_started",
+        }),
+      ),
+    },
+    titleField: "title",
+  };
+  const kind = { name: "entry", type: ownType, fields: kindFields };
+  const mapping = {
+    enabled: true,
+    target_type: target,
+    tier: "feed" as const,
+    status_overrides: { waiting: "blocked" },
+    fields: standard,
+  };
+
+  it("answers what an upsert of the same entry writes, with its title", async () => {
+    const { result, conditions } = await previewOf({
+      kind,
+      mapping,
+      own,
+      target: resolvedTarget,
+      from: { entry: one },
+    });
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    expect(await harness.twoWay(held())).toBe(0);
+    const [created] = creates();
+    expect(result).toEqual({
+      type: target,
+      properties: created?.["properties"],
+      title: "One (v1)",
+      source_item: null,
+    });
+    expect(conditions.size).toBe(0);
+  });
+
+  it("renders from a stored item on the kind's own type, naming it", async () => {
+    expect(await harness.twoWay(held())).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.type).toBe(ownType.id);
+    const { result } = await previewOf({
+      kind,
+      mapping,
+      own,
+      target: resolvedTarget,
+      from: {
+        item: {
+          id: row.id,
+          type: row.type,
+          source_id: row.source_id,
+          properties: row.properties,
+        } as never,
+      },
+    });
+    expect(result).toEqual({
+      type: target,
+      properties: {
+        title: "One (v1)",
+        summary: "first",
+        label: "imported",
+        status: "blocked",
+        vendor_id: "v1",
+      },
+      title: "One (v1)",
+      source_item: row.id,
+    });
+  });
+
+  it("names a template that fails among its conditions, and leaves the field out", async () => {
+    const { result, conditions } = await previewOf({
+      kind,
+      mapping: { ...mapping, fields: { ...standard, title: { template: "{{ nope }}" } } },
+      own,
+      target: resolvedTarget,
+      from: { entry: one },
+    });
+    expect(result.properties).not.toHaveProperty("title");
+    expect(result).not.toHaveProperty("title");
+    expect([...conditions.keys()]).toEqual(["mapping-template:entry:title"]);
+  });
+});

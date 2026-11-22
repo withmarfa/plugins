@@ -7,6 +7,27 @@ export const stateKey = "@state";
 /** A row's own time, beside its properties; no property starts with `@`. */
 export const occurredKey = "@occurred_at";
 
+/** Where an entry names the fields it could not give a value for, such as
+ *  a template that failed: the row keeps what it holds there. */
+export const unwrittenKey = "@unwritten";
+
+/** Where the connector's view of a row names the fields it could not read
+ *  back, such as a status word whose group the kind lacks: they count as
+ *  unchanged in Marfa, so nothing is carried back for them. */
+export const unreadKey = "@unread";
+
+function named(
+  properties: Readonly<Record<string, unknown>>,
+  key: string,
+): ReadonlySet<string> {
+  const value = Object.hasOwn(properties, key) ? properties[key] : undefined;
+  return new Set(
+    Array.isArray(value)
+      ? value.filter((one): one is string => typeof one === "string")
+      : [],
+  );
+}
+
 export type AgreedState = "active" | "archived" | "trashed";
 
 /** What the two sides last held for one row, apart since they can rightly
@@ -93,8 +114,11 @@ export function changedInMarfa(
   fields: readonly string[],
   properties: Readonly<Record<string, unknown>>,
 ): string[] {
+  const unread = named(properties, unreadKey);
   return fields.filter(
-    (field) => mark(held(properties, field)) !== at(agreement.marfa, field),
+    (field) =>
+      !unread.has(field) &&
+      mark(held(properties, field)) !== at(agreement.marfa, field),
   );
 }
 
@@ -173,9 +197,22 @@ export function merge(input: MergeInput): Merged {
     }
   };
 
+  const unwritten = named(entry.properties, unwrittenKey);
+  const unread = named(row.properties, unreadKey);
   for (const field of fields) {
+    if (unwritten.has(field)) {
+      // The row keeps what it holds, and the agreement what it held.
+      if (agreement !== undefined) {
+        const agreed = at(agreement.marfa, field);
+        if (agreed !== "") marfa[field] = agreed;
+      }
+      continue;
+    }
     const vendorNow = mark(held(theirs, field));
-    const marfaNow = mark(held(properties, field));
+    const marfaNow =
+      unread.has(field) && agreement !== undefined
+        ? at(agreement.marfa, field)
+        : mark(held(properties, field));
     const observing = input.observe?.(field) === true;
     if (
       input.adopt === true &&
@@ -277,7 +314,14 @@ export function merge(input: MergeInput): Merged {
       ? occurredNow
       : undefined;
 
-  const vendor = sideOf(fields, theirs);
+  const vendor = sideOf(
+    fields.filter((field) => !unwritten.has(field)),
+    theirs,
+  );
+  for (const field of unwritten) {
+    const agreed = agreement === undefined ? "" : at(agreement.vendor, field);
+    if (agreed !== "") vendor[field] = agreed;
+  }
   if (occurredMark !== "") vendor[occurredKey] = occurredMark;
   else if (agreement?.vendor[occurredKey] !== undefined) {
     vendor[occurredKey] = agreement.vendor[occurredKey];

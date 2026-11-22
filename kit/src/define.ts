@@ -385,7 +385,9 @@ export interface RunContext<E extends SettingsDeclaration> {
    * a later scheduled run finds them added. It can change between runs of one
    * process. A connector that reads by delta, such as with a sync token,
    * brings a row's new field only when the vendor changes the row, so it
-   * includes these in whatever marker makes it read in full.
+   * includes these in whatever marker makes it read in full. Where the
+   * owner's mapping moves the type's fields, it also holds a mark of that
+   * mapping, so a changed template or status override reads in full too.
    */
   readonly written: (type: string) => readonly string[];
   /**

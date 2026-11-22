@@ -7,7 +7,13 @@ import {
   type operations,
 } from "@withmarfa/client";
 import type { Item, TypeDefinition } from "./define.js";
-import type { Mapping, ResolvedType, Rewrite, TypeMap } from "./mapping.js";
+import type {
+  Mapping,
+  ResolvedType,
+  Rewrite,
+  StatusField,
+  TypeMap,
+} from "./mapping.js";
 
 export type BulkResult = components["schemas"]["BulkResultEntry"];
 /** The schema types a delivery's headers as pairs, but the fetch client's
@@ -572,6 +578,8 @@ export class Marfa {
     const tables = new Set<string>();
     const above: string[] = [];
     let link: string | undefined;
+    let status: StatusField | undefined;
+    let titleField: string | undefined;
     let next: string | undefined = id;
     while (next !== undefined) {
       if (next !== id && (above.includes(next) || above.length > 32)) break;
@@ -587,10 +595,30 @@ export class Marfa {
       for (const field of Object.keys(data.fields)) fields.add(field);
       for (const table of Object.keys(data.tables ?? {})) tables.add(table);
       link ??= data.link_field ?? undefined;
+      titleField ??= data.display_hints?.title_field ?? undefined;
+      if (next === id) {
+        // A type read answers every word its chain gives the field.
+        for (const [field, definition] of Object.entries(data.fields)) {
+          if (definition.type !== "status") continue;
+          status = {
+            field,
+            words: (definition.status_values ?? []).map(({ value, group }) => ({
+              value,
+              group,
+            })),
+          };
+        }
+      } else if (status === undefined) {
+        const inherited = Object.entries(data.fields).find(
+          ([, definition]) => definition.type === "status",
+        );
+        if (inherited !== undefined)
+          status = { field: inherited[0], words: [] };
+      }
       if (next !== id) above.push(next);
       next = data.parent ?? undefined;
     }
-    return { id, fields, tables, link, above };
+    return { id, fields, tables, link, above, status, titleField };
   }
 
   async register(
@@ -1224,7 +1252,12 @@ export class Marfa {
       { params: { path: { id } } },
     );
     if (data === undefined) throw refusal(response, error);
-    return data.data;
+    const types = this.types;
+    if (types === undefined) return data.data;
+    return data.data.map((version) => ({
+      ...version,
+      properties: types.view(id, version.properties),
+    }));
   }
 
   async merge(
@@ -1235,7 +1268,11 @@ export class Marfa {
   ): Promise<Item> {
     const { data, error, response } = await this.client.PATCH("/items/{id}", {
       params: { path: { id } },
-      body: { version, properties, ...(exact && { version_match: "exact" }) },
+      body: {
+        version,
+        properties: this.types?.properties(properties, { id }) ?? properties,
+        ...(exact && { version_match: "exact" }),
+      },
     });
     if (data === undefined) throw refusal(response, error);
     this.noteLink(data.item);
@@ -1284,7 +1321,9 @@ export class Marfa {
           type: this.out(type),
           source,
           source_id: row.source_id,
-          properties: row.properties,
+          properties:
+            this.types?.properties(row.properties, { type }) ??
+            row.properties,
           ...(row.occurred_at !== undefined && {
             occurred_at: row.occurred_at,
           }),
@@ -1311,7 +1350,7 @@ export class Marfa {
       params: { path: { id } },
       body: {
         version,
-        properties,
+        properties: this.types?.properties(properties, { id }) ?? properties,
         properties_mode: "replace",
         ...(exact && { version_match: "exact" }),
         ...(occurredAt !== undefined && { occurred_at: occurredAt }),

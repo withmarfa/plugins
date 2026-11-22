@@ -8,9 +8,11 @@ import {
   sideOf,
   stateKey,
   unchangedAtVendor,
+  unwrittenKey,
   type Agreement,
   type Merged,
 } from "./agreement.js";
+import type { FieldMap } from "./mapping.js";
 import { retryDeadline } from "./outbound.js";
 import type { UpsertAttempt } from "./inbound-retry.js";
 import type { Archiving, Entry, Item, Target } from "./define.js";
@@ -146,6 +148,9 @@ export interface Spec {
   /** Why the kind brings nothing this run, by the owner's mapping: its rows
    *  and their agreements are left alone, and nothing is carried. */
   readonly off?: string;
+  /** How the kind's fields land on its target's, where they do not land one
+   *  for one by name. */
+  readonly fieldMap?: FieldMap;
 }
 
 export function suspended(
@@ -412,7 +417,16 @@ export class Rows {
     return found;
   }
 
-  private narrowed(entry: Entry): Entry {
+  private narrowed(given: Entry): Entry {
+    let entry = given;
+    const mapped = this.kind.fieldMap;
+    if (mapped !== undefined) {
+      // Mapped from every field the vendor gave, before any is left out.
+      const shaped = mapped.entry(given);
+      for (const [key, message] of shaped.faults)
+        this.hooks.condition(key, message);
+      entry = shaped.entry;
+    }
     const unfit = this.kind.unfit ?? new Set<string>();
     const fields = Object.keys(entry.properties).some((f) =>
       this.kind.omitted.has(f),
@@ -470,7 +484,7 @@ export class Rows {
       const properties = cleaned(entry.properties);
       const stray = [
         ...Object.keys(properties).filter(
-          (field) => !this.kind.fields.includes(field),
+          (field) => field !== unwrittenKey && !this.kind.fields.includes(field),
         ),
         ...Object.keys(entry.connections ?? {}).filter(
           (type) => !this.kind.connections.has(type),

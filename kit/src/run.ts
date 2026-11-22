@@ -68,6 +68,7 @@ import {
   narrowedBy,
   planKinds,
   readOnlyTargets,
+  type KindPlan,
   type Mapping,
   type Plan,
 } from "./mapping.js";
@@ -287,8 +288,13 @@ export function specsOf<E extends SettingsDeclaration>(
       const omitted = new Set(narrowed?.fields.get(kind.type.id) ?? []);
       const kept = (names: readonly string[]): string[] =>
         names.filter((name) => !omitted.has(name));
-      const fields = kept(kind.fields);
+      const mapped = off === undefined ? planned?.fields : undefined;
+      // The fields the mapping fills are the vendor's to say, so a change
+      // made to one in Marfa is put back, never carried.
+      const made = mapped?.made ?? [];
+      const fields = [...kept(kind.fields), ...made];
       const readOnly = new Set(twoWay ? kept(kind.readOnly ?? []) : fields);
+      for (const field of made) readOnly.add(field);
       const link = kind.type.link_field;
       if (link !== undefined) readOnly.add(link);
       return [
@@ -317,6 +323,7 @@ export function specsOf<E extends SettingsDeclaration>(
           ),
           ...(unfit.size > 0 && { unfit }),
           ...(off !== undefined && { off, owned: false }),
+          ...(mapped !== undefined && { fieldMap: mapped }),
         },
       ];
     }),
@@ -456,6 +463,39 @@ function sameTypes(a: readonly string[], b: readonly string[]): boolean {
 
 const ending = new Set<Cause>(["key", "registration", "address"]);
 
+/** What a rewrite sends to move a row from the kind's own type to its
+ *  target: its fields as the mapping lands them, and those to clear. */
+function movedProperties(
+  planned: KindPlan,
+  row: Item,
+): {
+  properties: Record<string, unknown>;
+  clear: string[];
+  faults: Map<string, string>;
+} {
+  const fields = planned.fields;
+  if (fields === undefined)
+    return {
+      properties: {},
+      clear: Object.keys(row.properties).filter((field) =>
+        planned.omitted.includes(field),
+      ),
+      faults: new Map(),
+    };
+  const shaped = fields.entry(
+    { source_id: row.source_id ?? row.id, properties: row.properties },
+    row.id,
+  );
+  const properties = fields.write(shaped.entry.properties);
+  return {
+    properties,
+    clear: Object.keys(row.properties).filter(
+      (field) => !Object.hasOwn(properties, field),
+    ),
+    faults: shaped.faults,
+  };
+}
+
 /**
  * Carries out each rewrite the owner asked for: every row a kind wrote on its
  * own type, under the connector's source and outside the bin, is moved to
@@ -501,14 +541,15 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
       for (const row of rows) {
         if (setup.signal.aborted) throw new Stopped();
         try {
+          const landing = movedProperties(planned, row);
+          for (const [key, message] of landing.faults)
+            conditions.set(key, message);
           await marfa.retype(
             row.id,
             row.version,
             planned.target,
-            {},
-            Object.keys(row.properties).filter((field) =>
-              planned.omitted.includes(field),
-            ),
+            landing.properties,
+            landing.clear,
           );
           moved += 1;
         } catch (error) {
@@ -776,6 +817,8 @@ export async function runOnce<E extends SettingsDeclaration>(
     (type) => applied.plan?.map.reads(type) ?? [type],
   );
   const raised = new Map<string, string>(applied.conditions);
+  if (applied.plan !== undefined)
+    applied.plan.map.raise = (key, message) => raised.set(key, message);
   for (const [key, condition] of setup.narrowed?.conditions ?? []) {
     raised.set(key, condition);
   }
@@ -1273,7 +1316,11 @@ export async function runOnce<E extends SettingsDeclaration>(
   // reads it whole once it is on again.
   const written: RunContext<E>["written"] = (type) => {
     const { spec } = lane(type);
-    return spec.off === undefined ? [...spec.fields] : [];
+    if (spec.off !== undefined) return [];
+    const fields = spec.fields.filter((field) => !field.startsWith("@"));
+    return spec.fieldMap === undefined
+      ? fields
+      : [...fields, spec.fieldMap.mark];
   };
   const off = (type: string): boolean => lane(type).spec.off !== undefined;
   const pendingOutbound: RunContext<E>["pendingOutbound"] = () =>

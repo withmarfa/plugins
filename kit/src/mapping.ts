@@ -1,16 +1,30 @@
 import type { components } from "@withmarfa/client";
+import { unreadKey, unwrittenKey } from "./agreement.js";
 import type {
   ConnectionDefinition,
   Connector,
+  Entry,
   Item,
   SettingsDeclaration,
 } from "./define.js";
 import type { EdgeType } from "./marfa.js";
 import type { Narrowed } from "./own-types.js";
 import { wireOf } from "./shipped.js";
+import { loadTemplates, render } from "./template.js";
+import { cleaned, fingerprint } from "./values.js";
 
 export type Mapping = components["schemas"]["ConnectorMapping"];
 export type Rewrite = components["schemas"]["ConnectorRewritePending"];
+export type KindMapping = components["schemas"]["ConnectorMappingKind"];
+export type FieldSource = components["schemas"]["ConnectorMappingField"];
+export type PreviewResult = components["schemas"]["ConnectorPreviewResult"];
+type StatusWord = components["schemas"]["StatusValue"];
+
+/** A type's status field and every word it takes, inherited first. */
+export interface StatusField {
+  readonly field: string;
+  readonly words: readonly Pick<StatusWord, "value" | "group">[];
+}
 
 /** A registered type as a write meets it: every field it holds, its own and
  *  those it inherits, its link field, and the types above it, nearest
@@ -21,6 +35,9 @@ export interface ResolvedType {
   readonly tables: ReadonlySet<string>;
   readonly link: string | undefined;
   readonly above: readonly string[];
+  readonly status?: StatusField | undefined;
+  /** The field the type shows as an item's title, nearest type first. */
+  readonly titleField?: string | undefined;
 }
 
 /** What one kind does in a run, as the owner's mapping and the instance's
@@ -46,6 +63,9 @@ export interface KindPlan {
   /** The connections from the kind's rows whose edge type no longer takes
    *  one end, by the mapping. */
   readonly unfit: ReadonlySet<string>;
+  /** How the kind's fields land on the target's, where they do not land
+   *  one for one by name. */
+  readonly fields?: FieldMap | undefined;
 }
 
 /** The mapping a run applies, with what each kind does by it. */
@@ -77,17 +97,322 @@ export function isMapping(value: unknown): value is Mapping {
   );
 }
 
-/** Translates the types the connector names its rows by to the types they
- *  are written as, and back. A kind that keeps its own type, or is off,
- *  is not translated. */
+/** The prefix under which the connector's view of a row holds a target
+ *  field no field of the kind's own type stands for: a fixed or templated
+ *  value, or one the owner or another app wrote. The kit never sends it as
+ *  named; it writes the field back as it was read. */
+export const targetPrefix = "@target.";
+
+type MadeValue = Exclude<FieldSource, { from: string }>;
+
+/** What one write of a kind's entry raises, by condition key. */
+export type FieldFaults = Map<string, string>;
+
+interface FieldMapInput {
+  /** The kind's name, or its own type where it has none. */
+  readonly label: string;
+  readonly own: string;
+  readonly target: string;
+  /** The fields the connector declares for the kind. */
+  readonly kindFields: readonly string[];
+  readonly fields: Readonly<Record<string, FieldSource>>;
+  readonly overrides: Readonly<Record<string, string>>;
+  readonly ownStatus: StatusField | undefined;
+  readonly targetStatus: StatusField | undefined;
+  /** The kind's link field, written under its own name, where the target
+   *  names no link field of its own. */
+  readonly heldLink: string | undefined;
+}
+
+/**
+ * How one kind's fields land on its target type's, by the owner's mapping,
+ * and back. The kit names a row's fields by the kind's own type throughout;
+ * this translates them at the door to Marfa.
+ *
+ * A target field `{from}` a field of the kind's own type is written from it,
+ * and a change made to it in Marfa is carried back to that field. A field
+ * `{fixed}` or `{template}` is written from the mapping alone and never
+ * carried back: the connector's view holds it under `targetPrefix` as a
+ * field the vendor mirrors, so a change made to it in Marfa is put back. A
+ * status word lands on the target's word of the same group.
+ */
+export class FieldMap {
+  readonly label: string;
+  readonly target: string;
+  /** The kind's fields written to the target, in the kind's order. */
+  readonly carried: readonly string[];
+  /** The kind's fields no target field is filled from: left out. */
+  readonly omitted: readonly string[];
+  /** The view's names of the fields the mapping alone fills. */
+  readonly made: readonly string[];
+  private readonly kindFields: readonly string[];
+  private readonly from: ReadonlyMap<string, string>;
+  /** For each carried field, the target field a change to it is read from:
+   *  the first that is filled from it. */
+  private readonly back: ReadonlyMap<string, string>;
+  private readonly values: ReadonlyMap<string, MadeValue>;
+  private readonly overrides: Readonly<Record<string, string>>;
+  private readonly ownStatus: StatusField | undefined;
+  private readonly targetStatus: StatusField | undefined;
+  private readonly heldLink: string | undefined;
+  readonly templated: boolean;
+  /** A mark of how the fields land, which changes with the mapping. */
+  readonly mark: string;
+
+  constructor(input: FieldMapInput) {
+    this.mark = `@mapping:${fingerprint([input.target, input.fields, input.overrides]).slice(0, 16)}`;
+    this.label = input.label;
+    this.target = input.target;
+    this.kindFields = input.kindFields;
+    this.overrides = input.overrides;
+    this.heldLink = input.heldLink;
+    const from = new Map<string, string>();
+    const values = new Map<string, MadeValue>();
+    for (const [field, source] of Object.entries(input.fields)) {
+      if ("from" in source) from.set(field, source.from);
+      else values.set(field, source);
+    }
+    this.from = from;
+    this.values = values;
+    const back = new Map<string, string>();
+    for (const [field, own] of from) if (!back.has(own)) back.set(own, field);
+    this.back = back;
+    this.carried = input.kindFields.filter((field) => back.has(field));
+    this.omitted = input.kindFields.filter(
+      (field) => !back.has(field) && field !== input.heldLink,
+    );
+    this.made = [...values.keys()].map((field) => `${targetPrefix}${field}`);
+    this.templated = [...values.values()].some((one) => "template" in one);
+    // Words map through their group only where both fields are status
+    // fields; otherwise the value is written as it is.
+    const paired =
+      input.ownStatus !== undefined &&
+      input.targetStatus !== undefined &&
+      from.get(input.targetStatus.field) === input.ownStatus.field;
+    this.ownStatus = paired ? input.ownStatus : undefined;
+    this.targetStatus = paired ? input.targetStatus : undefined;
+  }
+
+  /** The fields the connector's view of a row holds: those carried, the
+   *  link held under its own name, and those the mapping fills. */
+  get fields(): string[] {
+    return [
+      ...this.carried,
+      ...(this.heldLink !== undefined && !this.carried.includes(this.heldLink)
+        ? [this.heldLink]
+        : []),
+      ...this.made,
+    ];
+  }
+
+  private isStatus(own: string): boolean {
+    return this.ownStatus?.field === own;
+  }
+
+  /** The target's word for a word of the kind's own type: an override, the
+   *  same word where the target holds it in the same group, or the
+   *  target's first word of that group. `undefined` where the target holds
+   *  no word of that group. */
+  word(own: string): string | undefined {
+    const overridden = this.overrides[own];
+    if (overridden !== undefined) return overridden;
+    const words = this.targetStatus?.words ?? [];
+    const group = this.ownStatus?.words.find((one) => one.value === own)?.group;
+    if (group === undefined) return own;
+    if (words.some((one) => one.value === own && one.group === group))
+      return own;
+    return words.find((one) => one.group === group)?.value;
+  }
+
+  /** The kind's word for a target word: the first of the kind's words that
+   *  lands on it, else the kind's first word of its group. `undefined`
+   *  where the kind holds no word of that group. */
+  wordBack(target: string): string | undefined {
+    const own = this.ownStatus?.words ?? [];
+    const landing = own.find((one) => this.word(one.value) === target);
+    if (landing !== undefined) return landing.value;
+    const group = this.targetStatus?.words.find(
+      (one) => one.value === target,
+    )?.group;
+    if (group === undefined) return target;
+    return own.find((one) => one.group === group)?.value;
+  }
+
+  /**
+   * The entry as the connector's view writes it: its carried fields, a
+   * status word as it reads back from the target, and each value the
+   * mapping fills, rendered from the entry's fields. A value that cannot be
+   * written, such as a template that fails or a word whose group the
+   * target lacks, is named in `unwrittenKey`, so the row keeps what it
+   * holds there, and raises a condition.
+   */
+  entry(entry: Entry, id?: string): { entry: Entry; faults: FieldFaults } {
+    const given = cleaned(entry.properties);
+    const properties: Record<string, unknown> = {};
+    const unwritten: string[] = [];
+    const faults: FieldFaults = new Map();
+    const where = id === undefined ? entry.source_id : id;
+    for (const field of this.carried) {
+      if (!Object.hasOwn(given, field)) continue;
+      const value = given[field];
+      if (!this.isStatus(field) || typeof value !== "string") {
+        properties[field] = value;
+        continue;
+      }
+      const word = this.word(value);
+      if (word === undefined) {
+        unwritten.push(field);
+        faults.set(
+          `mapping-status:${this.label}:${value}`,
+          `the status word ${value} of ${where} is not written, since ${this.target} holds no word in its group`,
+        );
+        continue;
+      }
+      properties[field] = this.wordBack(word) ?? value;
+    }
+    if (this.heldLink !== undefined && Object.hasOwn(given, this.heldLink))
+      properties[this.heldLink] = given[this.heldLink];
+    let context: Record<string, unknown> | undefined;
+    for (const [field, source] of this.values) {
+      const key = `${targetPrefix}${field}`;
+      if ("fixed" in source) {
+        if (source.fixed !== null && source.fixed !== undefined)
+          properties[key] = source.fixed;
+        continue;
+      }
+      context ??= Object.fromEntries(
+        this.kindFields.map((one) => [one, given[one] ?? null]),
+      );
+      const rendered = render(source.template, context);
+      if (rendered.fault === undefined) {
+        if (rendered.text !== "") properties[key] = rendered.text;
+        continue;
+      }
+      unwritten.push(key);
+      faults.set(
+        `mapping-template:${this.label}:${field}`,
+        `the template for ${field} of ${this.label} did not render for ${where}, so ${field} is not written: ${rendered.fault}`,
+      );
+    }
+    if (unwritten.length > 0) properties[unwrittenKey] = unwritten;
+    return { entry: { ...entry, properties }, faults };
+  }
+
+  /** The connector's view of a row written as the target type. */
+  read(
+    properties: Readonly<Record<string, unknown>>,
+    raise?: (key: string, message: string) => void,
+    id?: string,
+  ): Record<string, unknown> {
+    const view: Record<string, unknown> = {};
+    const unread: string[] = [];
+    const used = new Set<string>();
+    for (const [own, field] of this.back) {
+      if (!Object.hasOwn(properties, field)) continue;
+      const value = properties[field];
+      if (this.isStatus(own) && typeof value === "string") {
+        const word = this.wordBack(value);
+        if (word === undefined) {
+          unread.push(own);
+          raise?.(
+            `mapping-status-back:${this.label}:${value}`,
+            `the status word ${value}${id === undefined ? "" : ` of ${id}`} is not carried back, since ${this.label}'s own type holds no word in its group`,
+          );
+          continue;
+        }
+        view[own] = word;
+      } else view[own] = value;
+      used.add(field);
+    }
+    if (this.heldLink !== undefined && Object.hasOwn(properties, this.heldLink)) {
+      view[this.heldLink] = properties[this.heldLink];
+      used.add(this.heldLink);
+    }
+    for (const [field, value] of Object.entries(properties))
+      if (!used.has(field)) view[`${targetPrefix}${field}`] = value;
+    if (unread.length > 0) view[unreadKey] = unread;
+    return view;
+  }
+
+  /** The connector's view of a row the kind wrote on its own type before
+   *  the mapping moved it: the fields the mapping fills are not there to
+   *  read, so they count as unchanged. */
+  readUnmoved(
+    properties: Readonly<Record<string, unknown>>,
+  ): Record<string, unknown> {
+    return this.made.length === 0
+      ? { ...properties }
+      : { ...properties, [unreadKey]: [...this.made] };
+  }
+
+  /** The target's properties for the connector's view of a row: each
+   *  target field it read back as it was, each field filled from the
+   *  kind's, and each the mapping fills. */
+  write(view: Readonly<Record<string, unknown>>): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(view))
+      if (key.startsWith(targetPrefix))
+        out[key.slice(targetPrefix.length)] = value;
+    const unread = new Set(
+      Array.isArray(view[unreadKey]) ? (view[unreadKey] as string[]) : [],
+    );
+    for (const [field, own] of this.from) {
+      const value = view[own];
+      if (value === undefined || value === null) {
+        if (!unread.has(own)) Reflect.deleteProperty(out, field);
+        continue;
+      }
+      if (this.isStatus(own) && typeof value === "string") {
+        const word = this.word(value);
+        if (word !== undefined) out[field] = word;
+        continue;
+      }
+      out[field] = value;
+    }
+    if (this.heldLink !== undefined) {
+      const value = view[this.heldLink];
+      if (value !== undefined && value !== null) out[this.heldLink] = value;
+    }
+    return out;
+  }
+}
+
+/** The properties as sent: the connector's view holds names no write may
+ *  carry. */
+export function unviewed(
+  properties: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(properties).filter(([key]) => !key.startsWith("@")),
+  );
+}
+
+/** Translates the types and fields the connector names its rows by to
+ *  those they are written as, and back. A kind that keeps its own type and
+ *  fields, or is off, is not translated. */
 export class TypeMap {
   private readonly toTarget = new Map<string, string>();
   private readonly toOwn = new Map<string, string>();
   private readonly held = new Map<string, string>();
+  /** Field maps by the type a row is written as. */
+  private readonly onTarget = new Map<string, FieldMap>();
+  /** Field maps of kinds moved off their own type, by that type: rows
+   *  written before the mapping hold the kind's own fields. */
+  private readonly onOwn = new Map<string, FieldMap>();
+  /** The type each row was last answered as, so a write by id names its
+   *  fields as that type holds them. */
+  private readonly served = new Map<string, string>();
+  /** Where a translation raises a condition; the run sets it. */
+  raise: ((key: string, message: string) => void) | undefined;
 
   constructor(kinds: Iterable<KindPlan>) {
     for (const kind of kinds) {
-      if (kind.off !== undefined || kind.target === kind.own) continue;
+      if (kind.off !== undefined) continue;
+      if (kind.fields !== undefined) {
+        this.onTarget.set(kind.target, kind.fields);
+        if (kind.target !== kind.own) this.onOwn.set(kind.own, kind.fields);
+      }
+      if (kind.target === kind.own) continue;
       this.toTarget.set(kind.own, kind.target);
       this.toOwn.set(kind.target, kind.own);
       if (kind.heldLink !== undefined)
@@ -118,10 +443,46 @@ export class TypeMap {
     return this.toOwn.get(type) ?? type;
   }
 
-  /** The row as the connector names it. */
+  /** The row as the connector names it: its type, and its fields. */
   item<T extends Item>(item: T): T {
+    this.served.set(item.id, item.type);
     const type = this.toOwn.get(item.type);
-    return type === undefined ? item : { ...item, type };
+    const onTarget = this.onTarget.get(item.type);
+    const onOwn = onTarget === undefined ? this.onOwn.get(item.type) : undefined;
+    if (type === undefined && onTarget === undefined && onOwn === undefined)
+      return item;
+    const properties =
+      onTarget !== undefined
+        ? onTarget.read(item.properties, this.raise, item.id)
+        : onOwn !== undefined
+          ? onOwn.readUnmoved(item.properties)
+          : item.properties;
+    return { ...item, type: type ?? item.type, properties };
+  }
+
+  /** The properties to send for the connector's view of a row: a new row of
+   *  the connector's type, or the row by id as it was last answered. */
+  properties(
+    view: Readonly<Record<string, unknown>>,
+    at: { type: string } | { id: string },
+  ): Record<string, unknown> {
+    const served =
+      "type" in at ? this.out(at.type) : this.served.get(at.id);
+    const fields = served === undefined ? undefined : this.onTarget.get(served);
+    return fields === undefined ? unviewed(view) : fields.write(view);
+  }
+
+  /** Properties the row by id once held, such as an earlier version, in
+   *  the connector's view, as the type it was last answered as holds them. */
+  view(
+    id: string,
+    properties: Readonly<Record<string, unknown>>,
+  ): Record<string, unknown> {
+    const served = this.served.get(id);
+    if (served === undefined) return { ...properties };
+    const onTarget = this.onTarget.get(served);
+    if (onTarget !== undefined) return onTarget.read(properties);
+    return this.onOwn.get(served)?.readUnmoved(properties) ?? { ...properties };
   }
 
   /** The link field rows of a target type hold as a property, where the
@@ -185,6 +546,85 @@ export function unfitConnections(
   return unfit;
 }
 
+/** Whether a kind's fields land one for one by name, with no status word
+ *  moved: the kit then writes them as they are. */
+function oneForOne(
+  fields: Readonly<Record<string, FieldSource>>,
+  overrides: Readonly<Record<string, string>>,
+): boolean {
+  return (
+    Object.keys(overrides).length === 0 &&
+    Object.entries(fields).every(
+      ([field, source]) => "from" in source && source.from === field,
+    )
+  );
+}
+
+/**
+ * The field map of a kind, and the kind's fields it leaves out. A kind on
+ * its own type whose mapping names each field as itself needs none; one
+ * that leaves fields out drops them; any other mapping, or a target type
+ * whose status words may differ, translates.
+ */
+async function shapeFields(input: {
+  label: string;
+  own: string;
+  target: string;
+  kindFields: readonly string[];
+  entry: KindMapping | undefined;
+  heldLink: string | undefined;
+  resolve: (type: string) => Promise<ResolvedType | undefined>;
+  resolved: ResolvedType | undefined;
+}): Promise<{ fields: FieldMap | undefined; omitted: string[] }> {
+  const { entry, kindFields, heldLink } = input;
+  const fields = entry?.fields;
+  if (fields === undefined) return { fields: undefined, omitted: [] };
+  const overrides = entry?.status_overrides ?? {};
+  const named = new Set(
+    Object.values(fields).flatMap((source) =>
+      "from" in source ? [source.from] : [],
+    ),
+  );
+  const unnamed = kindFields.filter(
+    (field) => field !== heldLink && !named.has(field),
+  );
+  const simple = oneForOne(fields, overrides);
+  if (input.target === input.own && simple) {
+    if (unnamed.length === 0) return { fields: undefined, omitted: [] };
+    // A field the type does not declare, which the mapping cannot name,
+    // was never written; only a declared one the owner left out is.
+    const own = await input.resolve(input.own);
+    return {
+      fields: undefined,
+      omitted:
+        own === undefined
+          ? unnamed
+          : unnamed.filter((field) => own.fields.has(field)),
+    };
+  }
+  const own = await input.resolve(input.own);
+  const target = input.resolved ?? own;
+  const status = target?.status;
+  const paired =
+    status !== undefined &&
+    own?.status !== undefined &&
+    fields[status.field] !== undefined &&
+    "from" in (fields[status.field] ?? {});
+  if (simple && !paired) return { fields: undefined, omitted: unnamed };
+  const map = new FieldMap({
+    label: input.label,
+    own: input.own,
+    target: input.target,
+    kindFields,
+    fields,
+    overrides,
+    ownStatus: own?.status,
+    targetStatus: status,
+    heldLink,
+  });
+  return { fields: map, omitted: [...map.omitted] };
+}
+
 /** Fields the kit cannot write a file's row without. */
 const fileFields = ["blob_ref", "mime_type"];
 
@@ -244,8 +684,29 @@ export async function planKinds<E extends SettingsDeclaration>(
       });
       continue;
     }
+    const entry = kind.name === undefined ? undefined : mapping.kinds[kind.name];
     if (target === own) {
-      plans.set(own, { ...base, off: undefined });
+      const shaped = await shapeFields({
+        label,
+        own,
+        target,
+        kindFields: kind.fields,
+        entry,
+        heldLink: undefined,
+        resolve,
+        resolved: undefined,
+      });
+      if (shaped.omitted.length > 0)
+        conditions.set(
+          `mapping-fields:${label}`,
+          `the kind ${label} lands on ${target} without ${shaped.omitted.join(", ")}, which its mapping fills no field from`,
+        );
+      plans.set(own, {
+        ...base,
+        off: undefined,
+        omitted: shaped.omitted,
+        fields: shaped.fields,
+      });
       placed.set(own, { target: own, above: [] });
       continue;
     }
@@ -277,9 +738,22 @@ export async function planKinds<E extends SettingsDeclaration>(
     const link = kind.type.link_field;
     const heldLink =
       link !== undefined && resolved.link !== link ? link : undefined;
-    const omitted = kind.fields.filter(
-      (field) => field !== heldLink && !resolved.fields.has(field),
-    );
+    const shaped = await shapeFields({
+      label,
+      own,
+      target,
+      kindFields: kind.fields,
+      entry,
+      heldLink,
+      resolve,
+      resolved,
+    });
+    const omitted =
+      entry?.fields === undefined
+        ? kind.fields.filter(
+            (field) => field !== heldLink && !resolved.fields.has(field),
+          )
+        : shaped.omitted;
     const omittedTables = Object.keys(kind.type.tables ?? {}).filter(
       (table) => !resolved.tables.has(table),
     );
@@ -299,9 +773,12 @@ export async function planKinds<E extends SettingsDeclaration>(
       omitted,
       omittedTables,
       heldLink,
+      fields: shaped.fields,
     });
     placed.set(own, { target, above: resolved.above });
   }
+  if ([...plans.values()].some((plan) => plan.fields?.templated === true))
+    await loadTemplates();
   const connections = connector.connections ?? [];
   if (
     connections.length > 0 &&
@@ -368,4 +845,93 @@ export function narrowedBy(
   }
   if (fields.size === 0 && tables.size === 0) return narrowed;
   return { fields, tables, conditions: narrowed?.conditions ?? new Map() };
+}
+
+/** A kind as a preview reads it: its name, its own type and the fields the
+ *  connector declares for it. */
+export interface PreviewKind {
+  readonly name?: string | undefined;
+  readonly type: { readonly id: string; readonly link_field?: string };
+  readonly fields: readonly string[];
+}
+
+/**
+ * What the kit would write for one entry of a kind, or one of the kind's
+ * stored items, under the kind's entry of a mapping: the item as it would
+ * land, in the form a preview's `result` takes, with the conditions the
+ * write would raise. It reads nothing from Marfa or the vendor: `own` and
+ * `target` are the kind's own type and the target type as Marfa answers
+ * them. An item already on the target is read back first, so a template
+ * sees only the fields the mapping carries from it.
+ */
+export async function previewOf(input: {
+  readonly kind: PreviewKind;
+  readonly mapping: KindMapping;
+  readonly own: ResolvedType;
+  readonly target: ResolvedType;
+  readonly from: { readonly entry: Entry } | { readonly item: Item };
+}): Promise<{ result: PreviewResult; conditions: FieldFaults }> {
+  const { kind, mapping, own, target } = input;
+  const targetType = mapping.target_type ?? own.id;
+  const link = kind.type.link_field;
+  const heldLink =
+    targetType !== own.id && link !== undefined && target.link !== link
+      ? link
+      : undefined;
+  const fields =
+    mapping.fields ??
+    Object.fromEntries(
+      kind.fields
+        .filter((field) => target.fields.has(field))
+        .map((field) => [field, { from: field }]),
+    );
+  const map = new FieldMap({
+    label: kind.name ?? own.id,
+    own: own.id,
+    target: targetType,
+    kindFields: kind.fields,
+    fields,
+    overrides: mapping.status_overrides ?? {},
+    ownStatus: own.status,
+    targetStatus: target.status,
+    heldLink,
+  });
+  if (map.templated) await loadTemplates();
+  let entry: Entry;
+  let kept: Record<string, unknown> = {};
+  let sourceItem: string | null = null;
+  if ("entry" in input.from) entry = input.from.entry;
+  else {
+    const { item } = input.from;
+    sourceItem = item.id;
+    let properties: Record<string, unknown> = { ...item.properties };
+    if (item.type === targetType && targetType !== own.id) {
+      const view = map.read(item.properties);
+      const made = new Set(map.made);
+      properties = {};
+      for (const [key, value] of Object.entries(view)) {
+        if (key.startsWith(targetPrefix)) {
+          if (!made.has(key)) kept[key] = value;
+        } else if (!key.startsWith("@")) properties[key] = value;
+      }
+    } else kept = {};
+    entry = { source_id: item.source_id ?? item.id, properties };
+  }
+  const shaped = map.entry(
+    entry,
+    "item" in input.from ? input.from.item.id : undefined,
+  );
+  const properties = map.write({ ...kept, ...shaped.entry.properties });
+  const titleField = target.titleField;
+  const title =
+    titleField === undefined ? undefined : properties[titleField];
+  return {
+    result: {
+      type: targetType,
+      properties,
+      ...(typeof title === "string" && { title }),
+      source_item: sourceItem,
+    },
+    conditions: shaped.faults,
+  };
 }
