@@ -6,6 +6,7 @@ import {
   type Entry,
   type JsonValue,
 } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 
 const source = process.env["PROOF_SOURCE"] ?? "proof-watch";
 const type = "proof.watch.item";
@@ -19,95 +20,91 @@ async function observe(url: string, signal: AbortSignal, event: object) {
   });
   if (!response.ok) throw new Error("watch proof observation refused");
 }
-void main(
-  defineConnector({
-    name: "proof-watch",
-    description: "Watch prerequisite acknowledgment proof",
-    source,
-    types: [
-      {
-        type: {
-          id: type,
-          label: "Watch item",
-          link_field: "vendor_id",
-          fields: {
-            title: { type: "string", required: true },
-            note: { type: "string" },
-            vendor_id: { type: "string" },
-          },
+export const connector = defineConnector({
+  name: "proof-watch",
+  description: "Watch prerequisite acknowledgment proof",
+  source,
+  types: [
+    {
+      type: {
+        id: type,
+        label: "Watch item",
+        link_field: "vendor_id",
+        fields: {
+          title: { type: "string", required: true },
+          note: { type: "string" },
+          vendor_id: { type: "string" },
         },
-        fields: ["title", "note", "vendor_id"],
       },
-    ],
-    settings: [
-      {
-        name: "proof_control_url",
-        label: "Proof control url",
-        kind: "text",
-        required: true,
-      },
-    ],
-    ...(journal && {
-      preflight(inventory: { purges: readonly unknown[] }) {
-        if (!Array.isArray(inventory.purges))
-          throw new Error("missing purge inventory");
-        return Promise.resolve();
-      },
-    }),
-    async run(context) {
-      const url = context.env.proof_control_url;
-      const response = await fetch(`${url}/entries`, {
-        signal: context.signal,
-      });
-      const config = (await response.json()) as {
-        entries: Entry[];
-        checkpoint: boolean;
-      };
-      const scope = context.forScope("list");
-      await observe(url, context.signal, { stage: "before-rescan" });
-      await scope.upsert(type, config.entries);
-      await observe(url, context.signal, { stage: "after-rescan" });
-      if (config.checkpoint) {
-        const page = scope.state.get("page") as number | undefined;
-        const result = await scope.state.checkpoint("page", (page ?? 0) + 1);
-        await observe(url, context.signal, { stage: "checkpoint", result });
-        if (!result.committed)
-          throw new Error(`checkpoint refused: ${result.reason}`);
-      }
+      fields: ["title", "note", "vendor_id"],
     },
-    async onChange(change, context) {
-      const pending = journal
-        ? (context.outbound.get(change.item.id) ??
-          (await context.outbound.save(change, {
-            request: JSON.parse(
-              JSON.stringify({ ...change, changed: [...change.changed] }),
-            ) as JsonValue,
-            baseline: { source_id: change.item.source_id ?? null },
-          })))
-        : undefined;
-      const response = await fetch(`${context.env.proof_control_url}/push`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          pending?.request ?? { ...change, changed: [...change.changed] },
-        ),
-        signal: context.signal,
-      });
-      if (response.status === 400)
-        throw new Refused("owned vendor refuses this change");
-      if (response.status === 503)
-        throw new Unreachable("owned vendor temporarily unreachable", {
-          scope: "owned vendor",
-        });
-      if (!response.ok) throw new Error("watch proof vendor failed");
-      const answer = (await response.json()) as Entry;
-      if (pending !== undefined)
-        await context.outbound.acknowledge(
-          change.item.id,
-          pending.token,
-          answer,
-        );
-      return answer;
+  ],
+  settings: [
+    {
+      name: "proof_control_url",
+      label: "Proof control url",
+      kind: "text",
+      required: true,
+    },
+  ],
+  ...(journal && {
+    preflight(inventory: { purges: readonly unknown[] }) {
+      if (!Array.isArray(inventory.purges))
+        throw new Error("missing purge inventory");
+      return Promise.resolve();
     },
   }),
-);
+  async run(context) {
+    const url = context.env.proof_control_url;
+    const response = await fetch(`${url}/entries`, {
+      signal: context.signal,
+    });
+    const config = (await response.json()) as {
+      entries: Entry[];
+      checkpoint: boolean;
+    };
+    const scope = context.forScope("list");
+    await observe(url, context.signal, { stage: "before-rescan" });
+    await scope.upsert(type, config.entries);
+    await observe(url, context.signal, { stage: "after-rescan" });
+    if (config.checkpoint) {
+      const page = scope.state.get("page") as number | undefined;
+      const result = await scope.state.checkpoint("page", (page ?? 0) + 1);
+      await observe(url, context.signal, { stage: "checkpoint", result });
+      if (!result.committed)
+        throw new Error(`checkpoint refused: ${result.reason}`);
+    }
+  },
+  async onChange(change, context) {
+    const pending = journal
+      ? (context.outbound.get(change.item.id) ??
+        (await context.outbound.save(change, {
+          request: JSON.parse(
+            JSON.stringify({ ...change, changed: [...change.changed] }),
+          ) as JsonValue,
+          baseline: { source_id: change.item.source_id ?? null },
+        })))
+      : undefined;
+    const response = await fetch(`${context.env.proof_control_url}/push`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        pending?.request ?? { ...change, changed: [...change.changed] },
+      ),
+      signal: context.signal,
+    });
+    if (response.status === 400)
+      throw new Refused("owned vendor refuses this change");
+    if (response.status === 503)
+      throw new Unreachable("owned vendor temporarily unreachable", {
+        scope: "owned vendor",
+      });
+    if (!response.ok) throw new Error("watch proof vendor failed");
+    const answer = (await response.json()) as Entry;
+    if (pending !== undefined)
+      await context.outbound.acknowledge(change.item.id, pending.token, answer);
+    return answer;
+  },
+});
+
+if (isProgram(import.meta.url)) await main(connector);

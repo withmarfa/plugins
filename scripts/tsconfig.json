@@ -4,6 +4,6 @@
     "rootDir": ".",
     "outDir": "dist"
   },
-  "include": ["proof", "check-plugins.ts", "release"],
+  "include": ["proof", "check-plugins.ts", "connector-plugins.ts", "release"],
   "references": [{ "path": "../kit" }]
 }

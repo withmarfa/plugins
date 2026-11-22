@@ -235,7 +235,6 @@ async function setup(
       source,
       type_permissions: { [issue]: "write", [comment]: "write" },
       edge_permissions: { [related]: "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
       default_tier: "feed",
     },
   });
@@ -247,6 +246,7 @@ async function setup(
     minted.data.key,
     { PROOF_CONTROL_URL: control.url },
     entry,
+    url,
   );
   const registered = async () => registration(own, minted.data.id);
   const state = async () => {

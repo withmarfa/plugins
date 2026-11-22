@@ -1,10 +1,4 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import {
-  createClient,
-  type MarfaClient,
-  type components,
-} from "@withmarfa/client";
+import { createClient } from "@withmarfa/client";
 import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
 import {
@@ -19,7 +13,6 @@ import { appKey, GitHubStub } from "./github-stub.js";
 
 export async function proveGitHubPullRequests(
   url: string,
-  admin: MarfaClient,
   mintKey: ProofServer["mintKey"],
 ): Promise<void> {
   const github = await new GitHubStub().start();
@@ -82,7 +75,6 @@ export async function proveGitHubPullRequests(
       edge_permissions: Object.fromEntries(
         connections.map((type) => [type, "write"]),
       ),
-      metadata_permissions: { types: "write", edge_types: "write" },
       default_tier: "feed",
     });
     const marfa = createClient({ baseUrl: url, credential: key.key });
@@ -133,50 +125,6 @@ export async function proveGitHubPullRequests(
       } while (cursor !== undefined);
       return rows;
     };
-    await check(
-      "github: a pull request type stored without its table gains it on start, with only metadata types=write",
-      async () => {
-        const declared = JSON.parse(
-          readFileSync(
-            resolve(
-              import.meta.dirname,
-              "../../../connectors/github/src/github.pull_request.json",
-            ),
-            "utf8",
-          ),
-        ) as Record<string, unknown>;
-        delete declared["tables"];
-        const body = declared as components["schemas"]["TypeDefinitionInput"];
-        // Another group may have registered the type already: it is put back
-        // as it was before it held the table, which takes the admin key.
-        const held = await admin.GET("/types/{id}", {
-          params: { path: { id: "github.pull_request" } },
-        });
-        const stored =
-          held.data === undefined
-            ? await admin.POST("/types", { body })
-            : await admin.PUT("/types/{id}", {
-                params: { path: { id: "github.pull_request" } },
-                body,
-              });
-        if (stored.data === undefined)
-          throw new Error(
-            `the type was refused: ${JSON.stringify(stored.error)}`,
-          );
-        await run();
-        const served = await marfa.GET("/types/{id}", {
-          params: { path: { id: "github.pull_request" } },
-        });
-        const columns = Object.keys(
-          served.data?.tables?.["check_runs"]?.columns ?? {},
-        );
-        if (!columns.includes("name") || !columns.includes("completed_at"))
-          throw new Error(
-            `the stored type holds the columns ${columns.join(", ")}`,
-          );
-        return "the stored pull request type gained its check_runs table when the connector started, and the pull request imported";
-      },
-    );
     await check(
       "github: pull requests are read-only tasks with API closing links and check summaries, and unchanged rows retain their versions",
       async () => {

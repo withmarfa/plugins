@@ -9,6 +9,7 @@ import type { RetryConfig } from "./inbound-retry-connector.js";
 import { ConnectorUnderProof, registration, rowsOf } from "./connector.js";
 import { Proxy } from "./checkpoint.js";
 import { check } from "./check.js";
+import { installPlugin } from "./install.js";
 function required<T>(value: T | undefined): T {
   assert.ok(value !== undefined);
   return value;
@@ -122,7 +123,6 @@ class Fixture {
             source: this.source,
             type_permissions: { [this.type]: "write" },
             edge_permissions: { [this.related]: "write" },
-            metadata_permissions: { types: "write", edge_types: "write" },
             default_tier: "feed",
           },
         })
@@ -130,12 +130,22 @@ class Fixture {
     );
     this.keyId = key.id;
     this.own = createClient({ baseUrl: this.url, credential: key.key });
+    const entry = resolve(import.meta.dirname, "inbound-retry-connector.js");
+    // The plugin holds the title as long as the fixture starts it, which an
+    // operator's repair of the schema later lengthens.
+    await installPlugin(this.url, this.source, entry, {
+      env: {
+        PROOF_SOURCE: this.source,
+        PROOF_MAX_LENGTH: String(this.control.config.maxLength),
+      },
+    });
     this.child = new ConnectorUnderProof(
       this.source,
       this.proxy.url,
       key.key,
       { PROOF_SOURCE: this.source, PROOF_CONTROL_URL: this.control.url },
-      resolve(import.meta.dirname, "inbound-retry-connector.js"),
+      entry,
+      false,
     );
   }
   async run() {

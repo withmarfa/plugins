@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { components, MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
+import { installPlugin, reinstallPlugin } from "./install.js";
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "../../..");
@@ -20,19 +21,43 @@ export function keyBody(flags: KeyFlags) {
     label: flags.label,
     source: flags.source,
     type_permissions: { [flags.typePermission]: "write" as const },
-    metadata_permissions: { types: "write" as const },
     default_tier: "feed" as const,
   };
 }
 
 export class ConnectorUnderProof {
+  private readonly entry: string;
+  /** The proof's own entry, for a connector it defines; none for one the
+   *  repository ships, whose plugin is its generated folder. */
+  private readonly own: string | undefined;
+
   constructor(
     readonly name: string,
     private readonly url: string,
     private readonly key: string,
     private readonly env: Record<string, string>,
-    private readonly entry = join(root, "connectors", name, "dist/main.js"),
-  ) {}
+    entry?: string,
+    /** The address of the instance that holds the plugin, where a proxy
+     *  stands between the connector and it; `false` where the proof holds
+     *  the connector's types itself. */
+    private readonly installAt: string | false = url,
+  ) {
+    this.own = entry;
+    this.entry = entry ?? join(root, "connectors", name, "dist/main.js");
+  }
+
+  /** The plugin's types and connection types installed, as an owner's
+   *  `marfa plugins install` leaves them, which the kit never registers. */
+  private install(): Promise<void> {
+    if (this.installAt === false) return Promise.resolve();
+    return installPlugin(this.installAt, this.name, this.own);
+  }
+
+  /** The plugin installed again, after its types were deleted. */
+  reinstall(): Promise<void> {
+    if (this.installAt === false) return Promise.resolve();
+    return reinstallPlugin(this.installAt, this.name, this.own);
+  }
 
   once(): Promise<{ code: number; output: string }> {
     return this.run(["--once"]);
@@ -40,6 +65,13 @@ export class ConnectorUnderProof {
 
   /** A run told to stop once `until` says so, as a stop or a reboot would. */
   stopped(
+    args: readonly string[],
+    until: () => Promise<void>,
+  ): Promise<{ code: number | null; output: string }> {
+    return this.install().then(() => this.spawned(args, until));
+  }
+
+  private spawned(
     args: readonly string[],
     until: () => Promise<void>,
   ): Promise<{ code: number | null; output: string }> {
@@ -71,6 +103,7 @@ export class ConnectorUnderProof {
     args: readonly string[],
     env: Record<string, string> = {},
   ): Promise<{ code: number; output: string }> {
+    await this.install();
     try {
       const { stderr } = await run("node", [this.entry, ...args], {
         env: {
@@ -123,7 +156,7 @@ export async function mintWithTheReadmeKeyFlags(
         key.source !== flags.source ||
         key.default_tier !== "feed" ||
         types !== JSON.stringify({ [flags.typePermission]: "write" }) ||
-        metadata !== JSON.stringify({ types: "write" }) ||
+        metadata !== "{}" ||
         permissions !== "[]" ||
         rest !== "[{},{},{}]"
       ) {
@@ -186,16 +219,14 @@ export async function typeHeld(marfa: MarfaClient, id: string) {
   throw new Error(`the type ${id} was refused: ${JSON.stringify(error)}`);
 }
 
-export async function registeredAsKindOf(
+/** The type as the plugin's install left it, a kind of `parent`, holding every
+ *  field of the rows written to it. */
+export async function installedAsKindOf(
   marfa: MarfaClient,
   type: string,
   parent: string,
-  wasHeld: boolean,
   rows: Iterable<Item>,
 ): Promise<{ own: string[]; inherited: number }> {
-  if (wasHeld) {
-    throw new Error(`${type} was on the server before the connector ran`);
-  }
   const served = await fieldsOf(marfa, type);
   const core = await fieldsOf(marfa, parent);
   if (served.parent !== parent) {

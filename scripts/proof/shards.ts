@@ -51,7 +51,7 @@ export const GROUPS = [
   { name: "inbound", instance: "shared", statements: 12, seconds: 5 },
   { name: "keys", instance: "shared", statements: 6, seconds: 1 },
   { name: "tracker", instance: "shared", statements: 18, seconds: 15 },
-  { name: "github", instance: "shared", statements: 18, seconds: 486 },
+  { name: "github", instance: "shared", statements: 19, seconds: 486 },
   { name: "github-coverage", instance: "shared", statements: 5, seconds: 62 },
   { name: "github-relations", instance: "shared", statements: 1, seconds: 45 },
   {
@@ -60,7 +60,7 @@ export const GROUPS = [
     statements: 1,
     seconds: 1,
   },
-  { name: "github-pulls", instance: "shared", statements: 4, seconds: 40 },
+  { name: "github-pulls", instance: "shared", statements: 3, seconds: 40 },
   { name: "parent-of", instance: "shared", statements: 1, seconds: 2 },
   { name: "checkpoint", instance: "shared", statements: 9, seconds: 20 },
   { name: "watch-checkpoint", instance: "shared", statements: 6, seconds: 19 },

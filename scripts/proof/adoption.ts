@@ -66,7 +66,6 @@ export async function proveAdoption(
     source,
     permissions: [],
     type_permissions: { [child]: "write" },
-    metadata_permissions: { types: "write" },
     extension_permissions: {},
     edge_permissions: {},
     profile_permissions: {},
@@ -80,6 +79,8 @@ export async function proveAdoption(
       key.key,
       { PROOF_MODE: mode, PROOF_ADDITION: String(addition) },
       resolve(import.meta.dirname, "adoption-connector.js"),
+      // The proof holds the type itself, as the plugin's install leaves it.
+      false,
     ).once();
   const normalized = () =>
     own.POST("/types/normalize", { body: stored() }).then((answer) => {
@@ -87,7 +88,7 @@ export async function proveAdoption(
       return answer.data;
     });
   await check(
-    "kit adoption: canonical equivalence does not rewrite, required child refinements refuse, optional additions preserve declared metadata",
+    "kit adoption: canonical equivalence does not rewrite, required child refinements refuse, an optional addition the installed type lacks is written around with one condition and no rewrite, and the plugin's update keeps declared metadata",
     async () => {
       const before = await normalized();
       assert.ok(before.registered_type);
@@ -114,6 +115,25 @@ export async function proveAdoption(
       );
       const result = await run("type", true);
       assert.equal(result.code, 0, result.output);
+      assert.deepEqual(await normalized(), before);
+      assert.deepEqual(
+        Object.keys((await registration(own, key.id)).problems),
+        ["plugin-types"],
+      );
+      // The plugin's update adds the optional field, which the server allows
+      // beside the policies and version the type already holds.
+      const updated = stored();
+      assert.ok(
+        (
+          await admin.PUT("/types/{id}", {
+            params: { path: { id: child } },
+            body: {
+              ...updated,
+              fields: { ...updated.fields, note: { type: "string" } },
+            },
+          })
+        ).data,
+      );
       const after = await normalized();
       assert.ok(after.registered_type);
       assert.equal(after.registered_type.version, 4);
@@ -136,7 +156,8 @@ export async function proveAdoption(
       assert.ok(after.registered_type.fields["note"]);
       assert.equal((await run("type", true)).code, 0);
       assert.deepEqual(await normalized(), after);
-      return "registry SDK normalization preserves child refinements and parent-equal policies/version; required refinement stops the process; repeat is stable";
+      assert.deepEqual((await registration(own, key.id)).problems, {});
+      return "registry SDK normalization preserves child refinements and parent-equal policies/version; a required refinement stops the process; a missing optional field is written around under one condition, with no write to the type; repeat is stable";
     },
   );
   await check(

@@ -155,7 +155,6 @@ class Fixture {
         label: "Watch prerequisite proof",
         source,
         type_permissions: { [type]: "write" },
-        metadata_permissions: { types: "write" },
         default_tier: "feed",
       },
     });
@@ -174,6 +173,7 @@ class Fixture {
         ...(outbound && { PROOF_OUTBOUND: "true" }),
       },
       entry,
+      url,
     );
     return fixture;
   }

@@ -6,6 +6,7 @@ import {
   type Item,
   type SettingsDeclaration,
 } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 import type { Issue } from "./tracker-stub.js";
 
 const settings = [
@@ -43,7 +44,7 @@ function issueEntry(issue: Issue): Entry {
   };
 }
 
-const connector = defineConnector({
+export const connector = defineConnector({
   name: "proof-tracker",
   description: "Issues and attachments from the proof's stub tracker.",
   source: "proof-tracker",
@@ -236,4 +237,4 @@ const connector = defineConnector({
   },
 });
 
-await main(connector);
+if (isProgram(import.meta.url)) await main(connector);

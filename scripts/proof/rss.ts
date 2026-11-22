@@ -9,8 +9,7 @@ import {
   ConnectorUnderProof,
   derivedFrom,
   fieldsOf,
-  registeredAsKindOf,
-  typeHeld,
+  installedAsKindOf,
   item,
   lastRun,
   mintWithTheReadmeKeyFlags,
@@ -146,9 +145,8 @@ export async function proveRss(
     };
 
     await check(
-      "rss: a first run registers rss.entry as a kind of core.bookmark and writes both feeds' entries at the feed tier",
+      "rss: a first run writes both feeds' entries at the feed tier, to the rss.entry its plugin installed as a kind of core.bookmark",
       async () => {
-        const wasHeld = await typeHeld(marfa, "rss.entry");
         await runOnce();
         const written = await rows();
         const tiers = [...new Set([...written.values()].map((r) => r.tier))];
@@ -157,17 +155,16 @@ export async function proveRss(
             `${String(written.size)} rows at ${tiers.join(", ")}`,
           );
         }
-        const { own, inherited } = await registeredAsKindOf(
+        const { own, inherited } = await installedAsKindOf(
           marfa,
           "rss.entry",
           "core.bookmark",
-          wasHeld,
           written.values(),
         );
-        if (own.join() !== "entry_id,feed_hash,feed_origin") {
+        if (own.join() !== "entry_id,feed_hash,feed_origin,rss_pictures") {
           throw new Error(`own fields ${own.join(", ")}`);
         }
-        return `rss.entry, absent before the run, registered with parent core.bookmark, all ${String(inherited)} of its fields and ${own.join(", ")} beside them; ${String(written.size)} rows, tier feed, every property a field of the type`;
+        return `rss.entry, installed by the plugin with parent core.bookmark, all ${String(inherited)} of its fields and ${own.join(", ")} beside them; ${String(written.size)} rows, tier feed, every property a field of the type`;
       },
     );
 
