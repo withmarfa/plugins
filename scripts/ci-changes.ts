@@ -58,6 +58,7 @@ export const proofFilesTestsReach = [
   "connector",
   "github-notifications-stub",
   "github-stub",
+  "host",
   "inbound-wait",
   "install",
   "program",

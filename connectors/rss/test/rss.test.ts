@@ -3284,6 +3284,6 @@ describe("the connector, run as a process", () => {
         resolve(import.meta.dirname, "../../..", "connectors/rss/README.md"),
         "utf8",
       ),
-    ).toContain("marfa keys create");
+    ).toContain("marfa plugins assign rss --host");
   });
 });
