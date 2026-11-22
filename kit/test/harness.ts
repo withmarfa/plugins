@@ -458,12 +458,16 @@ export const secretToken = "tok_vendor_secret_value";
 
 export class Harness {
   readonly lines: string[] = [];
+  /** What the connector printed on standard output. */
+  readonly printed: string[] = [];
   readonly clock = new ManualClock();
   requestTimeoutMs = 5000;
   random = (): number => 0;
   private stopListener: (() => void) | undefined;
 
-  constructor(readonly server: ScriptedServer) {}
+  constructor(readonly server: ScriptedServer) {
+    server.settings = { test_token: secretToken };
+  }
 
   static async create(): Promise<Harness> {
     return new Harness(
@@ -484,10 +488,10 @@ export class Harness {
       env: {
         MARFA_API_URL: this.server.url,
         MARFA_API_KEY: this.server.key,
-        TEST_TOKEN: secretToken,
         ...env,
       },
       write: (line) => this.lines.push(line),
+      print: (text) => this.printed.push(text),
       clock: this.clock,
       requestTimeoutMs: this.requestTimeoutMs,
       random: () => this.random(),

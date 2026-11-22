@@ -415,6 +415,17 @@ export class ScriptedServer {
   runs: Run[] = [];
   heartbeats = 0;
   registrations = 0;
+  /** The values the owner set for the connector's settings, by name, which
+   *  its own settings door answers. */
+  settings: Record<string, unknown> = {};
+  /** The secret settings whose stored value Marfa cannot open. */
+  unreadable = new Set<string>();
+  /** What the door names as missing, beyond what the kit finds itself. */
+  missing: string[] = [];
+  /** Whether the key is one a connector host minted, which alone reads the
+   *  settings door; any other gets `404`. */
+  hosted = true;
+  settingsReads = 0;
   /** The registration's `read_only_types`, replaced by each register call. */
   readOnlyTypes: string[] = [];
   requests: Request[] = [];
@@ -1352,6 +1363,44 @@ export class ScriptedServer {
     }
     if (this.lost && parts[0] === "connectors" && parts[1] !== undefined) {
       refuse(404, "connector_not_found");
+      return;
+    }
+    if (
+      method === "GET" &&
+      parts[0] === "connectors" &&
+      parts[2] === "settings" &&
+      parts.length === 3
+    ) {
+      if (!this.hosted) {
+        refuse(404, "connector_not_found");
+        return;
+      }
+      this.settingsReads += 1;
+      const names = [
+        ...new Set([...Object.keys(this.settings), ...this.unreadable]),
+      ];
+      send(200, {
+        plugin: this.source,
+        settings: names.map((name) => {
+          const unreadable = this.unreadable.has(name);
+          const value = unreadable ? null : (this.settings[name] ?? null);
+          return {
+            name,
+            kind:
+              typeof value === "boolean"
+                ? "boolean"
+                : typeof value === "number"
+                  ? "number"
+                  : "text",
+            secret: unreadable,
+            required: false,
+            value,
+            set: value !== null,
+            unreadable,
+          };
+        }),
+        missing: this.missing,
+      });
       return;
     }
     if (method === "POST" && url.pathname === "/connectors") {

@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { isDeepStrictEqual } from "node:util";
 import { createClient } from "@withmarfa/client";
 import type {
   ConnectionDefinition,
   Connector,
+  ConnectorOf,
   SettingsDeclaration,
   SettingValues,
 } from "./define.js";
@@ -11,9 +12,10 @@ import {
   checkDefinition,
   ConfigurationError,
   readEnvironment,
-  variableOf,
   type Environment,
 } from "./environment.js";
+import { exitCode } from "./exit.js";
+import { readSettings, secretsOf, type HeldSettings } from "./settings.js";
 import { withoutBodies } from "./exception-text.js";
 import { cap, Logger } from "./log.js";
 import {
@@ -48,7 +50,7 @@ import {
   type TelemetrySettings,
 } from "./telemetry.js";
 import { readOnlyTypesOf } from "./read-only-types.js";
-import { setUp, workingTreeOf } from "./setup.js";
+import { setUp } from "./setup.js";
 import { edgeTypesOf, shippedConnection, turned } from "./shipped.js";
 import {
   backoff,
@@ -106,21 +108,19 @@ function keyGuide(connector: Pick<Connector, "readme">): string {
   return connector.readme ?? "the template's README";
 }
 
-/** The connector's rows carry its source, so a key writes under it as its
- *  own or as a claim, a second account's key the latter; any other claim
- *  reaches rows that are not the connector's. */
+/** A connector's key writes under the connector's source as its own, as the
+ *  key a connector host mints does, and claims no other: a claim reaches rows
+ *  that are not the connector's. */
 function keySourceProblem(
   key: Key,
   source: string,
   guide: string,
 ): string | undefined {
-  const own = key.source === source;
-  const others = key.sources.filter((claim) => claim !== source);
-  if (!own && !key.sources.includes(source)) {
-    return `the key ${key.id} writes under its own source ${key.source} and does not claim the connector's, ${source}, so every row it wrote would be refused: claim it with \`marfa keys update ${key.id} --claim ${source}\` as the owner, or mint a key as ${guide} says.`;
+  if (key.source !== source) {
+    return `the key ${key.id} writes under its own source ${key.source}, not the connector's, ${source}, so every row it wrote would be refused: mint a key as ${guide} says.`;
   }
-  if (others.length > 0) {
-    return `the key ${key.id} claims sources besides the connector's, ${source}, and is refused: ${others.join(", ")}. Narrow it with \`marfa keys update ${key.id} ${own ? "--no-claims" : `--claim ${source}`}\`.`;
+  if (key.sources.length > 0) {
+    return `the key ${key.id} claims sources besides its own, ${source}, and is refused: ${key.sources.join(", ")}. Mint a key as ${guide} says.`;
   }
   return undefined;
 }
@@ -148,6 +148,11 @@ function keyWiderThanTypes(
   held("edge", key.edge_permissions, (name) => edges.has(name));
   held("extension", key.extension_permissions, () => false);
   held("profile", key.profile_permissions, () => false);
+  // A connector writes at the feed tier unless a row belongs to something
+  // already in the library, which it names.
+  if (key.default_tier !== "feed") {
+    wider.push(`a default tier of ${String(key.default_tier)}`);
+  }
   // An exemption from the instance's own rules is never a connector's.
   for (const lever of Object.keys(key.enforcement_override ?? {})) {
     wider.push(`an enforcement override of ${lever}`);
@@ -302,33 +307,36 @@ async function nameSource<E extends SettingsDeclaration>(
   }
 }
 
+/**
+ * Checks the key, registers, then checks the installed types against the
+ * build. The settings are read only after, since their door is the
+ * registration's: until then the registration holds every type read only, so
+ * no edit is taken that the settings might not carry back, and the first run
+ * registers again with the types its settings carry back.
+ */
 async function registerAndCheck<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
-  environment: Environment,
   logger: Logger,
 ): Promise<Started | Unregistered> {
   const key = await marfa.currentKey();
   const refusal = appKeyProblem(key, keyGuide(connector));
   if (refusal !== undefined) return { refusal };
+  const readOnly = connector.types.map((kind) => kind.type.id);
   const id = await marfa.register(
     connector.name,
     connector.description,
-    readOnlyTypesOf(
-      specsOf(
-        connector,
-        environment.values as SettingValues<E>,
-        undefined,
-      ).values(),
-    ),
+    readOnly,
   );
   const problems = keyProblems(connector, key);
-  const stopped = (problem: string): Started => ({
+  const stopped = (problem: string, keyRefused = false): Started => ({
     id,
+    readOnly,
     narrowed: undefined,
     problem,
+    keyRefused,
   });
-  if (problems !== undefined) return stopped(problems);
+  if (problems !== undefined) return stopped(problems, true);
   const step = await checkTypes(
     connector.name,
     connector.types.map((kind) => kind.type),
@@ -342,7 +350,13 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   );
   if (problem !== undefined) return stopped(problem);
   await nameSource(connector, marfa, logger);
-  return { id, narrowed: step.narrowed, problem: undefined };
+  return {
+    id,
+    readOnly,
+    narrowed: step.narrowed,
+    problem: undefined,
+    keyRefused: false,
+  };
 }
 
 /** A key refused before the connector registered, so there is no
@@ -353,28 +367,24 @@ interface Unregistered {
 
 interface Started {
   readonly id: string;
+  /** The types the registration names read only. */
+  readonly readOnly: readonly string[];
   readonly narrowed: Narrowed | undefined;
   readonly problem: string | undefined;
-}
-
-function carriesBack<E extends SettingsDeclaration>(
-  connector: Connector<E>,
-  environment: Environment,
-): boolean {
-  return [
-    ...specsOf(
-      connector,
-      environment.values as SettingValues<E>,
-      undefined,
-    ).values(),
-  ].some((spec) => spec.twoWay);
+  /** Whether the problem is the key, which Marfa or the kit refused. */
+  readonly keyRefused: boolean;
 }
 
 function looks<E extends SettingsDeclaration>(
   connector: Connector<E>,
-  environment: Environment,
+  values: SettingValues<E>,
 ): boolean {
-  return connector.inbound !== undefined || carriesBack(connector, environment);
+  return (
+    connector.inbound !== undefined ||
+    [...specsOf(connector, values, undefined).values()].some(
+      (spec) => spec.twoWay,
+    )
+  );
 }
 
 async function awaitChanges<E extends SettingsDeclaration>(
@@ -435,16 +445,22 @@ function helpOf<E extends SettingsDeclaration>(
 ): string[] {
   const named = (connector.settings ?? []).map(
     (setting) =>
-      `  ${variableOf(setting.name)} (${setting.label}${setting.required === true ? "" : ", optional"}${setting.secret === true ? ", secret" : ""})`,
+      `  ${setting.name} (${setting.label}, ${setting.kind}${setting.required === true ? "" : ", optional"}${setting.secret === true ? ", secret" : ""})`,
   );
   return [
     `${connector.name}: ${usage}`,
-    "It reads its settings from the environment:",
+    "It reads from the environment:",
     "  MARFA_API_URL (the address of the Marfa server)",
-    `  MARFA_API_KEY (a key minted for this connector, as ${keyGuide(connector)} says)`,
-    ...named,
+    `  MARFA_API_KEY (the key its connector host minted for it, as ${keyGuide(connector)} says)`,
     "  OTEL_EXPORTER_OTLP_ENDPOINT (optional: where to send logs and traces, with a failed run's error, over OTLP; nothing is sent while it is unset)",
-    "  Startup failures found before telemetry starts, including missing variables and malformed settings, are logged only.",
+    ...(named.length === 0
+      ? []
+      : [
+          `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
+          ...named,
+        ]),
+    "It exits 0 once stopped, 1 for a failure a restart may mend, 2 when its definition or command line is wrong, 3 when Marfa refuses its key, and 4 when a required setting is missing or a value is invalid.",
+    "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
 }
 
@@ -488,8 +504,79 @@ function startProblem(error: unknown, server: string, guide: string): string {
   return `could not start against the server at MARFA_API_URL (${server}): ${describe(error)}`;
 }
 
+/** Whether Marfa refused the key: `401`, or `403` on the registration,
+ *  which is the connector's own door. */
+function keyRefusal(error: unknown): boolean {
+  return (
+    causeOf(error) === "key" ||
+    (error instanceof Refusal && error.status === 403)
+  );
+}
+
+/** Why the settings door refused this key, where it did: `404` for a key a
+ *  connector host did not mint, or `403` for a caller that is not the
+ *  registration's key. */
+function settingsRefusal(
+  error: unknown,
+  connector: Pick<Connector, "name" | "readme">,
+): string | undefined {
+  if (!(error instanceof Refusal)) return undefined;
+  if (error.status === 404 || error.status === 403) {
+    return `${unhostedProblem(connector)} (${describe(error)})`;
+  }
+  return undefined;
+}
+
+/** What makes the connector a run's settings build differ from the one its
+ *  key and installed plugin were checked against, which is the definition's
+ *  fault, never the settings'. */
+function shapeProblem<E extends SettingsDeclaration>(
+  widest: Connector<E>,
+  shaped: Connector<E>,
+  values: SettingValues<E>,
+): string | undefined {
+  const types = new Set(widest.types.map((kind) => kind.type.id));
+  const connections = new Set(
+    (widest.connections ?? []).map((connection) => connection.id),
+  );
+  const problems: string[] = [];
+  if (shaped.name !== widest.name || shaped.source !== widest.source) {
+    problems.push("its name and source the same whatever its settings");
+  }
+  const outside = [
+    ...shaped.types
+      .map((kind) => kind.type.id)
+      .filter((type) => !types.has(type)),
+    ...(shaped.connections ?? [])
+      .map((connection) => connection.id)
+      .filter((id) => !connections.has(id)),
+  ];
+  if (outside.length > 0) {
+    problems.push(
+      `its widest shape to hold every type and connection type its settings can add, where ${outside.join(", ")} ${outside.length === 1 ? "is" : "are"} not`,
+    );
+  }
+  // Without a link, a row made in Marfa cannot be told to the vendor, nor a
+  // purge found there.
+  const unlinked = [...specsOf(shaped, values, undefined).values()].filter(
+    (spec) => spec.twoWay && spec.link === undefined,
+  );
+  if (unlinked.length > 0) {
+    problems.push(
+      `a link_field on each type it carries back, where ${unlinked.map((spec) => spec.type).join(", ")} ${unlinked.length === 1 ? "has" : "have"} none`,
+    );
+  }
+  return problems.length === 0
+    ? undefined
+    : `the connector needs ${problems.join("; ")}`;
+}
+
 interface Shared<E extends SettingsDeclaration> {
+  /** The connector in its widest shape, which the key, the installed types
+   *  and the registration are held to. */
   readonly connector: Connector<E>;
+  /** The connector as the settings a run reads make it. */
+  readonly build: (values: SettingValues<E>) => Connector<E>;
   readonly environment: Environment;
   readonly schedule: Exclude<Schedule, { mode: "help" }>;
   readonly marfa: Marfa;
@@ -498,69 +585,51 @@ interface Shared<E extends SettingsDeclaration> {
   readonly random: () => number;
   readonly stop: AbortController;
   readonly stdin: () => Runtime["stdin"];
+  readonly print: (text: string) => void;
   readonly telemetry: Telemetry;
 }
 
+/**
+ * Starts a connector and answers the code its process exits with, as
+ * `exitCode` names them. `definition` is the connector, or, for one whose
+ * shape depends on its settings, the function that builds it from them, with
+ * `widest` the settings that give its widest shape.
+ */
 export async function start<E extends SettingsDeclaration>(
-  connector: Connector<E>,
+  definition: Connector<E> | ConnectorOf<E>,
   runtime: Runtime,
+  widest?: Readonly<Partial<SettingValues<E>>>,
 ): Promise<number> {
+  const widestValues = (widest ?? {}) as unknown as SettingValues<E>;
   const { clock } = runtime;
   const write = (line: string): void => {
     runtime.write(line);
   };
+  const build: ConnectorOf<E> =
+    typeof definition === "function" ? definition : () => definition;
+  let connector: Connector<E>;
   let schedule: Schedule;
   let environment;
   let telemetrySettings: TelemetrySettings | undefined;
   try {
+    connector = build(widestValues);
     checkDefinition(connector);
     schedule = readSchedule(runtime.argv);
     if (schedule.mode === "help") {
       for (const line of helpOf(connector)) write(line);
-      return 0;
+      return exitCode.stopped;
     }
-    if (schedule.mode === "setup") {
-      if (connector.setup === undefined) {
-        throw new ConfigurationError(
-          "--setup is for a connector with a setup, which this one has not",
-        );
-      }
-      if (existsSync(schedule.file)) {
-        throw new ConfigurationError(
-          `${schedule.file} exists already, and setup writes its secrets only to a new file`,
-        );
-      }
-      const tree = workingTreeOf(schedule.file);
-      if (tree !== undefined) {
-        throw new ConfigurationError(
-          `${schedule.file} is inside the git working tree at ${tree}, where a file of secrets can be committed or copied into an image: name a file outside every repository`,
-        );
-      }
-    }
-    environment = readEnvironment(
-      connector,
-      runtime.env,
-      schedule.mode === "setup",
-    );
-    telemetrySettings = readTelemetry(runtime.env);
-    // Without a link, a row made in Marfa cannot be told to the vendor,
-    // nor a purge found there.
-    const unlinked = [
-      ...specsOf(
-        connector,
-        environment.values as SettingValues<E>,
-        undefined,
-      ).values(),
-    ].filter((spec) => spec.twoWay && spec.link === undefined);
-    if (unlinked.length > 0) {
+    if (schedule.mode === "setup" && connector.setup === undefined) {
       throw new ConfigurationError(
-        `${unlinked.map((spec) => spec.type).join(", ")} ${unlinked.length === 1 ? "is" : "are"} carried back, so ${unlinked.length === 1 ? "its type needs" : "their types need"} a link_field`,
+        "--setup is for a connector with a setup, which this one has not",
       );
     }
+    environment = readEnvironment(runtime.env);
+    telemetrySettings = readTelemetry(runtime.env);
     if (
       schedule.mode === "every" &&
       schedule.lookGiven &&
-      !looks(connector, environment)
+      !looks(connector, widestValues)
     ) {
       throw new ConfigurationError(
         "--look-every is for a connector that receives webhooks or carries changes back, which this one does not",
@@ -569,18 +638,33 @@ export async function start<E extends SettingsDeclaration>(
   } catch (error) {
     if (!(error instanceof ConfigurationError)) throw error;
     new Logger(write, clock).error(error.message);
-    return 2;
+    return exitCode.definition;
   }
-  const logger = new Logger(write, clock, environment.secrets);
+  const logger = new Logger(write, clock, [environment.key]);
+  const shared = (telemetry: Telemetry): Shared<E> => ({
+    connector,
+    build: (values) => build(values),
+    environment,
+    schedule,
+    marfa: new Marfa((signal, timing) =>
+      createClient({
+        baseUrl: environment.url,
+        credential: environment.key,
+        fetch: marfaFetch(runtime.requestTimeoutMs, signal, timing),
+      }),
+    ),
+    logger,
+    clock,
+    random: runtime.random,
+    stop: new AbortController(),
+    stdin: () => runtime.stdin,
+    print: (text) => {
+      (runtime.print ?? runtime.write)(text);
+    },
+    telemetry,
+  });
   if (telemetrySettings === undefined) {
-    return started(
-      connector,
-      runtime,
-      environment,
-      schedule,
-      logger,
-      noTelemetry,
-    );
+    return started(runtime, shared(noTelemetry));
   }
   logger.keep(telemetrySecrets(telemetrySettings));
   const telemetry = await startTelemetry(
@@ -591,62 +675,22 @@ export async function start<E extends SettingsDeclaration>(
     runtime.random,
   );
   try {
-    return await started(
-      connector,
-      runtime,
-      environment,
-      schedule,
-      logger,
-      telemetry,
-    );
+    return await started(runtime, shared(telemetry));
   } finally {
     await telemetry.shutdown();
   }
 }
 
-/** The start, once the settings are read. */
+/** The start, once the environment is read. */
 async function started<E extends SettingsDeclaration>(
-  connector: Connector<E>,
   runtime: Runtime,
-  environment: Environment,
-  schedule: Exclude<Schedule, { mode: "help" }>,
-  logger: Logger,
-  telemetry: Telemetry,
+  shared: Shared<E>,
 ): Promise<number> {
-  const { clock } = runtime;
-  try {
-    if (schedule.mode !== "setup") {
-      await connector.checkEnv?.(environment.values as SettingValues<E>);
-    }
-  } catch (error) {
-    cannotStart(logger, `cannot start: ${describe(error)}`);
-    return 2;
-  }
-
-  const stop = new AbortController();
+  const { clock, logger, stop } = shared;
   runtime.onStop(() => {
     logger.info("asked to stop");
     stop.abort();
   });
-  const marfa = new Marfa((signal, timing) =>
-    createClient({
-      baseUrl: environment.url,
-      credential: environment.key,
-      fetch: marfaFetch(runtime.requestTimeoutMs, signal, timing),
-    }),
-  );
-  const shared: Shared<E> = {
-    connector,
-    environment,
-    schedule,
-    marfa,
-    logger,
-    clock,
-    random: runtime.random,
-    stop,
-    stdin: () => runtime.stdin,
-    telemetry,
-  };
   let lostAt: number | undefined;
   for (;;) {
     const ended = await serve(shared);
@@ -658,13 +702,22 @@ async function started<E extends SettingsDeclaration>(
       logger.error(
         "the server keeps losing this connector's registration or one of its types, so the connector stops; check what removes it, then start it again",
       );
-      return 1;
+      return exitCode.failed;
     }
     lostAt = now;
     logger.warn(
       "the server no longer holds this connector's registration or one of its types, so it registers again and checks its types",
     );
   }
+}
+
+/** Why a session ended that no run mends. */
+type Halt = Ended | "settings" | "unhosted" | "definition";
+
+/** Said when the settings door answers that this key is not the one a
+ *  connector host minted for the plugin's connector. */
+function unhostedProblem(connector: Pick<Connector, "name" | "readme">): string {
+  return `Marfa will not give this connector its settings: MARFA_API_KEY is not the key a connector host minted for the ${connector.name} plugin's connector, or the plugin no longer holds it. Install the plugin, assign its connector to a host, and start the connector with the key the host mints, as ${keyGuide(connector)} says.`;
 }
 
 /** Registers, then runs, until the process is told to stop or its key or
@@ -675,6 +728,7 @@ async function serve<E extends SettingsDeclaration>(
 ): Promise<number | "registration"> {
   const {
     connector,
+    build,
     environment,
     schedule,
     marfa,
@@ -683,6 +737,7 @@ async function serve<E extends SettingsDeclaration>(
     random,
     stop,
     stdin,
+    print,
     telemetry,
   } = shared;
   const stopped = (): boolean => stop.signal.aborted;
@@ -691,18 +746,18 @@ async function serve<E extends SettingsDeclaration>(
   let started: Started | Unregistered | undefined;
   for (let failures = 1; started === undefined; failures += 1) {
     try {
-      started = await registerAndCheck(connector, marfa, environment, logger);
+      started = await registerAndCheck(connector, marfa, logger);
     } catch (error) {
       if (causeOf(error) === "address" || faultOf(error) !== undefined) {
         cannotStart(logger, addressProblem(error, environment.url));
-        return 2;
+        return exitCode.definition;
       }
       if (schedule.mode !== "every" || causeOf(error) !== "marfa") {
         cannotStart(
           logger,
           startProblem(error, environment.url, keyGuide(connector)),
         );
-        return 1;
+        return keyRefusal(error) ? exitCode.key : exitCode.failed;
       }
       const wait = Math.max(
         startBackoff(intervalMs, failures),
@@ -712,12 +767,12 @@ async function serve<E extends SettingsDeclaration>(
         `could not reach the server at MARFA_API_URL (${environment.url}), trying again in ${describeDuration(wait)}: ${describe(error)}`,
       );
       await clock.sleep(wait, stop.signal);
-      if (stopped()) return 0;
+      if (stopped()) return exitCode.stopped;
     }
   }
   if ("refusal" in started) {
     cannotStart(logger, started.refusal);
-    return 1;
+    return exitCode.key;
   }
   const connectorId = started.id;
   logger.info(`registered as ${connectorId}`);
@@ -731,7 +786,7 @@ async function serve<E extends SettingsDeclaration>(
         outcome: "failed",
         started_at: at,
         finished_at: at,
-        error: cap(logger.redact(problem)),
+        error: cap(withoutBodies(logger.redact(problem))),
       });
     } catch (error) {
       logger.warn(`the failure could not be reported: ${describe(error)}`);
@@ -739,29 +794,64 @@ async function serve<E extends SettingsDeclaration>(
   };
   if (started.problem !== undefined) {
     await refuseStart(started.problem);
-    return 1;
+    return started.keyRefused ? exitCode.key : exitCode.failed;
   }
-  if (stopped()) return 0;
+  if (stopped()) return exitCode.stopped;
+
+  /** Reads the settings, their secrets redacted from every later line as
+   *  soon as they arrive. */
+  const readHeld = async (
+    signal: AbortSignal,
+  ): Promise<HeldSettings | undefined> => {
+    if ((connector.settings ?? []).length === 0) return undefined;
+    const held = await marfa.settings(connectorId, signal);
+    logger.keep(secretsOf(connector.settings ?? [], held));
+    return held;
+  };
+
   if (schedule.mode === "setup") {
+    let held: HeldSettings | undefined;
+    try {
+      held = await readHeld(stop.signal);
+    } catch (error) {
+      if (stopped()) return exitCode.stopped;
+      const refused = settingsRefusal(error, connector);
+      cannotStart(
+        logger,
+        refused ?? `could not read the connector's settings from Marfa: ${describe(error)}`,
+      );
+      return refused === undefined ? exitCode.failed : exitCode.key;
+    }
+    // Setup makes what the connector needs later, so it needs none of it.
+    const values: Record<string, unknown> = {};
+    for (const setting of connector.settings ?? []) {
+      const answered = held?.settings.find((one) => one.name === setting.name);
+      values[setting.name] =
+        answered?.value ??
+        (setting.secret === true ? undefined : setting.default);
+    }
     return setUp(
       connector,
       marfa,
       connectorId,
       environment,
+      values as Readonly<Partial<SettingValues<E>>>,
+      held?.plugin ?? connector.name,
       logger,
       stop.signal,
-      schedule.file,
+      print,
       clock.now().toISOString(),
       stdin,
     );
   }
 
-  // The key refused, the registration gone or an address that cannot be
-  // used ends the session, whatever it was doing: no run mends any.
+  // The key refused, the registration gone, an address that cannot be used
+  // or settings the connector cannot run with end the session, whatever it
+  // was doing: no run mends any.
   const halt = new AbortController();
-  let halted: Ended | undefined;
+  let halted: Halt | undefined;
   let haltedBy: unknown;
-  const end = (why: Ended, error?: unknown): void => {
+  const end = (why: Halt, error?: unknown): void => {
     if (halted !== undefined) return;
     halted = why;
     haltedBy = error;
@@ -835,9 +925,11 @@ async function serve<E extends SettingsDeclaration>(
     await beatInFlight;
   })();
 
+  // The run's connector and settings, as the last settings read made them;
+  // the look between runs reads with these.
   const setup: RunSetup<E> = {
     connector,
-    environment,
+    values: {} as SettingValues<E>,
     marfa,
     connectorId,
     process: hold.process,
@@ -847,9 +939,107 @@ async function serve<E extends SettingsDeclaration>(
     stopping: stopped,
     narrowed: started.narrowed,
   };
+  let readOnly = started.readOnly;
+  const failedOn = (error: unknown): RunResult => ({
+    succeeded: false,
+    cause: causeOf(error),
+    retryAfterMs: retryAfterOf(error),
+    settled: false,
+    cursor: undefined,
+  });
+  /**
+   * Reads the settings and builds the run's connector from them, so a value
+   * the owner changed between runs is the next run's. Settings the connector
+   * cannot run with stop the session before anything is read or written.
+   * Answers a failed run where Marfa did not answer, and nothing where the
+   * session ends.
+   */
+  const prepare = async (): Promise<RunResult | undefined> => {
+    let held: HeldSettings | undefined;
+    try {
+      held = await readHeld(lasting);
+    } catch (error) {
+      if (over()) return undefined;
+      const refused = settingsRefusal(error, connector);
+      if (refused !== undefined) {
+        await refuseStart(refused);
+        end("unhosted", error);
+        return undefined;
+      }
+      const cause = causeOf(error);
+      if (ends(cause)) {
+        end(cause, error);
+        return undefined;
+      }
+      logger.error(
+        `the settings could not be read from Marfa, so this run does not start: ${describe(error)}`,
+      );
+      return failedOn(error);
+    }
+    let values = {} as SettingValues<E>;
+    if (held !== undefined) {
+      const read = readSettings(connector.settings ?? ([] as unknown as E), held);
+      if (read.problem !== undefined) {
+        await refuseStart(read.problem);
+        end("settings");
+        return undefined;
+      }
+      values = read.values;
+    }
+    let shaped: Connector<E>;
+    try {
+      shaped = build(values);
+    } catch (error) {
+      await refuseStart(
+        `the connector cannot run with its settings: ${describe(error)}`,
+      );
+      end("settings", error);
+      return undefined;
+    }
+    const definitionProblem = shapeProblem(connector, shaped, values);
+    if (definitionProblem !== undefined) {
+      await refuseStart(definitionProblem);
+      end("definition");
+      return undefined;
+    }
+    try {
+      await shaped.checkEnv?.(values);
+    } catch (error) {
+      await refuseStart(
+        `the connector cannot run with its settings: ${describe(error)}`,
+      );
+      end("settings", error);
+      return undefined;
+    }
+    const wanted = readOnlyTypesOf(
+      specsOf(shaped, values, undefined).values(),
+    );
+    if (!isDeepStrictEqual([...wanted].sort(), [...readOnly].sort())) {
+      try {
+        await marfa.register(connector.name, connector.description, wanted);
+        readOnly = wanted;
+      } catch (error) {
+        if (over()) return undefined;
+        const cause = causeOf(error);
+        if (ends(cause)) {
+          end(cause, error);
+          return undefined;
+        }
+        logger.error(
+          `the types this run carries back could not be registered, so it does not start: ${describe(error)}`,
+        );
+        return failedOn(error);
+      }
+    }
+    setup.connector = shaped;
+    setup.values = values;
+    return undefined;
+  };
   let heldUntil: string | undefined;
   const held = async (trigger: Trigger): Promise<RunResult | undefined> => {
     heldUntil = undefined;
+    const unprepared = await prepare();
+    if (unprepared !== undefined || over()) return unprepared;
     let taken;
     try {
       taken = await hold.take();
@@ -863,13 +1053,7 @@ async function serve<E extends SettingsDeclaration>(
       logger.error(
         `the hold could not be taken, so this run does not start: ${describe(error)}`,
       );
-      return {
-        succeeded: false,
-        cause,
-        retryAfterMs: retryAfterOf(error),
-        settled: false,
-        cursor: undefined,
-      };
+      return failedOn(error);
     }
     if (!taken.held) {
       logger.warn(
@@ -989,7 +1173,10 @@ async function serve<E extends SettingsDeclaration>(
     if (schedule.mode === "once") {
       const run = await held("schedule");
       succeeded = run?.succeeded === true;
-      code = run === undefined || run.succeeded || stopped() ? 0 : 1;
+      code =
+        run === undefined || run.succeeded || stopped()
+          ? exitCode.stopped
+          : exitCode.failed;
     } else {
       let failures = 0;
       // Asked for once until a run succeeds or fails for another cause, so a
@@ -1003,7 +1190,7 @@ async function serve<E extends SettingsDeclaration>(
           if (over()) break;
           if (problem !== undefined) {
             await refuseStart(problem);
-            code = 1;
+            code = exitCode.failed;
             break;
           }
         }
@@ -1032,7 +1219,7 @@ async function serve<E extends SettingsDeclaration>(
           logger.info(`the next run is in ${describeDuration(wait)}`);
         }
         const next = clock.now().getTime() + wait;
-        if (!looks(connector, environment) || !run.settled) {
+        if (!looks(setup.connector, setup.values) || !run.settled) {
           await clock.sleep(wait, lasting);
           continue;
         }
@@ -1043,28 +1230,30 @@ async function serve<E extends SettingsDeclaration>(
     beating.abort();
     await heartbeat;
     // A lost type leaves the registration, and so the hold, in place.
-    if (halted === undefined || halted === "registration") {
-      await hold.release();
-    } else hold.abandon();
+    if (halted === "key" || halted === "address") hold.abandon();
+    else await hold.release();
   }
   if (halted === undefined || (succeeded && code === 0)) return code;
+  if (halted === "settings") return exitCode.settings;
+  if (halted === "unhosted") return exitCode.key;
+  if (halted === "definition") return exitCode.definition;
   if (halted === "key") {
     logger.error(
       `the server refused MARFA_API_KEY, or the key no longer reaches the connector's types, so the connector stops: the key is wrong, revoked or narrowed. Mint another as ${keyGuide(connector)} says, set MARFA_API_KEY, and start the connector again.`,
     );
-    return 1;
+    return exitCode.key;
   }
   if (halted === "address") {
     logger.error(
       `the server's address stopped working (${describe(haltedBy)}), so the connector stops: MARFA_API_URL must name the Marfa server itself, with no redirect in front of it and a certificate this machine trusts.`,
     );
-    return 2;
+    return exitCode.definition;
   }
   if (schedule.mode === "once") {
     logger.error(
       "the server no longer holds this connector's registration or one of its types, so this run stops; start it again to register it anew and check its types",
     );
-    return 1;
+    return exitCode.failed;
   }
   return "registration";
 }
@@ -1085,8 +1274,10 @@ export function untilLapsed(
   return Math.min(intervalMs, Math.max(30_000, at - now + 1000));
 }
 
+/** Runs the connector as its process, which exits as `exitCode` names. */
 export async function main<E extends SettingsDeclaration>(
-  connector: Connector<E>,
+  definition: Connector<E> | ConnectorOf<E>,
+  widest?: Readonly<Partial<SettingValues<E>>>,
 ): Promise<void> {
-  process.exitCode = await start(connector, nodeRuntime());
+  process.exitCode = await start(definition, nodeRuntime(), widest);
 }

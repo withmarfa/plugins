@@ -1,4 +1,9 @@
-import type { Connector, SettingsDeclaration } from "../src/define.js";
+import type {
+  Connector,
+  ConnectorOf,
+  SettingsDeclaration,
+  SettingValues,
+} from "../src/define.js";
 import { start as begin } from "../src/main.js";
 import type { Runtime } from "../src/runtime.js";
 import { ScriptedServer } from "./scripted-server.js";
@@ -11,9 +16,14 @@ import { ScriptedServer } from "./scripted-server.js";
  * turns `installs` off.
  */
 export function start<E extends SettingsDeclaration>(
-  connector: Connector<E>,
+  definition: Connector<E> | ConnectorOf<E>,
   runtime: Runtime,
+  widest?: Readonly<Partial<SettingValues<E>>>,
 ): Promise<number> {
+  const connector =
+    typeof definition === "function"
+      ? definition((widest ?? {}) as unknown as SettingValues<E>)
+      : definition;
   ScriptedServer.at(runtime.env["MARFA_API_URL"]?.trim())?.install(connector);
-  return begin(connector, runtime);
+  return begin(definition, runtime, widest);
 }

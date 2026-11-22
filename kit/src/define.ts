@@ -88,14 +88,23 @@ export interface Setting {
 
 export type SettingsDeclaration = readonly Setting[];
 
-/** What a connector reads of its settings: a value is text until the values
- *  come from Marfa, whatever its kind. */
+/** What a setting of a kind holds when it reaches the connector: `boolean`
+ *  a boolean, `number` a number, `text` and `choice` text. */
+type ValueOfKind<K extends SettingKind> = K extends "boolean"
+  ? boolean
+  : K extends "number"
+    ? number
+    : string;
+
+/** What a connector reads of its settings, as Marfa holds them at the start of
+ *  the run, typed by kind: a setting with no value set reads as its declared
+ *  default, and as `undefined` where it has none. */
 export type SettingValues<S extends SettingsDeclaration> = {
-  readonly [Declared in S[number] as Declared["name"]]: Declared extends {
-    readonly required: true;
-  }
-    ? string
-    : string | undefined;
+  readonly [Declared in S[number] as Declared["name"]]: Declared extends
+    | { readonly required: true }
+    | { readonly default: string | number | boolean }
+    ? ValueOfKind<Declared["kind"]>
+    : ValueOfKind<Declared["kind"]> | undefined;
 };
 
 export interface Entry {
@@ -781,24 +790,27 @@ export interface Connector<
    */
   readonly retired?: readonly { type: string; connection: string }[];
   /**
-   * The types whose changes go back to the vendor, from the environment, so
-   * any kind can run read only; every type where the connector has
-   * `onChange` and says nothing.
+   * The types whose changes go back to the vendor, from the settings, so any
+   * kind can run read only; every type where the connector has `onChange`
+   * and says nothing.
    */
   readonly carries?: (env: SettingValues<E>) => readonly string[];
   /** The settings the connector reads, as its manifest declares them. */
   readonly settings?: E;
   /**
-   * Refuses, by throwing, an environment the connector can tell on sight it
-   * cannot run with, such as a malformed address list. The start stops as it
-   * does for a missing value, before anything reaches the server.
+   * Refuses, by throwing, settings the connector can tell on sight it cannot
+   * run with, such as a malformed address list. Asked at the start of every
+   * run, once the settings are read: the run stops before it reads the vendor
+   * or writes anything, as it does for a missing value, and the process exits
+   * 4. The message must not hold a secret's value.
    */
   readonly checkEnv?: (env: SettingValues<E>) => void | Promise<void>;
   /**
-   * Run once, by hand, with `--setup <file>`: registers the connector with
-   * its vendor and answers the secrets that made, by the name of the secret
-   * setting each is read as. They are written to the file, which must
-   * not exist, readable by its owner alone, and moved into the secret store.
+   * Run once, by hand, with `--setup`: registers the connector with its vendor
+   * and answers the values that made, by the name of the setting each is read
+   * as. The kit prints, on standard output, the `marfa plugins settings` and
+   * `marfa plugins secret` commands that give them to Marfa, and writes no
+   * file.
    */
   readonly setup?: (
     context: SetupContext<E>,
@@ -875,6 +887,17 @@ export interface Connector<
    */
   readonly inbound?: Inbound<E>;
 }
+
+/**
+ * A connector whose definition depends on its settings, such as a type it
+ * writes only when a setting turns it on: built again from the settings at the
+ * start of every run, and, for the checks the start makes, from the settings
+ * that give its widest shape, where a setting it is not given reads as
+ * `undefined` whatever its declaration.
+ */
+export type ConnectorOf<E extends SettingsDeclaration> = (
+  settings: SettingValues<E>,
+) => Connector<E>;
 
 export function defineConnector<
   const E extends SettingsDeclaration = SettingsDeclaration,

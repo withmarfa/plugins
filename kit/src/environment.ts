@@ -5,11 +5,11 @@ export class ConfigurationError extends Error {
   override name = "ConfigurationError";
 }
 
+/** What the kit reads from the environment: Marfa's address and the
+ *  connector's key. Every other setting comes from Marfa. */
 export interface Environment {
   url: string;
   key: string;
-  values: Record<string, string | undefined>;
-  secrets: string[];
 }
 
 const reservedSourcePrefixes = ["oauth:", "restored:", "connector:"];
@@ -32,60 +32,20 @@ function isServerUrl(value: string): boolean {
   }
 }
 
-/**
- * The environment variable a setting is read from until Marfa holds the
- * values: its name in capitals, so `github_token` is `GITHUB_TOKEN`. The
- * kit knows the mapping here and nowhere else.
- */
-export function variableOf(setting: string): string {
-  return setting.toUpperCase();
-}
-
-/**
- * The settings a definition is built from, read from the environment under
- * `variableOf`'s mapping: each variable's name in lowercase. A definition
- * that varies with a setting is built from these, and reads no environment
- * of its own.
- */
-export function settingsFromEnvironment(
+export function readEnvironment(
   env: Readonly<Record<string, string | undefined>>,
-): Record<string, string | undefined> {
-  return Object.fromEntries(
-    Object.entries(env).map(([name, value]) => [name.toLowerCase(), value]),
-  );
-}
-
-export function readEnvironment<E extends SettingsDeclaration>(
-  connector: Connector<E>,
-  env: Readonly<Record<string, string | undefined>>,
-  setup = false,
 ): Environment {
-  const missing: string[] = [];
   const present = (name: string): string | undefined => {
-    const value = env[name];
-    const trimmed = value?.trim();
+    const trimmed = env[name]?.trim();
     return trimmed === undefined || trimmed === "" ? undefined : trimmed;
   };
-  const need = (name: string): string => {
-    const value = present(name);
-    if (value === undefined) missing.push(name);
-    return value ?? "";
-  };
-
-  const url = need("MARFA_API_URL");
-  const key = need("MARFA_API_KEY");
-  const values: Record<string, string | undefined> = {};
-  const secrets = new Map([["MARFA_API_KEY", key]]);
-  for (const setting of connector.settings ?? []) {
-    const variable = variableOf(setting.name);
-    // Setup makes what the connector needs later, so it needs none of it.
-    const value =
-      setting.required !== true || setup ? present(variable) : need(variable);
-    values[setting.name] = value;
-    if (setting.secret === true && value !== undefined)
-      secrets.set(variable, value);
-  }
-  if (missing.length > 0) {
+  const url = present("MARFA_API_URL");
+  const key = present("MARFA_API_KEY");
+  const missing = [
+    ...(url === undefined ? ["MARFA_API_URL"] : []),
+    ...(key === undefined ? ["MARFA_API_KEY"] : []),
+  ];
+  if (url === undefined || key === undefined) {
     throw new ConfigurationError(
       `cannot start without ${missing.join(", ")} in the environment`,
     );
@@ -97,15 +57,12 @@ export function readEnvironment<E extends SettingsDeclaration>(
       "MARFA_API_URL is not an http or https address without credentials, a query or a fragment",
     );
   }
-  const short = [...secrets].filter(
-    ([, value]) => value.length < shortestSecret,
-  );
-  if (short.length > 0) {
+  if (key.length < shortestSecret) {
     throw new ConfigurationError(
-      `${short.map(([name]) => name).join(", ")} is shorter than ${String(shortestSecret)} characters, too short to keep out of the logs`,
+      `MARFA_API_KEY is shorter than ${String(shortestSecret)} characters, too short to keep out of the logs`,
     );
   }
-  return { url, key, values, secrets: [...secrets.values()] };
+  return { url, key };
 }
 
 function fitsText(text: string, longest: number): boolean {

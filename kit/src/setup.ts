@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
-import { open, rm } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import type { Readable } from "node:stream";
 import type {
@@ -14,7 +11,7 @@ import type {
   SetupContext,
   SettingValues,
 } from "./define.js";
-import { variableOf, type Environment } from "./environment.js";
+import type { Environment } from "./environment.js";
 import { keepSecret, type Logger } from "./log.js";
 import type { Marfa } from "./marfa.js";
 import { describe } from "./run.js";
@@ -106,51 +103,57 @@ class Pasted {
   }
 }
 
-/** The root of the git working tree holding `file`, a checkout's `.git`
- *  being a directory and a worktree's a file. */
-export function workingTreeOf(file: string): string | undefined {
-  let dir = resolve(dirname(file));
-  while (!existsSync(dir)) {
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  dir = realpathSync(dir);
-  for (;;) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
+/** `text` as one word in a POSIX shell, whatever it holds. */
+export function shellWord(text: string): string {
+  return /^[A-Za-z0-9_./:=@%+-]+$/.test(text)
+    ? text
+    : `'${text.replaceAll("'", "'\\''")}'`;
 }
 
-/** The file is new and owner-only, made first since a vendor may hand a
- *  secret once. */
+/**
+ * The commands that give Marfa what setup made: `marfa plugins settings
+ * --set` for a value, and for a secret, which `marfa plugins secret` takes
+ * only on standard input, the value piped in by `printf`, a shell builtin, so
+ * it is in no process list.
+ */
+export function settingCommands(
+  plugin: string,
+  secret: ReadonlySet<string>,
+  answered: Readonly<Record<string, string>>,
+): string[] {
+  return Object.entries(answered).map(([name, value]) =>
+    secret.has(name)
+      ? `printf '%s' ${shellWord(value)} | marfa plugins secret ${shellWord(plugin)} ${shellWord(name)}`
+      : `marfa plugins settings ${shellWord(plugin)} --set ${shellWord(`${name}=${value}`)}`,
+  );
+}
+
+/**
+ * Runs the connector's setup with its vendor, then prints on standard output
+ * the commands that set what it answered, which the owner runs where
+ * `marfa` is signed in as the owner. The log, which redacts every secret,
+ * says where they are; nothing is written to a file.
+ */
 export async function setUp<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   connectorId: string,
   environment: Environment,
+  values: Readonly<Partial<SettingValues<E>>>,
+  plugin: string,
   logger: Logger,
   signal: AbortSignal,
-  file: string,
+  print: (text: string) => void,
   at: string,
   stdin: () => Readable | undefined,
 ): Promise<number> {
   const setup = connector.setup;
   if (setup === undefined) throw new Error("the connector has no setup");
-  let handle;
-  try {
-    handle = await open(file, "wx", 0o600);
-  } catch (error) {
-    logger.error(`${file} could not be made: ${describe(error)}`);
-    return 1;
-  }
   const servers: Served[] = [];
   const pasted = new Pasted(stdin, logger);
   const made: { id: string; label: string }[] = [];
   const context: SetupContext<E> = {
-    env: environment.values as Readonly<Partial<SettingValues<E>>>,
+    env: values,
     signal,
     log: {
       info: (message) => {
@@ -183,55 +186,48 @@ export async function setUp<E extends SettingsDeclaration>(
       };
     },
   };
-  const written = async (): Promise<number> => {
+  const answeredBySetup = async (): Promise<number> => {
     let answered: Readonly<Record<string, string>>;
     try {
       answered = await setup(context);
-      // The file holds the environment variable each secret is read from.
-      await handle.writeFile(
-        `${JSON.stringify(
-          Object.fromEntries(
-            Object.entries(answered).map(([name, value]) => [
-              variableOf(name),
-              value,
-            ]),
-          ),
-          null,
-          2,
-        )}\n`,
-      );
     } catch (error) {
-      await handle.close();
-      await rm(file, { force: true });
-      logger.error(`setup failed, and ${file} was removed: ${describe(error)}`);
+      logger.error(`setup failed: ${describe(error)}`);
       // An address handed to a vendor whose secrets are gone only takes
       // deliveries no one can verify, and holds one of the ten places.
       await retire(marfa, connectorId, made, logger);
       return 1;
     }
-    await handle.close();
+    const declared = connector.settings ?? [];
     const names = Object.keys(answered);
-    logger.info(
-      `setup wrote ${names.map(variableOf).join(", ")} to ${file}, which its owner alone may read: move them into the secret store, then delete the file`,
+    const unknown = names.filter(
+      (name) => !declared.some((setting) => setting.name === name),
     );
-    for (const endpoint of made) {
-      logger.info(
-        `setup made the inbound endpoint ${endpoint.id} (${endpoint.label}); once the vendor posts to it, retire any endpoint it replaces with \`marfa connectors endpoints retire ${connectorId} <endpoint-id>\``,
-      );
-    }
-    const declared = (connector.settings ?? []).map((setting) => setting.name);
-    const unknown = names.filter((name) => !declared.includes(name));
     if (unknown.length > 0) {
       logger.error(
         `setup answered ${unknown.join(", ")}, which the connector does not declare`,
       );
       return 1;
     }
+    for (const endpoint of made) {
+      logger.info(
+        `setup made the inbound endpoint ${endpoint.id} (${endpoint.label}); once the vendor posts to it, retire any endpoint it replaces with \`marfa connectors endpoints retire ${connectorId} <endpoint-id>\``,
+      );
+    }
+    if (names.length === 0) return 0;
+    const secret = new Set(
+      declared
+        .filter((setting) => setting.secret === true)
+        .map((setting) => setting.name),
+    );
+    for (const line of settingCommands(plugin, secret, answered)) print(line);
+    logger.info(
+      `setup made ${names.join(", ")}: run the commands it printed on standard output where \`marfa\` is signed in as the owner, such as by piping them to \`sh\`. They hold the secrets in full, so keep them out of a file or a shared terminal`,
+    );
     return 0;
   };
   let succeeded = false;
   try {
-    const code = await written();
+    const code = await answeredBySetup();
     succeeded = code === 0;
     return code;
   } finally {

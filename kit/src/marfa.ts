@@ -1,3 +1,4 @@
+import type { HeldSettings } from "./settings.js";
 import { isDeepStrictEqual } from "node:util";
 import {
   pages,
@@ -405,6 +406,17 @@ export class Marfa {
     });
     if (data === undefined) throw refusal(response, error);
     return data.id;
+  }
+
+  /** The connector's settings, its secrets opened, as its own key reads
+   *  them. */
+  async settings(id: string, signal: AbortSignal): Promise<HeldSettings> {
+    const { data, error, response } = await this.client.GET(
+      "/connectors/{id}/settings",
+      { params: { path: { id } }, signal },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data;
   }
 
   async heartbeat(id: string, signal: AbortSignal): Promise<void> {
