@@ -53,13 +53,13 @@ Give a feed a name when its address may change, or carries a token that rotates.
 
 Without a name, the address identifies the feed. Two spellings of one address are one feed, read once: `http` and `https`, with and without `www.`, with and without a trailing slash, and with or without credentials or a fragment. A path's case and a query string do count, so a feed that changes its address, or only the token in its query, starts new rows for its entries.
 
-An entry that is not an `http` or `https` address stops the start with exit code 2, without saying which, since an address may hold a token.
+An entry that is not an `http` or `https` address stops the run with exit code 4, without saying which, since an address may hold a token.
 
 An address may carry credentials, as `https://reader:pass@example.org/feed.xml`. The connector sends them as Basic authorization to that address's own origin and to no other, a redirect included.
 
 ### `rss_private_hosts`
 
-The connector does not fetch from this machine or a private network, whether a feed names one, or redirects to one. An address that lists a private IP address itself is allowed. To read a feed at a host name that resolves to a private address, name the host in `rss_private_hosts`, such as `feeds.internal.example`. A host here is allowed for the feed listed at it, and its redirects to the same host, and is never allowed as another feed's redirect. An entry holds a host name only, with no port, path or credentials, or the start stops with exit code 2.
+The connector does not fetch from this machine or a private network, whether a feed names one, or redirects to one. An address that lists a private IP address itself is allowed. To read a feed at a host name that resolves to a private address, name the host in `rss_private_hosts`, such as `feeds.internal.example`. A host here is allowed for the feed listed at it, and its redirects to the same host, and is never allowed as another feed's redirect. An entry holds a host name only, with no port, path or credentials, or the run stops with exit code 4.
 
 For a picture the leave is narrower. A listed host is allowed for a picture only when the picture is on the same host as the feed its entry came from. A picture on any other private host is refused as `private_address`, whatever this setting lists, so one feed's text cannot make the connector fetch an internal host that is listed for another feed. A picture on a public host is unaffected.
 
@@ -69,7 +69,7 @@ For a picture the leave is narrower. A listed host is allowed for a picture only
 - `save`: the connector saves the pictures of every entry, whether it is in the feed or in the library, as files attached to the entry. A picture of an entry in the library is written at the library tier, and a picture of an entry in the feed at the feed tier.
 - `save-in-library`: the connector saves the pictures only of entries that are already in the library. An entry in the feed gets none until a person or an app moves it.
 
-Any other value stops the start with exit code 2. [Saving pictures](#saving-pictures) says what is saved and how.
+Any other value stops the run with exit code 4. [Saving pictures](#saving-pictures) says what is saved and how.
 
 ## Run it
 
@@ -82,7 +82,7 @@ export MARFA_API_KEY=<the key its host minted>
 node connectors/rss/dist/main.js --once
 ```
 
-The exit code is `0` for a run that succeeded, `1` for a run that failed or a start that could not complete, `3` for a key Marfa or the connector refused, and `4` for a missing or malformed setting.
+The exit code is `0` for a run that succeeded, `1` for a run that failed or a Marfa that did not answer, `2` when the definition, the command line or `MARFA_API_URL` is wrong, `3` for a key Marfa or the connector refused, and `4` for a missing or malformed setting.
 
 Or leave it running, which checks every feed every 15 minutes:
 
