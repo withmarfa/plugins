@@ -98,7 +98,7 @@ function scans(): number {
 }
 
 describe("connections from the vendor", () => {
-  it("are registered as edge types and written from each row, and the kit's own write is carried nowhere", async () => {
+  it("are written from each row to the edge type the plugin installed, and the kit's own write is carried nowhere", async () => {
     const held = connected([entry(1, [2, 3]), entry(2), entry(3)]);
     expect(await harness.twoWay(held)).toBe(0);
     expect(harness.server.edgeTypes.get("test.blocks")).toMatchObject({
