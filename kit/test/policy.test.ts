@@ -26,6 +26,7 @@ function connector(options: {
     owned?: boolean;
     fields?: Readonly<Record<string, "mirror" | "sync" | "observe">>;
     firstAgreement?: "preserve";
+    adopt?: boolean;
   };
 }) {
   return defineConnector({
@@ -303,3 +304,31 @@ it("keeps a refused exact write pending on a server without the precondition", a
   expect(await start(definition, harness.runtime(["--once"]))).toBe(0);
   expect(harness.server.row("one").properties["title"]).toBe("After");
 });
+
+it.each([
+  [true, []],
+  [false, ["archived"]],
+])(
+  "with adopt %s, carries an archive made in Marfa while another rule held the row: %j",
+  async (adopt, carried) => {
+    const changes: Change[] = [];
+    // The connector writes the row, but only while it writes it.
+    const held = connector({
+      entries: [entry("Vendor")],
+      changes,
+      policy: (_item, given) => (given === undefined ? { owned: false } : {}),
+    });
+    expect(await start(held, harness.runtime(["--once"]))).toBe(0);
+    harness.server.transition(harness.server.row("one").id, "archived");
+    expect(await start(held, harness.runtime(["--once"]))).toBe(0);
+    const adopting = connector({
+      entries: [entry("Vendor")],
+      changes,
+      policy: (_item, given) => (given === undefined ? {} : { adopt }),
+    });
+    expect(await start(adopting, harness.runtime(["--once"]))).toBe(0);
+    expect(await start(adopting, harness.runtime(["--once"]))).toBe(0);
+    expect(changes.map((change) => change.kind)).toEqual(carried);
+    expect(harness.server.row("one").state).toBe("archived");
+  },
+);

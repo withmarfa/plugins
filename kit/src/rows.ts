@@ -123,6 +123,7 @@ export interface Spec {
   readonly owned?: boolean;
   readonly observed?: ReadonlySet<string>;
   readonly firstAgreement?: "preserve" | "hold";
+  readonly adopt?: boolean;
   readonly type: string;
   readonly source: string;
   readonly link: string | undefined;
@@ -149,6 +150,18 @@ export function suspended(
     kind.suspended?.(item, entry, entry === undefined ? [] : earlier(entry)) ===
     true
   );
+}
+
+/** The row's state, as it stands, is the agreed one. */
+function adopted(agreement: Agreement, state: string): Agreement {
+  const next: Agreement = { ...agreement, state: agreedState(state) };
+  Reflect.deleteProperty(next, "stateBy");
+  Reflect.deleteProperty(next, "stateAt");
+  const waiting = { ...agreement.waiting };
+  Reflect.deleteProperty(waiting, stateKey);
+  Reflect.deleteProperty(next, "waiting");
+  if (Object.keys(waiting).length > 0) next.waiting = waiting;
+  return next;
 }
 
 export function forRow(
@@ -184,6 +197,7 @@ export function forRow(
     ...(policy.firstAgreement !== undefined && {
       firstAgreement: policy.firstAgreement,
     }),
+    ...(policy.adopt === true && entry !== undefined && { adopt: true }),
     twoWay: kind.twoWay && policy.owned !== false,
   };
 }
@@ -821,7 +835,10 @@ export class Rows {
       retired: kind.retired,
       preserveFirst: kind.firstAgreement === "preserve",
       firstHold: kind.firstAgreement === "hold",
-      agreement,
+      agreement:
+        kind.adopt === true && agreement !== undefined
+          ? adopted(agreement, row.state)
+          : agreement,
       row: {
         properties: row.properties,
         occurred_at: row.occurred_at,

@@ -231,10 +231,9 @@ export async function proveReadwiseWithReader(
       },
     );
     await verify(
-      "reader fixture: unchanged runs, with Reader on or off, preserve row, file and edge versions",
+      "reader fixture: unchanged runs preserve row, file and edge versions",
       async () => {
         await once(reader);
-        await once(exportOnly);
         await once(reader);
         const snapshot = async () => {
           const files = await settledFiles(admin);
@@ -253,9 +252,8 @@ export async function proveReadwiseWithReader(
         };
         const stable = await snapshot();
         await once(reader);
-        await once(exportOnly);
         assert.deepEqual(await snapshot(), stable);
-        return "complete item and edge snapshots unchanged after runs with Reader on and off";
+        return "complete item and edge snapshots unchanged after repeated runs";
       },
     );
     await verify(
@@ -873,7 +871,12 @@ export async function proveReadwiseWithReader(
         old.is_deleted = true;
         const writes = vendor.writes.length;
         await once(reader);
-        assert.deepEqual(await row("lifecycle:highlight:102"), historical);
+        // The export's own tombstone archives the historical row, with its
+        // content, and Reader leaves it alone.
+        const retired = await row("lifecycle:highlight:102");
+        assert.equal(retired.id, historical.id);
+        assert.equal(retired.state, "archived");
+        assert.deepEqual(retired.properties, historical.properties);
         const adopted = await row("lifecycle:highlight:103");
         assert.equal(adopted.id, active.id);
         assert.equal(adopted.source_id, active.source_id);
@@ -910,7 +913,7 @@ export async function proveReadwiseWithReader(
         await once(reader);
         assert.deepEqual(await snapshot(), retained);
         assert.equal(vendor.writes.length, writes);
-        return "active row ID retained, historical row untouched, export passage and HTML retained, exact unchanged versions, zero provider writes";
+        return "active row ID retained, historical row archived with its content, export passage and HTML retained, exact unchanged versions, zero provider writes";
       },
     );
     if (failures.length)

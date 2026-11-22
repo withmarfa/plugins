@@ -59,7 +59,7 @@ async function fixture(settings: Record<string, string> = {}) {
     content: "Reader passage",
     notes: "Note",
   });
-  const once = async () => {
+  const once = async (extra: Record<string, string> = {}) => {
     await exec("node", [built, "--once"], {
       env: {
         PATH: process.env["PATH"],
@@ -70,6 +70,7 @@ async function fixture(settings: Record<string, string> = {}) {
         READWISE_API_URL: `${vendor.base}/v2/`,
         READWISE_READER_API_URL: `${vendor.base}/v3/`,
         ...settings,
+        ...extra,
       },
     });
   };
@@ -138,6 +139,18 @@ describe("with Reader on", () => {
     expect(passage?.properties["readwise_text"]).toBe("Export passage");
   });
 
+  it("sends nothing when it takes over a row archived while Reader was off", async () => {
+    const { marfa, vendor, once } = await fixture();
+    await once();
+    marfa.transition(marfa.row("primary:source:1").id, "archived");
+    await once();
+    await once(readerOn);
+    await once(readerOn);
+    expect(marfa.row("primary:source:1").properties["reader_id"]).toBe("doc-1");
+    expect(marfa.row("primary:source:1").state).toBe("archived");
+    expect(vendor.writes).toEqual([]);
+  });
+
   it("carries a supported edit back to Reader and leaves an unsupported one", async () => {
     const { marfa, vendor, once } = await adopted();
     marfa.edit(marfa.row("primary:source:1").id, { title: "Marfa title" });
@@ -151,6 +164,30 @@ describe("with Reader on", () => {
       },
     ]);
     expect(vendor.documents.get("hi-1")?.content).toBe("Reader passage");
+  });
+
+  it("takes Reader's values when it takes over a row, and carries a later clear", async () => {
+    const { marfa, vendor, once } = await fixture();
+    vendor.documents.set("hi-1", {
+      ...vendor.documents.get("hi-1"),
+      id: "hi-1",
+      category: "highlight",
+      tags: { retained: { name: "retained" } },
+    });
+    await once();
+    await once(readerOn);
+    await once(readerOn);
+    const passage = marfa.row("primary:highlight:11");
+    expect(passage.properties["tags"]).toEqual(["retained"]);
+    marfa.edit(passage.id, { note: "", tags: [] });
+    await once(readerOn);
+    expect(vendor.writes).toEqual([
+      {
+        method: "PATCH",
+        path: "/v3/update/hi-1/",
+        body: { notes: "", tags: [] },
+      },
+    ]);
   });
 
   it("never carries an edit to a row only the export holds", async () => {

@@ -34,6 +34,9 @@ export function readerPolicy(
   return {
     owned: true,
     firstAgreement: "hold",
+    // A row the export held keeps what was done to it then, such as an
+    // archive in Marfa, without carrying it to Reader.
+    ...(incoming && item !== undefined && !managed && { adopt: true }),
     ...(inboundOnly && {
       fields: Object.fromEntries(
         (type === "readwise.source"
