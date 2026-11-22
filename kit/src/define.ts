@@ -88,6 +88,23 @@ export interface Setting {
 
 export type SettingsDeclaration = readonly Setting[];
 
+/**
+ * How the connector signs in to its service through Marfa, as the manifest's
+ * `connector.sign_in` declares it. The owner sets the client's ID and secret
+ * as the two settings named here, then runs `marfa plugins sign-in <name>`,
+ * and Marfa keeps the token it gets as the third. The client secret and the
+ * token are secrets.
+ */
+export interface SignIn {
+  readonly kind: "oauth2";
+  readonly provider: "google";
+  /** The scopes the sign-in asks the service for. */
+  readonly scopes: readonly string[];
+  readonly clientIdSetting: string;
+  readonly clientSecretSetting: string;
+  readonly tokenSetting: string;
+}
+
 /** What a setting of a kind holds when it reaches the connector: `boolean`
  *  a boolean, `number` a number, `text` and `choice` text. */
 type ValueOfKind<K extends SettingKind> = K extends "boolean"
@@ -797,6 +814,9 @@ export interface Connector<
   readonly carries?: (env: SettingValues<E>) => readonly string[];
   /** The settings the connector reads, as its manifest declares them. */
   readonly settings?: E;
+  /** How Marfa signs the connector in to its service, naming three of
+   *  `settings`. */
+  readonly signIn?: SignIn;
   /**
    * Refuses, by throwing, settings the connector can tell on sight it cannot
    * run with, such as a malformed address list. Asked at the start of every

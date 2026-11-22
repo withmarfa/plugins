@@ -1,4 +1,4 @@
-export { googleSettings } from "./settings.js";
+export { googleSettings, googleSignIn } from "./settings.js";
 export {
   connectGoogle,
   missingScopes,
@@ -26,4 +26,5 @@ export {
   newTokenCondition,
   reconnectCondition,
   scopeCondition,
+  signInCondition,
 } from "./conditions.js";

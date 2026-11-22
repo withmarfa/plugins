@@ -10,6 +10,7 @@ import type {
 } from "./define.js";
 import {
   checkDefinition,
+  settingsRefused,
   ConfigurationError,
   readEnvironment,
   type Environment,
@@ -1170,6 +1171,8 @@ async function serve<E extends SettingsDeclaration>(
         ? { ...ran, cause: hold.fencedBy }
         : ran;
     if (run.cause !== undefined && ends(run.cause)) end(run.cause);
+    // Only the owner can mend it, so trying again would mend nothing.
+    else if (settingsRefused(run.failure)) end("settings", run.failure);
     return run;
   };
   // Asks Marfa, the cheapest way it can be asked, until it answers: not

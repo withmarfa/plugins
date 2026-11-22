@@ -1,8 +1,9 @@
 import type { SettingsDeclaration } from "@withmarfa/connector";
-import { googleSettings } from "@withmarfa/google";
+import { googleSettings, googleSignIn } from "@withmarfa/google";
 import calendarDefinition from "./google.calendar.calendar.json" with { type: "json" };
 import eventDefinition from "./google.calendar.event.json" with { type: "json" };
 
+export const name = "google-calendar";
 export const source = "google-calendar";
 export const calendarType = calendarDefinition.id;
 export const eventType = eventDefinition.id;
@@ -19,7 +20,13 @@ export const calendarListScope =
 export const scopes = [eventsScope, calendarListScope] as const;
 /** What the connector signs in for: the rows of these types under `source`
  *  hold the account in their `source_id`. */
-export const needs = { source, scopes, types: [calendarType, eventType] };
+export const needs = {
+  plugin: name,
+  source,
+  scopes,
+  types: [calendarType, eventType],
+};
+export const signIn = googleSignIn(scopes);
 
 export const settings = [
   ...googleSettings,

@@ -23,6 +23,7 @@ export {
   type SettingKind,
   type SettingsDeclaration,
   type SettingValues,
+  type SignIn,
   type FileSource,
   type Inbound,
   type Item,
@@ -45,6 +46,7 @@ export {
 } from "./define.js";
 export { main } from "./main.js";
 export { exitCode } from "./exit.js";
+export { SettingsRefused } from "./environment.js";
 export { carriedTypes } from "./run.js";
 export { edgeTypesOf, shippedConnection } from "./shipped.js";
 export { Declined, LinkTaken, Refused, Unreachable } from "./rows.js";

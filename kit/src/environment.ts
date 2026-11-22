@@ -1,8 +1,41 @@
-import type { Connector, Setting, SettingsDeclaration } from "./define.js";
+import type {
+  Connector,
+  Setting,
+  SettingsDeclaration,
+  SignIn,
+} from "./define.js";
 import { shippedConnection, wireOf } from "./shipped.js";
 
 export class ConfigurationError extends Error {
   override name = "ConfigurationError";
+}
+
+/** Marks a `SettingsRefused` so the kit finds one a connector's own copy of
+ *  this package made, which `instanceof` would not. */
+const refusedMark = Symbol.for("@withmarfa/connector/settings-refused");
+
+/**
+ * What a run throws when the settings it was given cannot work and only the
+ * owner can mend them, such as a token its service ended: the run fails with
+ * the message, the process exits 4, and the connector waits for the settings
+ * to change instead of trying again. The message says what to do and holds no
+ * secret.
+ */
+export class SettingsRefused extends Error {
+  override name = "SettingsRefused";
+  readonly [refusedMark] = true;
+}
+
+/** Whether `error`, or an error it was caused by, is a `SettingsRefused`. */
+export function settingsRefused(error: unknown): boolean {
+  for (
+    let at: unknown = error, depth = 0;
+    at instanceof Error && depth < 8;
+    at = at.cause, depth += 1
+  ) {
+    if (refusedMark in at) return true;
+  }
+  return false;
 }
 
 /** What the kit reads from the environment: Marfa's address and the
@@ -176,6 +209,39 @@ function settingProblems(settings: readonly Setting[]): string[] {
   return problems;
 }
 
+/** What stops a sign-in from being the manifest's: each is a refusal
+ *  `POST /plugins` would make, found here first. */
+function signInProblems(
+  signIn: SignIn,
+  settings: readonly Setting[],
+): string[] {
+  const problems: string[] = [];
+  if (
+    signIn.scopes.length === 0 ||
+    signIn.scopes.some((scope) => typeof scope !== "string" || scope === "")
+  ) {
+    problems.push("a sign-in that names each scope it asks for");
+  }
+  const named: readonly [string, string, boolean][] = [
+    ["clientIdSetting", signIn.clientIdSetting, false],
+    ["clientSecretSetting", signIn.clientSecretSetting, true],
+    ["tokenSetting", signIn.tokenSetting, true],
+  ];
+  for (const [field, name, secret] of named) {
+    const setting = settings.find((one) => one.name === name);
+    if (setting === undefined) {
+      problems.push(
+        `a sign-in whose ${field} is a setting it declares, where ${name} is not`,
+      );
+    } else if (secret && setting.secret !== true) {
+      problems.push(
+        `a sign-in whose ${field} is a secret setting, where ${name} is not`,
+      );
+    }
+  }
+  return problems;
+}
+
 /** The 200, 2000 and 200 limits are the server's bounds on a registration and
  *  a source. */
 export function checkDefinition<E extends SettingsDeclaration>(
@@ -199,6 +265,11 @@ export function checkDefinition<E extends SettingsDeclaration>(
     );
   }
   problems.push(...settingProblems(connector.settings ?? []));
+  if (connector.signIn !== undefined) {
+    problems.push(
+      ...signInProblems(connector.signIn, connector.settings ?? []),
+    );
+  }
   if (connector.title !== undefined && !fitsText(connector.title, 100)) {
     problems.push("a title of 1 to 100 characters");
   }

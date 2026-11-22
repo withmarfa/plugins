@@ -1,4 +1,5 @@
 import {
+  SettingsRefused,
   Unreachable,
   type Log,
   type Secret,
@@ -9,6 +10,7 @@ import {
   endsCondition,
   newTokenCondition,
   scopeCondition,
+  signInCondition,
 } from "./conditions.js";
 import {
   settings,
@@ -60,6 +62,9 @@ export interface GoogleContext {
 
 /** What a connector signs in to Google for. */
 export interface GoogleNeeds {
+  /** The connector's plugin name, which the conditions tell the owner to
+   *  sign in with `marfa plugins sign-in`. */
+  readonly plugin: string;
   /** The connector's `source`. Only rows written under it hold the account
    *  in their `source_id`; another source's rows are never read for it. */
   readonly source: string;
@@ -97,11 +102,11 @@ export function missingScopes(
   return wanted.filter((scope) => !granted.has(scope));
 }
 
-function otherAccount(): GoogleError {
+function otherAccount(plugin: string): GoogleError {
   return new GoogleError(
     "the grant belongs to a different Google account than this connector's rows",
     "account",
-    { condition: accountCondition() },
+    { condition: accountCondition(plugin) },
   );
 }
 
@@ -130,7 +135,12 @@ export function connectGoogle(
   needs: GoogleNeeds,
   options?: GoogleOptions,
 ): Google {
-  const { source, scopes, types } = needs;
+  const { plugin, source, scopes, types } = needs;
+  if (plugin === "") {
+    throw new Error(
+      "a Google connector declares its plugin name, which its conditions tell the owner to sign in",
+    );
+  }
   if (
     scopes.length === 0 ||
     scopes.some((scope) => scope === "" || /\s/.test(scope))
@@ -157,16 +167,17 @@ export function connectGoogle(
   const clientId = context.env["google_client_id"];
   const clientSecret = context.env["google_client_secret"];
   const refreshToken = context.env["google_refresh_token"];
-  if (
-    clientId === undefined ||
-    clientSecret === undefined ||
-    refreshToken === undefined
-  ) {
+  if (clientId === undefined || clientSecret === undefined) {
     throw new Error(
-      "a Google connector needs google_client_id, google_client_secret and google_refresh_token set in Marfa",
+      "a Google connector needs google_client_id and google_client_secret set in Marfa",
     );
   }
-  const used = settings(options);
+  if (refreshToken === undefined) {
+    const condition = signInCondition(plugin);
+    context.log.condition(condition.key, condition.message);
+    throw new SettingsRefused(condition.message);
+  }
+  const used = settings(plugin, options);
   const credentials: Credentials = { clientId, clientSecret, refreshToken };
   return new Google(
     context,
@@ -207,7 +218,7 @@ export class Google {
     }
     const missing = missingScopes(grant.scopes, this.wanted);
     for (const scope of missing) {
-      const condition = scopeCondition(scope);
+      const condition = scopeCondition(this.settings.plugin, scope);
       context.log.condition(condition.key, condition.message);
     }
     if (grant.scopes === undefined) {
@@ -276,7 +287,7 @@ export class Google {
     const sub = grant.sub ?? (await this.userinfo());
     const kept = context.state.get(accountKey);
     if (typeof kept === "string") {
-      if (kept !== sub) throw otherAccount();
+      if (kept !== sub) throw otherAccount(this.settings.plugin);
       return sub;
     }
     const { forScope, held } = context;
@@ -294,7 +305,7 @@ export class Google {
     for (const type of this.types) {
       const rows = await held(type, { state: "any" });
       if (rows.some((row) => fromAnother(row, this.source, sub))) {
-        throw otherAccount();
+        throw otherAccount(this.settings.plugin);
       }
     }
     const saved = await forScope(accountScope).state.checkpoint(
@@ -375,14 +386,20 @@ export class Google {
 
   private notices(): Condition[] {
     const notices: Condition[] = [];
-    if (this.grant.reissued) notices.push(newTokenCondition());
+    const { plugin } = this.settings;
+    if (this.grant.reissued) notices.push(newTokenCondition(plugin));
     if (this.grant.endsAt !== undefined) {
-      notices.push(endsCondition(new Date(this.grant.endsAt)));
+      notices.push(endsCondition(plugin, new Date(this.grant.endsAt)));
     }
     return notices;
   }
 
-  /** Raises the condition of an error that carries one, then rethrows it. */
+  /**
+   * Raises the condition of an error that carries one, then rethrows it. An
+   * error that only the owner can mend, a token or client Google refuses,
+   * is rethrown as `SettingsRefused`, so the connector stops until the owner
+   * signs in again or changes the settings.
+   */
   private async guarded<T>(work: () => Promise<T>): Promise<T> {
     try {
       return await work();
@@ -392,6 +409,14 @@ export class Google {
           error.condition.key,
           error.condition.message,
         );
+      }
+      if (
+        error instanceof GoogleError &&
+        (error.kind === "reconnect" || error.kind === "client")
+      ) {
+        throw new SettingsRefused(error.condition?.message ?? error.message, {
+          cause: error,
+        });
       }
       throw error;
     }

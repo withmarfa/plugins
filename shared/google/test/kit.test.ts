@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { defineConnector } from "@withmarfa/connector";
+import { defineConnector, exitCode } from "@withmarfa/connector";
 import { start } from "../../../kit/test/installed.js";
 import {
   Harness,
@@ -36,7 +36,7 @@ function connector(scopes: string[], reads?: () => void) {
     async run(context) {
       const google = connectGoogle(
         context,
-        { source, scopes, types },
+        { plugin: "test", source, scopes, types },
         { endpoints: stub.endpoints },
       );
       await google.ready();
@@ -56,7 +56,7 @@ function writer(fails = false) {
     async run(context) {
       const google = connectGoogle(
         context,
-        { source, scopes: [A], types },
+        { plugin: "test", source, scopes: [A], types },
         { endpoints: stub.endpoints },
       );
       const { account } = await google.ready();
@@ -71,7 +71,7 @@ function writer(fails = false) {
     async onChange(change, context) {
       const google = connectGoogle(
         context,
-        { source, scopes: [A], types },
+        { plugin: "test", source, scopes: [A], types },
         { endpoints: stub.endpoints },
       );
       await google.json(`${stub.url}/calendars/primary/events`, {
@@ -126,7 +126,7 @@ describe("through the kit", () => {
       }),
       signedIn(token),
     );
-    expect(exit).not.toBe(0);
+    expect(exit).toBe(exitCode.settings);
     expect(read).toBe(false);
     expect(harness.lastRun().outcome).toBe("failed");
     expect(Object.keys(harness.problems())).toEqual(["google:reconnect"]);
@@ -135,7 +135,54 @@ describe("through the kit", () => {
       expect(said).not.toContain(value);
     }
     // The witness: the kit does keep what a run raises where it reports.
-    expect(said).toContain("as the connector's README says");
+    expect(said).toContain("`marfa plugins sign-in test`");
+  });
+
+  it("stops with exit 4 and a condition to sign in again where Google does not know the client", async () => {
+    stub.onToken = () => ({
+      status: 401,
+      json: { error: "invalid_client", error_description: "Unknown client." },
+    });
+    expect(await start(connector([A]), signedIn())).toBe(exitCode.settings);
+    expect(Object.keys(harness.problems())).toEqual(["google:client"]);
+    expect(harness.problems()["google:client"]).toContain(
+      "`marfa plugins sign-in test`",
+    );
+  });
+
+  it("stops with exit 4 and a condition to sign in where no token was ever kept, without calling Google", async () => {
+    harness.server.settings = { ...clientSettings };
+    let read = false;
+    const exit = await start(
+      connector([A], () => {
+        read = true;
+      }),
+      harness.runtime(["--once"]),
+    );
+    expect(exit).toBe(exitCode.settings);
+    expect(read).toBe(false);
+    expect(Object.keys(harness.problems())).toEqual(["google:sign-in"]);
+    expect(harness.problems()["google:sign-in"]).toContain(
+      "`marfa plugins sign-in test`",
+    );
+    expect(harness.lastRun().outcome).toBe("failed");
+    expect(harness.lastRun().error).toContain("`marfa plugins sign-in test`");
+    expect(stub.token).toHaveLength(0);
+    expect(stub.api).toHaveLength(0);
+
+    // The witness: the same connector with a token kept reads.
+    expect(await start(connector([A]), signedIn())).toBe(0);
+    expect(stub.token).toHaveLength(1);
+  });
+
+  it("stops the watch phase the same way where no token was kept, before it sends anything", async () => {
+    harness.server.settings = { ...clientSettings };
+    harness.server.insert(undefined, { title: "Mine" }, testType.id, "person");
+    expect(await start(writer(), harness.runtime(["--once"]))).toBe(
+      exitCode.settings,
+    );
+    expect(posts()).toBe(0);
+    expect(Object.keys(harness.problems())).toContain("google:sign-in");
   });
 
   it("runs, and raises a condition naming a scope the person left unticked", async () => {
@@ -152,7 +199,7 @@ describe("through the kit", () => {
     expect(read).toBe(true);
     expect(Object.keys(harness.problems())).toEqual([`google:scope:${B}`]);
     expect(harness.problems()[`google:scope:${B}`]).toContain(
-      "as the connector's README says",
+      "`marfa plugins sign-in test`",
     );
     const said = reported();
     expect(said).not.toContain(token);

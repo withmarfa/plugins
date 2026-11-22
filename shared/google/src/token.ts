@@ -163,7 +163,7 @@ export async function requestTokens(
       throw new GoogleError(`Google refused the grant (${said})`, "reconnect", {
         status: response.status,
         reason: code,
-        condition: reconnectCondition(),
+        condition: reconnectCondition(settings.plugin),
       });
     }
     if (code === "invalid_client") {
@@ -173,7 +173,7 @@ export async function requestTokens(
         {
           status: response.status,
           reason: code,
-          condition: clientCondition(),
+          condition: clientCondition(settings.plugin),
         },
       );
     }

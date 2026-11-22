@@ -1,47 +1,51 @@
 import type { Condition } from "./errors.js";
 
-/** What signs the person in again, as every message names it. */
-const setup =
-  "sign the Google account in again, as the connector's README says";
-
-const everywhere =
-  "set the new token as google_refresh_token with `marfa plugins secret` for every Google connector, since they share one grant";
-
 /** At most 500 characters each, the longest the kit keeps. */
 
-export function reconnectCondition(): Condition {
+/** What signs the owner in, as every message names it. */
+function signIn(plugin: string): string {
+  return `\`marfa plugins sign-in ${plugin}\``;
+}
+
+export function signInCondition(plugin: string): Condition {
+  return {
+    key: "google:sign-in",
+    message: `This connector has not signed in to Google yet, so it makes no Google calls. Set google_client_id and google_client_secret if they are not set, then sign in with ${signIn(plugin)} and open the address it prints.`,
+  };
+}
+
+export function reconnectCondition(plugin: string): Condition {
   return {
     key: "google:reconnect",
-    message: `Google no longer accepts this connector's sign-in (invalid_grant): access was revoked, went unused for six months, was granted for a limited time that ended, the project is still in Testing, or an administrator blocked it. Reconnect the Google account: ${setup}, ${everywhere}, then restart. Until it restarts with a new token, this connector makes no Google calls.`,
+    message: `Google no longer accepts this connector's sign-in (invalid_grant): access was revoked, went unused for six months, was granted for a limited time that ended, the project is still in Testing, or an administrator blocked it. Sign in again with ${signIn(plugin)}. Until the token changes, this connector makes no Google calls.`,
   };
 }
 
-export function clientCondition(): Condition {
+export function clientCondition(plugin: string): Condition {
   return {
     key: "google:client",
-    message:
-      "Google does not recognize this connector's OAuth client (invalid_client). Check that google_client_id and google_client_secret are those of the Desktop app client in your Google Cloud project, then restart. Until it restarts, this connector makes no Google calls.",
+    message: `Google does not recognize this connector's OAuth client (invalid_client). Check that google_client_id and google_client_secret are those of a Web application client in your Google Cloud project, then sign in again with ${signIn(plugin)}. Until the settings change, this connector makes no Google calls.`,
   };
 }
 
-export function scopeCondition(scope: string): Condition {
+export function scopeCondition(plugin: string, scope: string): Condition {
   return {
     key: `google:scope:${scope}`,
-    message: `Google did not grant ${scope}, which this connector needs, so nothing that needs it runs. ${capital(setup)} and leave every permission ticked on Google's consent screen, then ${everywhere}.`,
+    message: `Google did not grant ${scope}, which this connector needs, so nothing that needs it runs. Sign in again with ${signIn(plugin)} and leave every permission ticked on Google's consent screen.`,
   };
 }
 
-export function accountCondition(): Condition {
+export function accountCondition(plugin: string): Condition {
   return {
     key: "google:account",
-    message: `The rows of this connector came from a different Google account than the one google_refresh_token now signs in to, so nothing was read or written. ${capital(setup)} and sign in with the original account, or give the other account its own Marfa instance.`,
+    message: `The rows of this connector came from a different Google account than the one google_refresh_token now signs in to, so nothing was read or written. Sign in with the original account, using ${signIn(plugin)}, or give the other account its own Marfa instance.`,
   };
 }
 
-export function newTokenCondition(): Condition {
+export function newTokenCondition(plugin: string): Condition {
   return {
     key: "google:refresh-token-changed",
-    message: `Google issued this connector a new refresh token, which it keeps in memory only. Before it restarts, ${setup}, then ${everywhere}; the token it started with may stop working.`,
+    message: `Google issued this connector a new refresh token, which it keeps in memory only. Before it restarts, sign in again with ${signIn(plugin)}; the token it started with may stop working.`,
   };
 }
 
@@ -51,13 +55,9 @@ export function when(at: Date): string {
   return `${iso.slice(0, 10)} at ${iso.slice(11, 16)} UTC`;
 }
 
-export function endsCondition(endsAt: Date): Condition {
+export function endsCondition(plugin: string, endsAt: Date): Condition {
   return {
     key: "google:refresh-token-expires",
-    message: `The Google account granted time-based access, which ends on ${when(endsAt)}, after which this connector can no longer read Google. Before then, ${setup}, choose ongoing access on Google's consent screen, and ${everywhere}.`,
+    message: `The Google account granted time-based access, which ends on ${when(endsAt)}, after which this connector can no longer read Google. Before then, sign in again with ${signIn(plugin)} and choose ongoing access on Google's consent screen.`,
   };
-}
-
-function capital(text: string): string {
-  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
 }
