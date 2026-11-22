@@ -119,6 +119,23 @@ export async function readBundle(
   return bytes;
 }
 
+/** Below zero when `a` is earlier than `b`, zero when equal, above zero when later. */
+export function compareVersions(a: string, b: string): number {
+  const parts = (version: string): number[] => {
+    const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+    if (match === null) {
+      throw new Error(`${version} is not a version such as 1.2.3`);
+    }
+    return match.slice(1).map(Number);
+  };
+  const [x, y] = [parts(a), parts(b)];
+  for (let i = 0; i < 3; i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d !== 0) return d;
+  }
+  return 0;
+}
+
 /** `1.2.3` is followed by `1.2.4`. */
 export function nextVersion(version: string): string {
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);

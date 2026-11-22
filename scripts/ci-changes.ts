@@ -79,8 +79,8 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     // Everything under a plugin's folder is plugin code, Markdown included: a
     // type's guidance is a file of the plugin, and a change to only that file
     // is checked and installed like any other. `types/README.md` is
-    // documentation, so it matches nothing here.
-    [/^types\/[^/]+\//, ["plugins", "proof"]],
+    // documentation; any other file in `types/` fails the plugin check.
+    [/^types\/(?!README\.md$)/, ["plugins", "proof"]],
     [/^connectors\/[^/]+\/plugin\/.*\.md$/i, ["plugins", "proof"]],
     // Markdown, the licence, settings and the instructions for agents are read
     // only by Prettier and the personal-detail scan, which `Checks` runs for

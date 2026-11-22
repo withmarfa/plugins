@@ -12,6 +12,7 @@ import {
   versionOf,
   versionOfTag,
 } from "../release/release.js";
+import type { Index } from "../release/only-adds.js";
 import { emptyTree, remove, writePlugin } from "./plugin-fixtures.js";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -136,13 +137,12 @@ describe("the build", () => {
     expect(versionOfTag("v1.2.3")).toBe("1.2.3");
   });
 
-  it("builds a tree with no plugin into an index that lists none", async () => {
+  it("fails a tree with no plugin, so no empty release is made", async () => {
     const empty = await emptyTree();
     made.push(empty);
-    expect(await build("0.0.1", out, empty)).toEqual([
-      checksumsFile,
-      "plugins.json",
-    ]);
+    await expect(build("0.0.1", out, empty)).rejects.toThrow(
+      "there is no plugin to release",
+    );
   });
 });
 
@@ -185,6 +185,36 @@ describe("publishing", () => {
     vi.unstubAllEnvs();
   });
 
+  const none = (): Promise<undefined> => Promise.resolve(undefined);
+  const listing = (version: string) => (): Promise<Index> =>
+    Promise.resolve({
+      format: 1,
+      plugins: [
+        {
+          name: "alpha",
+          version,
+          has_connector: false,
+          bundle: "alpha.plugin.json",
+          sha256: "0".repeat(64),
+        },
+      ],
+    });
+
+  it("refuses a tag no later than the latest release, creating nothing, and publishes a later one", async () => {
+    for (const version of ["0.0.13", "0.0.20"]) {
+      await expect(
+        publish("v0.0.13", out, { gh: fake, published: listing(version) }),
+      ).rejects.toThrow(`alpha at ${version}`);
+    }
+    expect(
+      (await calls()).filter((call) => call.startsWith("release create")),
+    ).toEqual([]);
+    await publish("v0.0.13", out, { gh: fake, published: listing("0.0.9") });
+    expect(
+      (await calls()).some((call) => call.startsWith("release create")),
+    ).toBe(true);
+  });
+
   const calls = async (): Promise<string[]> =>
     (await readFile(log, "utf8").catch(() => ""))
       .trim()
@@ -192,7 +222,7 @@ describe("publishing", () => {
       .filter(Boolean);
 
   it("creates the release of the tag with every asset, marked latest, never overwriting", async () => {
-    const files = await publish("v0.0.13", out, { gh: fake });
+    const files = await publish("v0.0.13", out, { gh: fake, published: none });
     expect(files).toEqual([
       "alpha.plugin.json",
       "beta.plugin.json",
@@ -211,24 +241,28 @@ describe("publishing", () => {
   });
 
   it("publishes nothing in a dry run, which still checks everything", async () => {
-    const files = await publish("v0.0.13", out, { gh: fake, dryRun: true });
+    const files = await publish("v0.0.13", out, {
+      gh: fake,
+      dryRun: true,
+      published: none,
+    });
     expect(files).toContain("plugins.json");
     expect(await calls()).toEqual(["release view v0.0.13"]);
   });
 
   it("fails when a release exists for the tag, and creates nothing", async () => {
     fakeGh("exists");
-    await expect(publish("v0.0.13", out, { gh: fake })).rejects.toThrow(
-      "a release for v0.0.13 exists; it is never overwritten",
-    );
+    await expect(
+      publish("v0.0.13", out, { gh: fake, published: none }),
+    ).rejects.toThrow("a release for v0.0.13 exists; it is never overwritten");
     expect(await calls()).toEqual(["release view v0.0.13"]);
   });
 
   it("fails when it cannot ask whether the release exists, and creates nothing", async () => {
     fakeGh("error");
-    await expect(publish("v0.0.13", out, { gh: fake })).rejects.toThrow(
-      "could not ask whether a release for v0.0.13 exists",
-    );
+    await expect(
+      publish("v0.0.13", out, { gh: fake, published: none }),
+    ).rejects.toThrow("could not ask whether a release for v0.0.13 exists");
     expect(await calls()).toEqual(["release view v0.0.13"]);
   });
 
@@ -240,28 +274,28 @@ describe("publishing", () => {
 
   it("refuses a folder whose files are not the ones the checksums list, creating nothing", async () => {
     await writeFile(join(out, "alpha.plugin.json"), "{}");
-    await expect(publish("v0.0.13", out, { gh: fake })).rejects.toThrow(
-      "are not the ones checksums.txt lists",
-    );
+    await expect(
+      publish("v0.0.13", out, { gh: fake, published: none }),
+    ).rejects.toThrow("are not the ones checksums.txt lists");
     expect(await calls()).toEqual([]);
   });
 
   it("refuses a tag other than the version the plugins were built at, creating nothing", async () => {
-    await expect(publish("v0.0.14", out, { gh: fake })).rejects.toThrow(
-      "is version 0.0.13, and the tag is v0.0.14",
-    );
+    await expect(
+      publish("v0.0.14", out, { gh: fake, published: none }),
+    ).rejects.toThrow("is version 0.0.13, and the tag is v0.0.14");
     expect(await calls()).toEqual([]);
   });
 
   it("refuses a folder that holds no index, and a name that is no tag", async () => {
     const bare = await emptyTree();
     made.push(bare);
-    await expect(publish("v0.0.13", bare, { gh: fake })).rejects.toThrow(
-      "holds no plugins.json",
-    );
-    await expect(publish("main", out, { gh: fake })).rejects.toThrow(
-      "is not a tag",
-    );
+    await expect(
+      publish("v0.0.13", bare, { gh: fake, published: none }),
+    ).rejects.toThrow("holds no plugins.json");
+    await expect(
+      publish("main", out, { gh: fake, published: none }),
+    ).rejects.toThrow("is not a tag");
     expect(await calls()).toEqual([]);
   });
 });

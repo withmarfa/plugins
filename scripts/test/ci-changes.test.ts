@@ -140,6 +140,11 @@ describe("what a change runs beyond formatting and the scan", () => {
     ],
     ["a plugin's README", ["types/tickets/README.md"], ["proof", "plugins"]],
     [
+      "a stray file in types/, which the plugin check refuses",
+      ["types/NOTES.md"],
+      ["proof", "plugins"],
+    ],
+    [
       "the README of the families, which is documentation",
       ["types/README.md"],
       [],

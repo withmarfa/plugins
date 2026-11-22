@@ -18,6 +18,11 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkPlugins } from "../check-plugins.ts";
+import {
+  compareVersions,
+  readPublished,
+  type Index as PublishedIndex,
+} from "./only-adds.ts";
 import { findPlugins, root, runMarfa, type Plugin } from "./plugins.ts";
 import type { Index } from "./only-adds.ts";
 
@@ -117,6 +122,9 @@ export async function build(
     );
   }
   const { plugins } = findPlugins(base);
+  if (plugins.length === 0) {
+    throw new Error("there is no plugin to release");
+  }
   await mkdir(out, { recursive: true });
   if ((await readdir(out)).length > 0) {
     throw new Error(`${out} is not empty`);
@@ -200,14 +208,35 @@ export async function assertAbsent(tag: string, program = "gh"): Promise<void> {
 }
 
 /**
+ * Fails unless `version` is later than every plugin the latest release lists,
+ * so a release marked latest never moves an installed plugin back.
+ */
+export function assertNewer(
+  version: string,
+  published: PublishedIndex | undefined,
+): void {
+  for (const entry of published?.plugins ?? []) {
+    if (compareVersions(version, entry.version) <= 0) {
+      throw new Error(
+        `the latest release lists ${entry.name} at ${entry.version}, and ${version} is not later`,
+      );
+    }
+  }
+}
+
+/**
  * Publishes the files of `dir` as the release of `tag`, marked latest, after
- * checking that they are the ones `build` wrote (their checksums) and that no
- * release exists for the tag. A dry run does the checks and creates nothing.
+ * checking that they are the ones `build` wrote (their checksums), that no
+ * release exists for the tag, and that the tag is later than the latest release. A dry run does the checks and creates nothing.
  */
 export async function publish(
   tag: string,
   dir: string,
-  options: { dryRun?: boolean; gh?: string } = {},
+  options: {
+    dryRun?: boolean;
+    gh?: string;
+    published?: () => Promise<PublishedIndex | undefined>;
+  } = {},
 ): Promise<string[]> {
   const version = versionOfTag(tag);
   const files = (await readdir(dir)).sort();
@@ -235,6 +264,7 @@ export async function publish(
   }
   const program = options.gh ?? "gh";
   await assertAbsent(tag, program);
+  assertNewer(version, await (options.published ?? readPublished)());
   if (options.dryRun === true) return files;
   const created = await gh(program, [
     "release",

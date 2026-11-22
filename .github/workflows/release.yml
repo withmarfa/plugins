@@ -18,7 +18,7 @@ on:
 # A release is built and published by one run at a time, and a run that has
 # started is never cancelled halfway through publishing.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 permissions: {}
