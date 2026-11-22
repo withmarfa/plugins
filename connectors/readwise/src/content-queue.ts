@@ -379,8 +379,7 @@ async function preserve(
     pictures: true,
   });
   const evidence = await fileEvidence(context, whole.files);
-  const fetching =
-    options.pictures !== undefined;
+  const fetching = options.pictures !== undefined;
   // With nothing held and nothing to fetch, the plan is the one made
   // without pictures, so the manifest is as it was before pictures.
   const plan =

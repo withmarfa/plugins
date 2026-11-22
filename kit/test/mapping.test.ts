@@ -286,6 +286,22 @@ describe("the mapping's read", () => {
     );
   });
 
+  it("takes every kind to land on its own type where the key is no plugin connector's, which has no mapping", async () => {
+    for (const [status, code] of [
+      [404, "plugin_not_found"],
+      [403, "forbidden"],
+    ] as const) {
+      harness.server.refuseNext(
+        "GET /plugins/test/connector/mapping",
+        status,
+        code,
+      );
+      expect(await harness.twoWay(vendor([one]))).toBe(0);
+      expect(harness.server.row("a:1").type).toBe(linkedType.id);
+      expect(harness.problems()).not.toHaveProperty("mapping-unread");
+    }
+  });
+
   it("starts no run where Marfa does not answer it and no run kept one", async () => {
     harness.server.refuseNext(
       "GET /plugins/test/connector/mapping",

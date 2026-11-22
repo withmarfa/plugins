@@ -932,6 +932,116 @@ describe("the pictures an entry points to", () => {
   });
 });
 
+describe("the addresses an entry points to", () => {
+  it("takes the image first and then the Markdown images of the body, each once, https and http alone", () => {
+    const body = [
+      "![one](https://example.org/1.png)",
+      "![again](https://example.org/1.png)",
+      '![titled](https://example.org/2.png "A title")',
+      "![relative](/3.png)",
+      "![data](data:image/png;base64,AAAA)",
+      "![plain](http://example.org/4.png)",
+      "[not a picture](https://example.org/5.png)",
+    ].join("\n");
+    expect(addressesOf(body, "https://example.org/cover.png")).toEqual({
+      addresses: [
+        "https://example.org/cover.png",
+        "https://example.org/1.png",
+        "https://example.org/2.png",
+        "http://example.org/4.png",
+      ],
+      over: 0,
+    });
+    expect(addressesOf(undefined, undefined)).toEqual({
+      addresses: [],
+      over: 0,
+    });
+  });
+
+  it("leaves out an address that is too long to be one", () => {
+    const long = `https://example.org/${"a".repeat(2100)}.png`;
+    expect(addressesOf(`![x](${long})`, undefined).addresses).toEqual([]);
+  });
+});
+
+describe("the hosts a picture may be fetched from", () => {
+  const listed = new Set(["feeds.internal.example"]);
+
+  it("allows a listed host for a picture on the host of the entry's own feed", () => {
+    expect(
+      privateHostsFor(
+        listed,
+        "https://feeds.internal.example:8443",
+        "https://feeds.internal.example/a.png",
+      ),
+    ).toEqual(new Set(["feeds.internal.example"]));
+  });
+
+  it("allows nothing for a picture on another host, a feed that names none, or an address that is not one", () => {
+    const own = "https://feeds.internal.example";
+    const none = new Set<string>();
+    expect(
+      privateHostsFor(
+        listed,
+        "https://other.example",
+        "https://feeds.internal.example/a.png",
+      ),
+    ).toEqual(none);
+    expect(privateHostsFor(listed, own, "https://other.example/a.png")).toEqual(
+      none,
+    );
+    expect(
+      privateHostsFor(
+        listed,
+        undefined,
+        "https://feeds.internal.example/a.png",
+      ),
+    ).toEqual(none);
+    expect(privateHostsFor(listed, own, "not an address")).toEqual(none);
+    expect(
+      privateHostsFor(new Set(), own, "https://feeds.internal.example/a.png"),
+    ).toEqual(none);
+  });
+});
+
+describe("a refusal that may pass", () => {
+  it.each([
+    ["timed_out", undefined],
+    ["fetch_failed", undefined],
+    ["upload_failed", undefined],
+    ["bad_status", 408],
+    ["bad_status", 425],
+    ["bad_status", 429],
+    ["bad_status", 500],
+    ["bad_status", 502],
+    ["bad_status", 503],
+    ["bad_status", 504],
+    ["bad_status", 599],
+  ])("%s %s may pass", (reason, status) => {
+    expect(mayPass(reason, status)).toBe(true);
+  });
+
+  it.each([
+    ["bad_status", 400],
+    ["bad_status", 401],
+    ["bad_status", 403],
+    ["bad_status", 404],
+    ["bad_status", 410],
+    ["bad_status", 451],
+    ["bad_status", 302],
+    ["bad_status", 201],
+    ["bad_status", undefined],
+    ["private_address", undefined],
+    ["tracker", undefined],
+    ["too_large", undefined],
+    ["not_a_picture", undefined],
+    ["svg", undefined],
+    ["one_pixel", undefined],
+  ])("%s %s does not", (reason, status) => {
+    expect(mayPass(reason, status)).toBe(false);
+  });
+});
+
 describe("the time a pass over pictures may take", () => {
   const entry = (n: number, pictures: number): Row =>
     ({

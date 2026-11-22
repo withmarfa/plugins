@@ -64,6 +64,7 @@ import {
 import { instant } from "./values.js";
 import type { Narrowed } from "./own-types.js";
 import {
+  defaultMapping,
   narrowedBy,
   planKinds,
   readOnlyTargets,
@@ -564,25 +565,34 @@ async function applyMapping<E extends SettingsDeclaration>(
   } catch (error) {
     if (setup.signal.aborted || ending.has(causeOf(error)))
       return failed(error);
-    let kept: Mapping | undefined;
-    try {
-      kept = (await new Store(marfa, setup.connectorId, setup.process).load())
-        .mapping;
-    } catch {
-      kept = undefined;
-    }
-    if (kept === undefined) {
-      logger.error(
-        `the connector's mapping could not be read from Marfa, and no run kept one, so this run does not start: ${describe(error)}`,
+    // A key no installed plugin's connector holds has no owner's mapping, so
+    // every kind lands on its own type, as the mapping's default says.
+    if (
+      error instanceof Refusal &&
+      (error.status === 403 || error.status === 404)
+    )
+      mapping = defaultMapping();
+    else {
+      let kept: Mapping | undefined;
+      try {
+        kept = (await new Store(marfa, setup.connectorId, setup.process).load())
+          .mapping;
+      } catch {
+        kept = undefined;
+      }
+      if (kept === undefined) {
+        logger.error(
+          `the connector's mapping could not be read from Marfa, and no run kept one, so this run does not start: ${describe(error)}`,
+        );
+        return failed(error);
+      }
+      mapping = kept;
+      fresh = false;
+      conditions.set(
+        "mapping-unread",
+        `the mapping could not be read from Marfa, so this run applies version ${String(kept.version)}, the last one read, and the next reads it again: ${describe(error)}`,
       );
-      return failed(error);
     }
-    mapping = kept;
-    fresh = false;
-    conditions.set(
-      "mapping-unread",
-      `the mapping could not be read from Marfa, so this run applies version ${String(kept.version)}, the last one read, and the next reads it again: ${describe(error)}`,
-    );
   }
   let plan: Plan;
   try {
