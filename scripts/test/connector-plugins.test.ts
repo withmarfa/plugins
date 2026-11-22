@@ -425,8 +425,20 @@ describe("the generated plugin folder of each connector", () => {
 });
 
 describe("the plugins the real connectors are published as", () => {
-  const folderOf = async (name: string) =>
-    tree(join(root, "connectors", name, "plugin"));
+  /** What the definition generates, with the guidance written beside it. */
+  const folderOf = async (name: string) => {
+    const base = `connectors/${name}/plugin/`;
+    const found = new Map<string, string>();
+    for (const [path, text] of (await plan(root)).write) {
+      if (path.startsWith(base)) found.set(path.slice(base.length), text);
+    }
+    for (const [path, text] of await tree(
+      join(root, "connectors", name, "plugin"),
+    )) {
+      if (path.endsWith(".md")) found.set(path, text);
+    }
+    return found;
+  };
   const kindsOf = async (name: string) =>
     manifest((await folderOf(name)).get("plugin.json")).connector.kinds;
 
