@@ -2,8 +2,9 @@ import type { SettingsDeclaration } from "@withmarfa/connector";
 
 /**
  * The defaults are the addresses and the size the code falls back to where a
- * setting is not set. Every setting named `readwise_reader_*` is read only
- * while `readwise_reader` is on.
+ * setting is not set. Writes to Reader use the `readwise_reader_*` settings
+ * only while `readwise_reader` is on. The Reader API address is also used to
+ * refresh a row Reader managed before that setting was turned off.
  */
 export const settings = [
   {

@@ -10,11 +10,11 @@ export interface PolicyConfig {
 }
 
 /**
- * With Reader off, every row is the export's, read only, as carries nothing.
- * With Reader on, Reader owns its verified rows and explicit creates; the
- * export still writes the rest, but only while writing or archiving one, so
- * none of them is ever carried to Reader, and each of their fields mirrors
- * the export.
+ * With Reader off, nothing is carried. A row Reader does not manage is the
+ * export's. With Reader on, Reader owns its verified rows and explicit
+ * creates; the export still writes the rest, but only while writing or
+ * archiving one, so none of them is ever carried to Reader, and each of
+ * their fields mirrors the export.
  */
 export function rowPolicy(
   type: string,
