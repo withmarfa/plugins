@@ -12,10 +12,14 @@
 
 /** Where a group makes its statements. */
 export type Instance =
-  /** The server every group but the Reader fixture shares. */
+  /** The server the groups of a shard share. */
   | "shared"
-  /** A server of its own, which the Reader fixture needs empty. */
-  | "reader";
+  /**
+   * A server of its own, empty when the group starts: for a group that needs
+   * a source or a fixture no other group has held, or that installs what
+   * another group's connector registers.
+   */
+  | "own";
 
 export interface Group {
   name: string;
@@ -63,8 +67,8 @@ export const GROUPS = [
   { name: "outbound", instance: "shared", statements: 1, seconds: 2 },
   { name: "inbound-retry", instance: "shared", statements: 6, seconds: 9 },
   { name: "retry-archive", instance: "shared", statements: 1, seconds: 1 },
-  { name: "plugins", instance: "shared", statements: 4, seconds: 2 },
-  { name: "readwise-reader", instance: "reader", statements: 14, seconds: 120 },
+  { name: "plugins", instance: "own", statements: 4, seconds: 2 },
+  { name: "readwise-reader", instance: "own", statements: 14, seconds: 120 },
 ] as const satisfies readonly Group[];
 
 export type GroupName = (typeof GROUPS)[number]["name"];
