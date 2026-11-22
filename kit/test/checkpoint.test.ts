@@ -238,7 +238,6 @@ it("drains applicable edges and durably retains missing target identity before p
   harness.server.grants = {
     type_permissions: { "test.entry": "write" },
     edge_permissions: { "test.blocks": "write" },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
   const held = vendor();
   held.connections = [
@@ -411,7 +410,6 @@ it("blocks full missing-target identities that grow past the agreement cap durin
   harness.server.grants = {
     type_permissions: { "test.entry": "write" },
     edge_permissions: { "test.blocks": "write" },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
   const held = vendor();
   held.connections = [

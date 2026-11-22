@@ -73,7 +73,7 @@ describe("built-in references", () => {
     expect(harness.server.edgeTypes.get("references")).toEqual(definition);
   });
 
-  it("refuses unnecessary permission to register edge types", async () => {
+  it("refuses a metadata entry on edge types", async () => {
     harness.server.grants.metadata_permissions = { edge_types: "write" };
     expect(await harness.once(referencing())).toBe(1);
     expect(harness.lastRun().error).toContain("metadata edge_types=write");

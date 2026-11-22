@@ -41,9 +41,6 @@ quietRun({
         "in-collection",
       ],
     }).start();
-    marfa.grants = {
-      metadata_permissions: { types: "write", edge_types: "write" },
-    };
     const github = await new GitHubStub().start();
     github.appPem = appKey();
     const repository = github.addRepository("someone/tracker");

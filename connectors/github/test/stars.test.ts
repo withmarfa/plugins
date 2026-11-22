@@ -57,9 +57,6 @@ beforeEach(async () => {
     types,
     edges: connections,
   }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.appPem = key;
   github.personalToken = token;
@@ -207,9 +204,6 @@ describe("starred repositories", () => {
     const bSyncs = [synced];
     const asB = async (): Promise<void> => {
       marfa.keySource = "github";
-      marfa.grants = {
-        metadata_permissions: { types: "write", edge_types: "write" },
-      };
       github.personalToken = other;
       github.personalRepositories = new Set(bSyncs.map((one) => one.node));
       const result = await exec({
@@ -225,7 +219,6 @@ describe("starred repositories", () => {
       marfa.keySource = "github-someone";
       marfa.grants = {
         sources: ["github"],
-        metadata_permissions: { types: "write", edge_types: "write" },
       };
       github.personalToken = token;
       github.personalRepositories = new Set([own.node]);
@@ -765,7 +758,7 @@ describe("starred repositories", () => {
     expect(repositoryRow(tracker).properties["starred"]).toBe(true);
   });
 
-  it("holds the fields on a repository type the server held without them", async () => {
+  it("writes without the fields a repository type installed before them lacks, and names the update", async () => {
     const repository = starOnly("someone/starred");
     await sync();
     const stored = marfa.types.get("github.repository");
@@ -777,31 +770,16 @@ describe("starred repositories", () => {
     Reflect.deleteProperty(repositoryRow(repository).properties, "starred");
     Reflect.deleteProperty(repositoryRow(repository).properties, "starred_at");
 
-    await sync();
-    const served = marfa.types.get("github.repository")?.["fields"] as Record<
-      string,
-      unknown
-    >;
-    expect(Object.keys(served)).toEqual(
-      expect.arrayContaining(["starred", "starred_at"]),
-    );
-    expect(repositoryRow(repository).properties["starred"]).toBe(true);
-  });
-
-  it("runs without the fields, naming the fix, where the key may not add them", async () => {
-    const repository = starOnly("someone/starred");
-    await sync();
-    const stored = marfa.types.get("github.repository");
-    if (stored === undefined) throw new Error("no stored type");
-    const fields = { ...(stored["fields"] as Record<string, unknown>) };
-    Reflect.deleteProperty(fields, "starred");
-    Reflect.deleteProperty(fields, "starred_at");
-    marfa.types.set("github.repository", { ...stored, fields });
-    marfa.grants = { metadata_permissions: { edge_types: "write" } };
-
     const output = await sync();
+    expect(output).toContain("marfa plugins install github");
     expect(output).toContain("starred_at");
     expect(repositoryRow(repository).state).toBe("active");
+    expect(repositoryRow(repository).properties["starred"]).toBeUndefined();
+    expect(marfa.requestsTo("PUT", "/types/github.repository")).toEqual([]);
+
+    marfa.types.set("github.repository", stored);
+    await sync();
+    expect(repositoryRow(repository).properties["starred"]).toBe(true);
   });
 });
 

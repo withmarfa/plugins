@@ -4,9 +4,12 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createHash } from "node:crypto";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import type { AddressInfo } from "node:net";
+import { join, resolve as resolvePath } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { CONTRACT_VERSION } from "@withmarfa/client";
+import { shippedConnection } from "../src/shipped.js";
 
 export interface Row {
   id: string;
@@ -140,21 +143,6 @@ function changedKeys(
   return changed;
 }
 
-/** Type members a key may change with `metadata.types:write` alone. */
-const freeMembers = new Set([
-  "id",
-  "label",
-  "description",
-  "display_hints",
-  "version",
-  "fields",
-  "tables",
-]);
-
-function plain(value: unknown): unknown {
-  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
-}
-
 function tablesOf(type: Record<string, unknown>): Record<string, unknown> {
   return (type["tables"] ?? {}) as Record<string, unknown>;
 }
@@ -212,84 +200,6 @@ function fieldsOf(type: Record<string, unknown>): Record<string, unknown> {
   return (type["fields"] ?? {}) as Record<string, unknown>;
 }
 
-/** What replacing `stored` with `next` does, as `evolutionOf` sorts it: the
- *  members and fields that need `schema.write`, and the optional fields it
- *  adds. */
-function evolutionOf(
-  stored: Record<string, unknown>,
-  next: Record<string, unknown>,
-): { needsSchemaWrite: string[]; additions: string[] } {
-  const needsSchemaWrite: string[] = [];
-  const additions: string[] = [];
-  for (const member of new Set([
-    ...Object.keys(stored),
-    ...Object.keys(next),
-  ])) {
-    if (freeMembers.has(member)) continue;
-    if (!isDeepStrictEqual(plain(stored[member]), plain(next[member]))) {
-      needsSchemaWrite.push(member);
-    }
-  }
-  const shape = (field: unknown): unknown => {
-    const rest = { ...(field as Record<string, unknown>) };
-    Reflect.deleteProperty(rest, "description");
-    return plain(rest);
-  };
-  const before = fieldsOf(stored);
-  const after = fieldsOf(next);
-  for (const [name, field] of Object.entries(before)) {
-    if (
-      !Object.hasOwn(after, name) ||
-      !isDeepStrictEqual(shape(field), shape(after[name]))
-    ) {
-      needsSchemaWrite.push(`fields.${name}`);
-    }
-  }
-  for (const [name, field] of Object.entries(after)) {
-    if (Object.hasOwn(before, name)) continue;
-    if ((field as { required?: unknown }).required === true) {
-      needsSchemaWrite.push(`fields.${name}`);
-    } else {
-      additions.push(name);
-    }
-  }
-  const tableShape = (column: unknown): unknown => {
-    const rest = { ...(column as Record<string, unknown>) };
-    Reflect.deleteProperty(rest, "label");
-    Reflect.deleteProperty(rest, "description");
-    return plain(rest);
-  };
-  const tablesBefore = tablesOf(stored);
-  const tablesAfter = tablesOf(next);
-  for (const [name, raw] of Object.entries(tablesBefore)) {
-    const was = raw as Record<string, unknown>;
-    const now = tablesAfter[name] as Record<string, unknown> | undefined;
-    if (now === undefined) {
-      needsSchemaWrite.push(`tables.${name}`);
-      continue;
-    }
-    if (was["order"] !== undefined && was["order"] !== now["order"])
-      needsSchemaWrite.push(`tables.${name}.order`);
-    const columnsBefore = (was["columns"] ?? {}) as Record<string, unknown>;
-    const columnsAfter = (now["columns"] ?? {}) as Record<string, unknown>;
-    for (const [column, spec] of Object.entries(columnsBefore)) {
-      if (
-        !Object.hasOwn(columnsAfter, column) ||
-        !isDeepStrictEqual(tableShape(spec), tableShape(columnsAfter[column]))
-      )
-        needsSchemaWrite.push(`tables.${name}.columns.${column}`);
-    }
-    for (const [column, spec] of Object.entries(columnsAfter)) {
-      if (
-        !Object.hasOwn(columnsBefore, column) &&
-        (spec as { required?: unknown }).required === true
-      )
-        needsSchemaWrite.push(`tables.${name}.columns.${column}`);
-    }
-  }
-  return { needsSchemaWrite, additions };
-}
-
 /** What a permission map holds on a name, as marfa resolves it for a type
  *  or an edge type: an exact entry first, then the wildcard with the
  *  longest root, `*` last. */
@@ -315,6 +225,27 @@ function resolve(
     }
   }
   return best;
+}
+
+let folders: Map<string, string> | undefined;
+
+/** Each type id the connectors' plugin folders install, with its folder. */
+function pluginFolders(): Map<string, string> {
+  if (folders !== undefined) return folders;
+  folders = new Map();
+  const root = resolvePath(import.meta.dirname, "../..");
+  const connectors = join(root, "connectors");
+  for (const folder of readdirSync(connectors)
+    .sort()
+    .map((name) => join(connectors, name, "plugin"))) {
+    if (!existsSync(join(folder, "types"))) continue;
+    for (const file of readdirSync(join(folder, "types"))) {
+      if (!file.endsWith(".json")) continue;
+      const id = file.slice(0, -".json".length);
+      if (!folders.has(id)) folders.set(id, folder);
+    }
+  }
+  return folders;
 }
 
 export class ScriptedServer {
@@ -559,6 +490,8 @@ export class ScriptedServer {
   private clock = Date.parse("2026-09-25T00:00:00.000Z");
   private wall = this.clock;
 
+  private readonly mintedTypes: readonly string[];
+
   private readonly minted: {
     type_permissions: Record<string, string>;
     edge_permissions: Record<string, string>;
@@ -570,6 +503,7 @@ export class ScriptedServer {
   ) {
     this.source = source;
     this.keySource = source;
+    this.mintedTypes = [...(minted.types ?? [])];
     this.minted = {
       type_permissions: Object.fromEntries(
         (minted.types ?? []).map((type) => [type, "write"]),
@@ -586,10 +520,107 @@ export class ScriptedServer {
     });
     const { port } = this.http.address() as AddressInfo;
     this.url = `http://127.0.0.1:${String(port)}`;
+    ScriptedServer.running.set(this.url, this);
     return this;
   }
 
+  /** Whether a connector started in this process has been handed its types,
+   *  by `install`, so the first registration need not look for a plugin. */
+  private handed = false;
+
+  /** A connector of this repository that runs as its own program has its
+   *  plugin folder installed when it first registers: the folder whose
+   *  `types/` holds the first type the key names. */
+  private installHeld(): void {
+    if (this.handed || !this.installs) return;
+    this.handed = true;
+    for (const type of this.mintedTypes) {
+      const folder = pluginFolders().get(type);
+      if (folder !== undefined) {
+        this.installFolder(folder);
+        return;
+      }
+    }
+  }
+
+  /** The servers started and not yet stopped, by address, so that a start
+   *  can find the one it is given and install its plugin first. */
+  private static readonly running = new Map<string, ScriptedServer>();
+
+  static at(url: string | undefined): ScriptedServer | undefined {
+    return url === undefined ? undefined : ScriptedServer.running.get(url);
+  }
+
+  /** Whether a start finds the connector's types installed. A test that
+   *  means the plugin not installed turns it off. */
+  installs = true;
+
+  /** What installing a plugin registers: a type, as `POST /plugins` writes
+   *  it, which an install never overwrites here. */
+  installType(type: Record<string, unknown>): void {
+    if (!this.types.has(String(type["id"]))) this.store(type);
+  }
+
+  /** What installing a plugin registers of its connection types. */
+  installConnection(connection: Record<string, unknown>): void {
+    const id = String(connection["id"]);
+    if (this.edgeTypes.has(id)) return;
+    this.edgeTypes.set(id, {
+      from_type_constraints: [],
+      to_type_constraints: [],
+      cascade_on_delete: "orphan",
+      property_schema: {},
+      written_from: "from",
+      ...connection,
+      shipped: false,
+    });
+  }
+
+  /** Installs what the connector's plugin holds: each kind's type and each
+   *  connection type the instance does not ship. */
+  install(connector: {
+    readonly types: readonly { readonly type: object }[];
+    readonly connections?: readonly { readonly id: string }[] | undefined;
+  }): void {
+    this.handed = true;
+    if (!this.installs) return;
+    for (const { type } of connector.types) {
+      this.installType({ ...type });
+    }
+    for (const connection of connector.connections ?? []) {
+      if (shippedConnection(connection.id) === undefined) {
+        this.installConnection({ ...connection });
+      }
+    }
+  }
+
+  /** Installs a generated plugin folder: its `types/*.json` and
+   *  `edge-types/*.json`, which `marfa plugins install` reads. */
+  installFolder(folder: string): void {
+    const read = (directory: string): Record<string, unknown>[] => {
+      let names: string[];
+      try {
+        names = readdirSync(join(folder, directory)).sort();
+      } catch {
+        return [];
+      }
+      return names
+        .filter((name) => name.endsWith(".json"))
+        .map(
+          (name) =>
+            JSON.parse(
+              readFileSync(join(folder, directory, name), "utf8"),
+            ) as Record<string, unknown>,
+        );
+    };
+    for (const type of read("types")) this.installType(type);
+    for (const connection of read("edge-types")) {
+      this.installConnection(connection);
+    }
+  }
+
   async stop(): Promise<void> {
+    ScriptedServer.running.delete(this.url);
     this.http.closeAllConnections();
     await new Promise<void>((resolve) => {
       this.http.close(() => {
@@ -1324,6 +1355,7 @@ export class ScriptedServer {
       return;
     }
     if (method === "POST" && url.pathname === "/connectors") {
+      this.installHeld();
       // A registration removed takes its hold with it.
       if (this.lost) this.holder = undefined;
       this.lost = false;
@@ -1747,59 +1779,6 @@ export class ScriptedServer {
       send(200, type);
       return;
     }
-    if (method === "POST" && url.pathname === "/types") {
-      const id = String(input["id"]);
-      if (this.types.has(id)) {
-        refuse(409, "type_exists");
-        return;
-      }
-      send(201, { type: this.store(input) });
-      return;
-    }
-    if (method === "PUT" && parts[0] === "types" && parts[1] !== undefined) {
-      const id = parts[1];
-      const schema = (this.grants.permissions ?? []).includes("schema.write");
-      const registers = this.grants.metadata_permissions?.["types"] === "write";
-      if (!schema && !registers) {
-        refuse(403, "forbidden", "Missing schema.write", {
-          required_scope: "schema.write",
-        });
-        return;
-      }
-      if (this.permission(id) !== "write") {
-        refuse(403, "type_not_permitted", `The key may not write ${id}`);
-        return;
-      }
-      const served = this.types.get(id);
-      if (served === undefined) {
-        refuse(404, "type_not_found");
-        return;
-      }
-      if (!schema) {
-        const { needsSchemaWrite, additions } = evolutionOf(
-          canonicalType(this.ownOf(id, served)),
-          canonicalType(input),
-        );
-        const held = this.holding(id, additions);
-        const changes = [
-          ...needsSchemaWrite,
-          ...held.map((name) => `fields.${name}`),
-        ].sort();
-        if (changes.length > 0) {
-          refuse(
-            403,
-            "forbidden",
-            `Changing ${changes.join(", ")} requires schema.write`,
-            { required_scope: "schema.write", changes },
-          );
-          return;
-        }
-      }
-      send(200, {
-        type: this.store({ ...input, id, version: input["version"] ?? 0 }),
-      });
-      return;
-    }
     if (method === "GET" && url.pathname === "/events") {
       const unknown = url.searchParams
         .get("type")
@@ -1862,36 +1841,6 @@ export class ScriptedServer {
     }
     if (method === "GET" && url.pathname === "/edge-types") {
       send(200, { data: [...this.edgeTypes.values()], next_cursor: null });
-      return;
-    }
-    if (method === "POST" && url.pathname === "/edge-types") {
-      const id = String(input["id"]);
-      if (this.edgeTypes.has(id)) {
-        if (input["evolve_constraints"] === true) {
-          if (this.grants.metadata_permissions?.["edge_types"] !== "write") {
-            refuse(403, "forbidden", "metadata.edge_types:write is required");
-            return;
-          }
-          const stored = { ...input, shipped: false };
-          Reflect.deleteProperty(stored, "evolve_constraints");
-          this.edgeTypes.set(id, stored);
-          send(200, { edge_type: stored });
-          return;
-        }
-        refuse(409, "conflict", `the edge type ${id} exists`);
-        return;
-      }
-      const stored = {
-        from_type_constraints: [],
-        to_type_constraints: [],
-        cascade_on_delete: "orphan",
-        property_schema: {},
-        written_from: "from",
-        ...input,
-        shipped: false,
-      };
-      this.edgeTypes.set(id, stored);
-      send(201, { edge_type: stored });
       return;
     }
     if (method === "POST" && url.pathname === "/edges") {
@@ -2843,24 +2792,6 @@ export class ScriptedServer {
   ): Record<string, unknown> {
     const held = this.owned.get(id);
     return held?.served === served ? held.own : served;
-  }
-
-  /** The names, of those given, that a row of the type or of a type
-   *  inheriting from it holds a value under, in any lifecycle state. */
-  private holding(id: string, names: readonly string[]): string[] {
-    const reaches = (type: string, seen = new Set<string>()): boolean => {
-      if (type === id) return true;
-      if (seen.has(type)) return false;
-      seen.add(type);
-      const served = this.types.get(type);
-      const parent = served && this.ownOf(type, served)["parent"];
-      return typeof parent === "string" && reaches(parent, seen);
-    };
-    return names.filter((name) =>
-      this.rows.some(
-        (row) => reaches(row.type) && Object.hasOwn(row.properties, name),
-      ),
-    );
   }
 
   /** Reading an edge needs read access to its type and its starting item's type. */

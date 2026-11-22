@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { defineConnector, type Change } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, linkedType } from "./harness.js";
 
 it.each(["adopt", "restore", "edit", "witness"])(
@@ -11,7 +11,6 @@ it.each(["adopt", "restore", "edit", "witness"])(
       h.server.grants = {
         type_permissions: { "test.entry": "write" },
         edge_permissions: { "test.blocks": "write" },
-        metadata_permissions: { types: "write", edge_types: "write" },
       };
       let seed = true;
       const changes: Change[] = [];

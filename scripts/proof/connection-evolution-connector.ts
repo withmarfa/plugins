@@ -1,4 +1,5 @@
 import { defineConnector, main } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 
 const source = "proof-connection-evolution";
 const type = "proof.evolution.entry";
@@ -7,47 +8,47 @@ const connection = "proof.evolution.in-repository";
 
 const widened = process.env["PROOF_EVOLUTION"] === "widened";
 
-void main(
-  defineConnector({
-    name: source,
-    description: "The proof's connection definition upgrade reader.",
-    source,
-    types: [type, extra].map((id) => ({
-      type: {
-        id,
-        label: id,
-        description: "An endpoint evolution proof row.",
-        fields: { title: { type: "string" as const, required: true } },
-      },
-      fields: ["title"],
-    })),
-    connections: [
+export const connector = defineConnector({
+  name: source,
+  description: "The proof's connection definition upgrade reader.",
+  source,
+  types: [type, extra].map((id) => ({
+    type: {
+      id,
+      label: id,
+      description: "An endpoint evolution proof row.",
+      fields: { title: { type: "string" as const, required: true } },
+    },
+    fields: ["title"],
+  })),
+  connections: [
+    {
+      id: connection,
+      label: "Proof repository",
+      description: "A connection kept during an endpoint upgrade.",
+      cardinality: "many-to-one",
+      from_type_constraints: widened ? [type, extra] : [type],
+      to_type_constraints: [type],
+    },
+  ],
+  async run(context) {
+    await context.upsert(type, [
+      { source_id: "target", properties: { title: "Target" } },
       {
-        id: connection,
-        label: "Proof repository",
-        description: "A connection kept during an endpoint upgrade.",
-        cardinality: "many-to-one",
-        from_type_constraints: widened ? [type, extra] : [type],
-        to_type_constraints: [type],
+        source_id: "original",
+        properties: { title: "Original source" },
+        connections: { [connection]: [{ type, id: "target" }] },
       },
-    ],
-    async run(context) {
-      await context.upsert(type, [
-        { source_id: "target", properties: { title: "Target" } },
+    ]);
+    if (widened)
+      await context.upsert(extra, [
         {
-          source_id: "original",
-          properties: { title: "Original source" },
+          source_id: "new",
+          properties: { title: "New source" },
           connections: { [connection]: [{ type, id: "target" }] },
         },
       ]);
-      if (widened)
-        await context.upsert(extra, [
-          {
-            source_id: "new",
-            properties: { title: "New source" },
-            connections: { [connection]: [{ type, id: "target" }] },
-          },
-        ]);
-    },
-  }),
-);
+  },
+});
+
+if (isProgram(import.meta.url)) await main(connector);

@@ -4,9 +4,8 @@ import type { MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
 import {
   ConnectorUnderProof,
-  registeredAsKindOf,
+  installedAsKindOf,
   rowsOf,
-  typeHeld,
   type Item,
 } from "./connector.js";
 
@@ -52,7 +51,7 @@ export async function proveReadwise(
   try {
     let key = "";
     await check(
-      "readwise: its key writes only its data types, connections and type metadata",
+      "readwise: its key writes only its data types and connections, and holds no metadata entry",
       async () => {
         const { data, error } = await marfa.POST("/keys", {
           body: {
@@ -69,7 +68,6 @@ export async function proveReadwise(
               "attached-to": "write",
               references: "write",
             },
-            metadata_permissions: { types: "write" },
           },
         });
         if (data === undefined)
@@ -78,14 +76,14 @@ export async function proveReadwise(
         if (
           data.source !== "readwise" ||
           data.default_tier !== "feed" ||
-          Object.keys(data.metadata_permissions).join() !== "types" ||
+          Object.keys(data.metadata_permissions).length !== 0 ||
           Object.keys(data.edge_permissions).sort().join() !==
             "attached-to,excerpt-of,references"
         )
           throw new Error(
             "Readwise key permissions differ from the requested scope",
           );
-        return "scoped readwise key, with no edge-type registration permission";
+        return "scoped readwise key, with no metadata entry";
       },
     );
     const runner = new ConnectorUnderProof("readwise", url, key, {
@@ -108,28 +106,18 @@ export async function proveReadwise(
       if (found === undefined) throw new Error(`Readwise row ${key} missing`);
       return found;
     };
-    const sourceHeld = await typeHeld(marfa, "readwise.source");
-    const highlightHeld = await typeHeld(marfa, "readwise.highlight");
     await check(
       "readwise: full passages inherit core types and reference their source",
       async () => {
         await once();
         const source = await row("proof:source:42");
         const imported = await row("proof:highlight:42");
-        await registeredAsKindOf(
-          marfa,
-          "readwise.source",
-          "core.media",
-          sourceHeld,
-          [source],
-        );
-        await registeredAsKindOf(
-          marfa,
-          "readwise.highlight",
-          "core.highlight",
-          highlightHeld,
-          [imported],
-        );
+        await installedAsKindOf(marfa, "readwise.source", "core.media", [
+          source,
+        ]);
+        await installedAsKindOf(marfa, "readwise.highlight", "core.highlight", [
+          imported,
+        ]);
         if (
           imported.properties["text"] !== passage ||
           imported.properties["note"] !== highlight.note ||

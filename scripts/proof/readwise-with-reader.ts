@@ -82,7 +82,6 @@ export async function proveReadwiseWithReader(
           references: "write",
           "attached-to": "write",
         },
-        metadata_permissions: { types: "write" },
         permissions: [],
         extension_permissions: {},
         profile_permissions: {},

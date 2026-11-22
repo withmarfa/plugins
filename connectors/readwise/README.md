@@ -39,10 +39,10 @@ pnpm build
 Mint a connector-scoped key using your existing Marfa administrative environment:
 
 ```bash
-marfa keys create --label readwise --source readwise --type-permission readwise.source=write --type-permission readwise.highlight=write --type-permission readwise.file=write --edge-permission excerpt-of=write --edge-permission references=write --edge-permission attached-to=write --metadata-permission types=write --default-tier feed
+marfa keys create --label readwise --source readwise --type-permission readwise.source=write --type-permission readwise.highlight=write --type-permission readwise.file=write --edge-permission excerpt-of=write --edge-permission references=write --edge-permission attached-to=write --default-tier feed
 ```
 
-The built-in `excerpt-of`, `references` and `attached-to` definitions are not registered or changed. The connector clears the `references` it once wrote from a highlight to its source, so a highlight synced before holds only `excerpt-of`; that is why the key holds write on `references`. Do not grant `metadata edge_types=write` or unrelated permissions. Turning Reader on or off keeps the same key, registration, rows and progress.
+The built-in `excerpt-of`, `references` and `attached-to` definitions are never changed. The connector clears the `references` it once wrote from a highlight to its source, so a highlight synced before holds only `excerpt-of`; that is why the key holds write on `references`. Do not grant any metadata access or unrelated permissions: installing the plugin registers the types. Turning Reader on or off keeps the same key, registration, rows and progress.
 
 Supply these environment variables through your secret manager or process environment:
 

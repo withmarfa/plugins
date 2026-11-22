@@ -49,9 +49,6 @@ beforeEach(async () => {
     types,
     edges: connections,
   }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.personalToken = token;
   repository = github.addRepository("someone/agents", {

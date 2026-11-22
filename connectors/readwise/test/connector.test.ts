@@ -19,7 +19,6 @@ async function fixture(settings: Record<string, string> = {}) {
     types: ["readwise.source", "readwise.highlight", "readwise.file"],
     edges: ["excerpt-of", "references", "attached-to"],
   }).start();
-  marfa.grants = { metadata_permissions: { types: "write" } };
   const vendor = await readwiseVendor();
   stopping.push(async () => {
     await marfa.stop();

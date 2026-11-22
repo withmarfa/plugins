@@ -1,12 +1,13 @@
 import { writeFile } from "node:fs/promises";
 import { defineConnector, main, verifyHmac } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 
 interface Thing {
   id: string;
   title: string;
 }
 
-const connector = defineConnector({
+export const connector = defineConnector({
   name: "proof-inbound",
   description: "Things from the proof's stub vendor, and its webhooks.",
   source: "proof-inbound",
@@ -101,4 +102,4 @@ const connector = defineConnector({
   },
 });
 
-await main(connector);
+if (isProgram(import.meta.url)) await main(connector);

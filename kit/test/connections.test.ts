@@ -8,7 +8,6 @@ beforeEach(async () => {
   harness.server.grants = {
     type_permissions: { "test.entry": "write" },
     edge_permissions: { "test.blocks": "write" },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
 });
 afterEach(async () => {
@@ -76,7 +75,6 @@ function listing(entries: Entry[]): Vendor {
   harness.server.grants = {
     type_permissions: { "test.entry": "write" },
     edge_permissions: { "test.in-list": "write" },
-    metadata_permissions: { edge_types: "write" },
   };
   const held = vendor(entries);
   held.connections = [inList];
@@ -100,7 +98,7 @@ function scans(): number {
 }
 
 describe("connections from the vendor", () => {
-  it("are registered as edge types and written from each row, and the kit's own write is carried nowhere", async () => {
+  it("are written from each row to the edge type the plugin installed, and the kit's own write is carried nowhere", async () => {
     const held = connected([entry(1, [2, 3]), entry(2), entry(3)]);
     expect(await harness.twoWay(held)).toBe(0);
     expect(harness.server.edgeTypes.get("test.blocks")).toMatchObject({
@@ -261,7 +259,6 @@ describe("connections from the vendor", () => {
       harness.server.grants = {
         type_permissions: { "test.entry": "write" },
         edge_permissions: { "test.blocks": "write", "test.relates": "write" },
-        metadata_permissions: { types: "write", edge_types: "write" },
       };
       {
         const after = vendor([
@@ -1610,7 +1607,6 @@ describe("a read-only connection type on a two-way kind", () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write", "test.relates": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     await harness.twoWay(held);
     const two = harness.server.row("a:2");
@@ -1698,7 +1694,6 @@ describe("a read-only connection type on a two-way kind", () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write", "test.relates": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     await harness.twoWay(held);
     const one = harness.server.row("a:1");
@@ -1796,7 +1791,7 @@ describe("in-thread", () => {
     ).toEqual(["a:1"]);
   });
 
-  it("needs no key to register connection types, and a key that may is refused", async () => {
+  it("refuses a key holding a metadata entry for edge types, which a connector's key never needs", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "in-thread": "write" },
@@ -1843,14 +1838,12 @@ describe("a connection type", () => {
   it("is refused where the key may not write it, or the server holds it otherwise", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     expect(await harness.twoWay(connected([]))).toBe(1);
     expect(harness.lastRun().error).toContain("may not write edge test.blocks");
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     harness.server.edgeTypes.set("test.blocks", {
       ...blocks,

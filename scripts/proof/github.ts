@@ -1,10 +1,11 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { createHmac } from "node:crypto";
 import { join, resolve } from "node:path";
 import { createClient, type MarfaClient } from "@withmarfa/client";
 import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
+import { installPlugin, olderVersion } from "./install.js";
 import {
   ConnectorUnderProof,
   create,
@@ -26,7 +27,6 @@ const entry = resolve(
   import.meta.dirname,
   "../../../connectors/github/dist/main.js",
 );
-const folder = resolve(import.meta.dirname, "../../../connectors/github/src");
 const types = [
   "github.repository",
   "github.issue",
@@ -109,8 +109,15 @@ export async function proveGitHub(
       GITHUB_WEBHOOK_SECRET: "github-proof-webhook-secret",
       GITHUB_API_URL: github.url,
     };
-    const runOnce = async (): Promise<string> => {
-      const runner = new ConnectorUnderProof(source, url, key.key, env);
+    const runOnce = async (installs = true): Promise<string> => {
+      const runner = new ConnectorUnderProof(
+        source,
+        url,
+        key.key,
+        env,
+        undefined,
+        installs ? url : false,
+      );
       const { code, output } = await runner.once();
       if (code !== 0)
         throw new Error(`the run exited ${String(code)}: ${output}`);
@@ -132,7 +139,7 @@ export async function proveGitHub(
     };
 
     await check(
-      "github: its key is minted with write on each of its types and connection types, in-thread and in-collection among them, and the metadata to register them and keep the types current",
+      "github: its key is minted with write on each of its types and connection types, in-thread and in-collection among them, and no metadata entry",
       async () => {
         const { data, error } = await marfa.POST("/keys", {
           body: {
@@ -144,58 +151,73 @@ export async function proveGitHub(
             edge_permissions: Object.fromEntries(
               connections.map((type) => [type, "write" as const]),
             ),
-            metadata_permissions: { types: "write", edge_types: "write" },
             default_tier: "feed",
           },
         });
         if (data === undefined)
           throw new Error(`the key was refused: ${JSON.stringify(error)}`);
         key = data;
-        return `a key for ${source} with ${types.join(", ")}, ${connections.join(", ")} and metadata types and edge_types`;
+        return `a key for ${source} with ${types.join(", ")} and ${connections.join(", ")}`;
       },
     );
 
     await check(
-      "github: the instance holds the issue and comment types as an earlier connector registered them, without private",
+      "github: the instance holds the issue and comment types as an older plugin installed them, without private",
       async () => {
-        for (const type of ["github.issue", "github.comment"]) {
-          const definition = JSON.parse(
-            await readFile(join(folder, `${type}.json`), "utf8"),
-          ) as { fields: Record<string, unknown> };
-          Reflect.deleteProperty(definition.fields, "private");
-          // An earlier connector gave the issue no words of its own.
-          if (type === "github.issue")
-            Reflect.deleteProperty(definition.fields, "status");
-          const { error, response } = await marfa.POST("/types", {
-            body: definition as never,
-          });
-          if (!response.ok)
-            throw new Error(`${type} was refused: ${JSON.stringify(error)}`);
-        }
-        return "github.issue and github.comment registered with no private field";
-      },
-    );
-
-    await check(
-      "github: the first run adds private to the types an earlier connector registered, registers the rest as kinds of the core's, writes the repository, the issues and the comment, and connects them, the comment on its issue through the instance's comments-on",
-      async () => {
-        const output = await runOnce();
-        const added = ["github.issue", "github.comment"].filter((type) =>
-          output.includes(
-            `added private${type === "github.issue" ? ", status" : ""} to the type ${type}`,
-          ),
-        );
-        const issueType = await marfa.GET("/types/{id}", {
-          params: { path: { id: "github.issue" } },
+        await installPlugin(url, "github", undefined, {
+          version: olderVersion,
+          edit: async (plugin) => {
+            for (const type of ["github.issue", "github.comment"]) {
+              const path = join(plugin, "types", `${type}.json`);
+              const definition = JSON.parse(await readFile(path, "utf8")) as {
+                fields: Record<string, unknown>;
+              };
+              Reflect.deleteProperty(definition.fields, "private");
+              await writeFile(path, JSON.stringify(definition));
+            }
+          },
         });
-        const words = JSON.stringify(
-          (
-            (issueType.data?.fields ?? {}) as Record<
-              string,
-              { status_values?: { value: string }[] }
-            >
-          )["status"]?.status_values?.map((word) => word.value),
-        );
+        for (const type of ["github.issue", "github.comment"]) {
+          const { data } = await marfa.GET("/types/{id}", {
+            params: { path: { id: type } },
+          });
+          if (data === undefined || "private" in data.fields)
+            throw new Error(`${type} holds private`);
+        }
+        return "github.issue and github.comment installed with no private field";
+      },
+    );
+
+    await check(
+      "github: the first run, on the older plugin, writes the rows without private, raises one condition naming the update, and registers nothing",
+      async () => {
+        const output = await runOnce(false);
+        const summary = String((await lastRun(manager, key.id)).summary);
+        const written = await rows();
+        const posted = ["github.issue", "github.comment"].filter((type) => {
+          const found = [...written.values()].find((one) => one.type === type);
+          return found !== undefined && "private" in found.properties;
+        });
+        if (
+          !summary.includes("marfa plugins install github") ||
+          !summary.includes("private") ||
+          output.includes("added private") ||
+          written.size === 0 ||
+          posted.length > 0
+        ) {
+          throw new Error(
+            `${summary}; ${String(written.size)} rows, private written on ${posted.join()}; ${output}`,
+          );
+        }
+        return `${String(written.size)} rows written without private; the run names marfa plugins install github`;
+      },
+    );
+
+    await check(
+      "github: once the plugin is updated, the next run writes private; the repository, the issues and the comment are connected, the comment on its issue through the instance's comments-on",
+      async () => {
+        await installPlugin(url, "github", undefined);
+        await runOnce();
         const summary = String((await lastRun(manager, key.id)).summary);
         const grown = await Promise.all(
           ["github.issue", "github.comment"].map(async (type) => {
@@ -239,16 +261,14 @@ export async function proveGitHub(
           top.properties["private"] !== true ||
           said.properties["private"] !== true ||
           grown.includes(false) ||
-          added.length !== 2 ||
-          !["open", "duplicate"].every((word) => words.includes(`"${word}"`)) ||
-          !summary.includes("created 5, updated 0, archived 0, unchanged 0") ||
+          !summary.includes("created 0, updated 4, archived 0, unchanged 1") ||
           JSON.stringify(top.properties["labels"]) !== '["bug"]'
         ) {
           throw new Error(
-            `${summary}; private on the types ${grown.join()}, added by the connector to ${added.join()}, the issue's status words ${words}; ${parents.join(", ")}; in repository ${inRepo.join()}, sub-issue of ${subOf.join()}, blocked by ${blockedBy.join()}, in thread ${thread.join()}; ${JSON.stringify(top.properties)}`,
+            `${summary}; private on the types ${grown.join()}; ${parents.join(", ")}; in repository ${inRepo.join()}, sub-issue of ${subOf.join()}, blocked by ${blockedBy.join()}, in thread ${thread.join()}; ${JSON.stringify(top.properties)}`,
           );
         }
-        return `private added to ${added.join(" and ")} by the connector, and the status words open and duplicate to the issue's: ${words}; ${parents.join(", ")}; every row marked private, each of the five counted once; ${registered.join(", ")}, and in-thread the instance's own; the child under its parent and blocked by the blocker, the comment in the parent's thread`;
+        return `private written on both types; ${parents.join(", ")}; every row marked private, four rows updated to carry it and the repository unchanged; ${registered.join(", ")}, and in-thread the instance's own; the child under its parent and blocked by the blocker, the comment in the parent's thread`;
       },
     );
 
@@ -915,7 +935,6 @@ export async function proveGitHubCoverage(
       edge_permissions: Object.fromEntries(
         connections.map((type) => [type, "write" as const]),
       ),
-      metadata_permissions: { types: "write", edge_types: "write" },
       default_tier: "feed",
     });
     const own = createClient({ baseUrl: url, credential: key.key });

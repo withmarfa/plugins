@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import { defineConnector } from "../../../kit/src/define.js";
-import { start } from "../../../kit/src/main.js";
+import { start } from "../../../kit/test/installed.js";
 import { Harness } from "../../../kit/test/harness.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import { drainContent } from "../src/content-queue.js";

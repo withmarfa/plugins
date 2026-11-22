@@ -22,24 +22,23 @@ You need a Marfa server, the CLI (`marfa`), a credential that can mint keys, and
 2. Mint the connector's key, with `marfa` pointed at your server (`MARFA_API_URL`, and `MARFA_API_KEY` set to a key that holds `keys.mint` and the content permissions listed below):
 
    ```bash
-   marfa keys create --label rss --source rss --type-permission rss.entry=write --metadata-permission types=write --default-tier feed
+   marfa keys create --label rss --source rss --type-permission rss.entry=write --default-tier feed
    ```
 
    The answer shows the key once; keep it in your secret store.
 
    - `--source rss`: the source every row the connector writes carries.
    - `--type-permission rss.entry=write`: read and write on its one type, and on nothing else.
-   - `--metadata-permission types=write`: lets it register `rss.entry` on its first start and keep the type current.
    - `--default-tier feed`: puts what it writes in the feed.
 
    To have the connector save pictures, set `RSS_PICTURES` to `save` or `save-in-library`, and mint the key with two more permissions:
 
    ```bash
-   marfa keys create --label rss --source rss --type-permission rss.entry=write --type-permission rss.picture=write --edge-permission attached-to=write --metadata-permission types=write --default-tier feed
+   marfa keys create --label rss --source rss --type-permission rss.entry=write --type-permission rss.picture=write --edge-permission attached-to=write --default-tier feed
    ```
 
-   - `--type-permission rss.picture=write`: read and write on the picture type, which the connector registers.
-   - `--edge-permission attached-to=write`: lets it attach a picture to its entry. The connection type ships with Marfa, so the connector does not register it.
+   - `--type-permission rss.picture=write`: read and write on the picture type, which the plugin installs.
+   - `--edge-permission attached-to=write`: lets it attach a picture to its entry. The connection type ships with Marfa, so the plugin does not install it.
 
    The key holds no other permission, and the connector refuses to run on a key that holds more, or less, naming what is wrong. That includes the picture permissions: they belong on the key only when `RSS_PICTURES` is `save` or `save-in-library`, and a key that holds them is refused while it is `addresses`. Changing the setting therefore means a key of the other shape. Revoke such a key with `marfa keys revoke <key-id>` and mint another as above. [The template's README](../../template/README.md#the-key) says why the key has this shape, and how to give a second account's connector its own key.
 

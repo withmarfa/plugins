@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector } from "@withmarfa/connector";
-import { start } from "../../../kit/src/main.js";
+import { start } from "../../../kit/test/installed.js";
 import {
   Harness,
   linkedType,

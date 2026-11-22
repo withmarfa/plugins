@@ -9,7 +9,7 @@ import {
   type SettingsDeclaration,
   type SetupContext,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import type { Runtime } from "../src/runtime.js";
 import { Harness, testFields, testType } from "./harness.js";
 

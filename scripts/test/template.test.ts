@@ -53,6 +53,14 @@ it("builds and runs once copied to a connector's place", async () => {
   await new Promise<void>((done) => vendor.listen(0, "127.0.0.1", done));
   try {
     const copied = await copiedConnector(place);
+    // The plugin folder the copy generates is what an owner installs, and the
+    // connector registers no type of its own.
+    const made = await plan(place);
+    for (const [path, text] of made.write) {
+      if (/\/plugin\/types\/[^/]+\.json$/.test(path)) {
+        marfa.installType(JSON.parse(text) as Record<string, unknown>);
+      }
+    }
     await run("node", [join(copied, "dist", "main.js"), "--once"], {
       env: {
         PATH: process.env["PATH"],
@@ -62,10 +70,9 @@ it("builds and runs once copied to a connector's place", async () => {
         EXAMPLE_TOKEN: "example-vendor-token",
       },
     });
-    expect(marfa.types.has("example.item")).toBe(true);
+    expect(marfa.requestsTo("POST", "/types")).toEqual([]);
     // Copying the template into connectors/ is all it takes to have a plugin
     // folder generated, with the guidance the template brings.
-    const made = await plan(place);
     expect(made.missing).toEqual([]);
     expect([...made.write.keys()]).toEqual([
       "connectors/copied/plugin/plugin.json",

@@ -6,7 +6,7 @@ import {
   type Item,
   type WatchContext,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Unreachable } from "../src/rows.js";
 import { Harness, linkedType } from "./harness.js";
 import { ScriptedServer } from "./scripted-server.js";
@@ -22,7 +22,6 @@ beforeEach(async () => {
   harness.server.grants = {
     type_permissions: { [linkedType.id]: "write", [otherType.id]: "write" },
     edge_permissions: { "test.blocks": "write" },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
 });
 afterEach(() => harness.close());

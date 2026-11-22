@@ -5,7 +5,7 @@ import {
   type Entry,
   type WatchContext,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Refused, Unreachable } from "../src/rows.js";
 import { Harness, linkedType } from "./harness.js";
 

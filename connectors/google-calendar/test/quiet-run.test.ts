@@ -1,4 +1,4 @@
-import { start } from "../../../kit/src/main.js";
+import { start } from "../../../kit/test/installed.js";
 import { Harness } from "../../../kit/test/harness.js";
 import { quietRun } from "../../../kit/test/quiet-run.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
@@ -26,9 +26,6 @@ quietRun({
       types: [calendarType, eventType],
       edges: [inCalendar, "parent-of"],
     }).start();
-    marfa.grants = {
-      metadata_permissions: { types: "write", edge_types: "write" },
-    };
     const harness = new Harness(marfa);
     const google = await new GoogleStub().start();
     google.scope = `openid ${eventsScope} ${calendarListScope}`;

@@ -15,7 +15,6 @@ quietRun({
       types: ["readwise.source", "readwise.highlight", "readwise.file"],
       edges: ["excerpt-of", "references", "attached-to"],
     }).start();
-    marfa.grants = { metadata_permissions: { types: "write" } };
     const vendor = await readwiseVendor({ incremental: true });
     // Highlights of one document: a document's content is preserved a few
     // at a time over many runs, and its listing waits while that work is full.

@@ -51,12 +51,10 @@ marfa keys create \
   --type-permission google.calendar.event=write \
   --edge-permission google.calendar.in-calendar=write \
   --edge-permission parent-of=write \
-  --metadata-permission types=write \
-  --metadata-permission edge_types=write \
   --default-tier feed
 ```
 
-Writing `parent-of` is what lets a changed occurrence sit beneath its series. After the first run registers the connector's connections, you can lower `edge_types` to `read`.
+Writing `parent-of` is what lets a changed occurrence sit beneath its series. The key holds no metadata entry: installing the plugin registers the types and connection types.
 
 Then sign in. Create a Desktop app OAuth client in your own Google Cloud project, turn on the Google Calendar API, and set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`. Run setup and put the token it writes in `GOOGLE_REFRESH_TOKEN`:
 

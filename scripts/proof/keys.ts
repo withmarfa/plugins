@@ -48,6 +48,7 @@ export async function proveKeys(
   url: string,
   manager: MarfaClient,
   mintKey: ProofServer["mintKey"],
+  updateKey: ProofServer["updateKey"],
 ): Promise<void> {
   const vendor = await serveThings();
   try {
@@ -92,7 +93,7 @@ export async function proveKeys(
     );
 
     await check(
-      "keys: a key that may mint keys and does not hold metadata types=write cannot mint a connector's key, which does",
+      "keys: a key that may mint keys and holds no metadata entry mints a connector's key, which holds none either",
       async () => {
         const { data: narrow, error } = await marfa.POST("/keys", {
           body: {
@@ -101,7 +102,6 @@ export async function proveKeys(
               source: "proof-mint-narrow",
               typePermission: "proof.thing",
             }),
-            metadata_permissions: {},
             permissions: ["keys.mint"],
           },
         });
@@ -111,7 +111,7 @@ export async function proveKeys(
           baseUrl: url,
           credential: narrow.key,
         });
-        const refused = await narrowMinter.POST("/keys", {
+        const minted = await narrowMinter.POST("/keys", {
           body: keyBody({
             label: "proof-mint-narrow-child",
             source: "proof-mint-narrow-child",
@@ -121,22 +121,19 @@ export async function proveKeys(
         await manager.DELETE("/keys/{id}", {
           params: { path: { id: narrow.id } },
         });
-        const said = JSON.stringify(refused.error);
-        if (
-          refused.response.status !== 403 ||
-          !said.includes("metadata.types:write, which you do not hold")
-        ) {
+        const held = JSON.stringify(minted.data?.metadata_permissions);
+        if (minted.response.status !== 201 || held !== "{}") {
           throw new Error(
-            `answered ${String(refused.response.status)}: ${said}`,
+            `answered ${String(minted.response.status)}, metadata ${held}: ${JSON.stringify(minted.error)}`,
           );
         }
-        return `403: ${said}`;
+        return `201, metadata ${held}`;
       },
     );
 
     let second: Minted | undefined;
     await check(
-      "keys: a second account's key, of its own source and claiming the connector's, starts, and is told nothing to narrow, since types=write keeps its type current",
+      "keys: a second account's key, of its own source and claiming the connector's, starts, and is told nothing to narrow, since it holds no metadata entry",
       async () => {
         second = await mint(minter, "proof-inbound-second", ["proof-inbound"]);
         const { code, output } = await runner(second).once();
@@ -148,28 +145,31 @@ export async function proveKeys(
     );
 
     await check(
-      "keys: narrowed in place to read on types, the server keeps the key's other reach and the connector still starts, its type being current",
+      "keys: a key given a metadata entry is refused at start, naming it, and starts once the server has it hold none, its other reach kept",
       async () => {
         if (second === undefined) throw new Error("no second key");
-        await update(manager, second.id, {
-          metadata_permissions: { types: "read" },
-        });
+        // Widening a key takes the local authority, as the server's own
+        // console does.
+        await updateKey(second.id, { metadata_permissions: { types: "read" } });
+        const refused = await runner(second).once();
+        await update(manager, second.id, { metadata_permissions: {} });
         const { data } = await manager.GET("/keys");
         const held = data?.data.find((key) => key.id === second?.id);
         const { code, output } = await runner(second).once();
         if (
+          refused.code !== 1 ||
+          !refused.output.includes("metadata types=read") ||
           code !== 0 ||
-          output.includes("--metadata-permission") ||
-          JSON.stringify(held?.metadata_permissions) !== '{"types":"read"}' ||
+          JSON.stringify(held?.metadata_permissions) !== "{}" ||
           JSON.stringify(held?.type_permissions) !==
             '{"proof.thing":"write"}' ||
           JSON.stringify(held?.sources) !== '["proof-inbound"]'
         ) {
           throw new Error(
-            `exited ${String(code)}, key ${JSON.stringify(held)}: ${output}`,
+            `refused with ${String(refused.code)}: ${refused.output}; then exited ${String(code)}, key ${JSON.stringify(held)}: ${output}`,
           );
         }
-        return `metadata ${JSON.stringify(held?.metadata_permissions)}, type ${JSON.stringify(held?.type_permissions)}, claims ${JSON.stringify(held?.sources)}; exited 0 with no warning`;
+        return `refused naming metadata types=read; then metadata ${JSON.stringify(held?.metadata_permissions)}, type ${JSON.stringify(held?.type_permissions)}, claims ${JSON.stringify(held?.sources)}, exited 0`;
       },
     );
 

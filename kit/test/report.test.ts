@@ -408,15 +408,15 @@ describe("secrets", () => {
   it("never reach a start's reported problem, spelled as a URL carries it", async () => {
     const token = "tok/with+marks=value";
     harness.server.refuseNext(
-      "POST /types",
+      "POST /types/normalize",
       403,
       "forbidden",
-      `no metadata.types:write for ?token=${encodeURIComponent(token)}`,
+      `no types read for ?token=${encodeURIComponent(token)}`,
     );
     expect(await harness.once(vendor([one]), { TEST_TOKEN: token })).toBe(1);
-    const error = harness.lastRun().error ?? "";
-    expect(error).toContain("?token=[redacted]");
-    expect(error).not.toContain(encodeURIComponent(token));
+    const said = harness.lines.join("\n");
+    expect(said).toContain("?token=[redacted]");
+    expect(said).not.toContain(encodeURIComponent(token));
   });
 
   it("never reach the kept state through a condition's key", async () => {

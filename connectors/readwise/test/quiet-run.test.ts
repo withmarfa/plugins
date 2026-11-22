@@ -15,7 +15,6 @@ quietRun({
       types: ["readwise.source", "readwise.highlight", "readwise.file"],
       edges: ["excerpt-of", "references", "attached-to"],
     }).start();
-    marfa.grants = { metadata_permissions: { types: "write" } };
     const vendor = await readwiseVendor({ incremental: true });
     for (let at = 0; at < size; at += 1) {
       vendor.sources.push({

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { startCollector, type Collector } from "./collector.js";
 import { Harness, closedUrl, testConnector, vendor } from "./harness.js";
 

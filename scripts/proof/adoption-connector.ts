@@ -1,52 +1,51 @@
 import { defineConnector, main } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 
 const id = "proof.adoption.child";
-void main(
-  defineConnector({
-    name: "proof-adoption",
-    source: "proof-adoption",
-    types: [
-      {
-        type: {
-          id,
-          parent: "proof.adoption.parent",
-          label: "Adoption row",
-          fields: {
-            title: { type: "string", required: true },
-            link: { type: "string", format: "url" },
-            ...(process.env["PROOF_ADDITION"] === "true" && {
-              note: { type: "string" as const },
-            }),
-          },
+export const connector = defineConnector({
+  name: "proof-adoption",
+  source: "proof-adoption",
+  types: [
+    {
+      type: {
+        id,
+        parent: "proof.adoption.parent",
+        label: "Adoption row",
+        fields: {
+          title: { type: "string", required: true },
+          link: { type: "string", format: "url" },
+          ...(process.env["PROOF_ADDITION"] === "true" && {
+            note: { type: "string" as const },
+          }),
         },
-        fields: [
-          "title",
-          "link",
-          ...(process.env["PROOF_ADDITION"] === "true" ? ["note"] : []),
-        ],
       },
-    ],
-    settings: [
-      { name: "proof_mode", label: "Proof mode", kind: "text", required: true },
-    ],
-    async run(context) {
-      const mode = context.env.proof_mode;
-      if (mode === "type") return;
-      if (mode === "fail")
-        context.log.condition("vendor:A", "Vendor A is unavailable");
-      if (mode === "skip") context.log.unreached({ keys: ["vendor:A"] });
-      await context
-        .forScope("B")
-        .upsert(id, [
-          { source_id: "B", properties: { title: "Independent B" } },
-        ]);
-      const cut = await context.forScope("B").state.checkpoint("B", 1);
-      if (!cut.committed) throw new Error(`checkpoint refused: ${cut.reason}`);
-      if (mode === "fail") throw new Error("later vendor failure");
-      if (mode === "recover")
-        await context.upsert(id, [
-          { source_id: "A", properties: { title: "Recovered A" } },
-        ]);
+      fields: [
+        "title",
+        "link",
+        ...(process.env["PROOF_ADDITION"] === "true" ? ["note"] : []),
+      ],
     },
-  }),
-);
+  ],
+  settings: [
+    { name: "proof_mode", label: "Proof mode", kind: "text", required: true },
+  ],
+  async run(context) {
+    const mode = context.env.proof_mode;
+    if (mode === "type") return;
+    if (mode === "fail")
+      context.log.condition("vendor:A", "Vendor A is unavailable");
+    if (mode === "skip") context.log.unreached({ keys: ["vendor:A"] });
+    await context
+      .forScope("B")
+      .upsert(id, [{ source_id: "B", properties: { title: "Independent B" } }]);
+    const cut = await context.forScope("B").state.checkpoint("B", 1);
+    if (!cut.committed) throw new Error(`checkpoint refused: ${cut.reason}`);
+    if (mode === "fail") throw new Error("later vendor failure");
+    if (mode === "recover")
+      await context.upsert(id, [
+        { source_id: "A", properties: { title: "Recovered A" } },
+      ]);
+  },
+});
+
+if (isProgram(import.meta.url)) await main(connector);

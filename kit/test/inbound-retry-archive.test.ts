@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createClient } from "@withmarfa/client";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import {
   Harness,
   linkedType,

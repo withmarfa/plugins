@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { start, untilLapsed } from "../src/main.js";
+import { untilLapsed } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, testConnector, vendor, type Vendor } from "./harness.js";
 
 let harness: Harness;

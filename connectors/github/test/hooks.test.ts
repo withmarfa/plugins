@@ -51,9 +51,6 @@ beforeEach(async () => {
       "in-collection",
     ],
   }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.appPem = key;
 });

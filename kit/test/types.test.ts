@@ -5,7 +5,7 @@ import {
   type Entry,
   type TypeDefinition,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, linkedType, testFields, testType } from "./harness.js";
 
 let harness: Harness;
@@ -168,7 +168,7 @@ describe("a connector of several types", () => {
     expect(harness.lastRun().error).toContain(
       "may not write type test.note, which the connector writes",
     );
-    expect(harness.server.types.size).toBe(0);
+    expect(harness.server.requestsTo("POST", "/types/normalize")).toEqual([]);
   });
 
   it("takes a key reaching every type it declares, and refuses one reaching another", async () => {

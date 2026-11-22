@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TypeDefinition } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { canonicalType } from "./scripted-server.js";
 import { typeDifferences } from "../src/type-check.js";
 import { Harness, testConnector, testType, vendor } from "./harness.js";
@@ -13,7 +13,7 @@ function compare(carried: TypeDefinition, served: Record<string, unknown>) {
 }
 
 describe("the type check", () => {
-  const none = { missing: [], presentation: [], tables: [], other: [] };
+  const none = { missing: [], tables: [], other: [] };
   const served = {
     id: "test.entry",
     label: testType.label,
@@ -26,7 +26,7 @@ describe("the type check", () => {
     },
   };
 
-  it("adds a status word the server lacks, and asks an operator where it holds the word in another group", () => {
+  it("stops on a status word the server lacks, naming it, and on one it holds in another group", () => {
     const carried = (words: object[]): TypeDefinition => ({
       ...testType,
       fields: {
@@ -43,11 +43,21 @@ describe("the type check", () => {
     });
     const inherited = { value: "completed", group: "completed" };
     const open = { value: "open", group: "not_started" };
-    // The type gains words the server does not hold yet.
-    expect(compare(carried([open]), held([inherited]))).toMatchObject({
-      missing: ["status"],
-      other: [],
+    // A word the server lacks is no optional field: the status field is
+    // there, and writing it without the word would write no status at all.
+    expect(compare(carried([open]), held([inherited]))).toEqual({
+      missing: [],
+      tables: [],
+      other: ['field "status" lacks the status word "open" on the server'],
     });
+    expect(
+      compare(
+        carried([open, { value: "closed", group: "completed" }]),
+        held([inherited]),
+      ).other,
+    ).toEqual([
+      'field "status" lacks the status words "open", "closed" on the server',
+    ]);
     expect(compare(carried([open]), held([inherited, open])).other).toEqual([]);
     expect(
       compare(
@@ -140,7 +150,6 @@ describe("the type check", () => {
       compare(testType, extra({ type: "string", required: true })),
     ).toEqual({
       missing: [],
-      presentation: [],
       tables: [],
       other: ['field "extra" is required on the server and not here'],
     });
@@ -152,7 +161,6 @@ describe("the type check", () => {
       compare(testType, { ...served, fields: { title, vendor_id } }),
     ).toEqual({
       missing: ["link", "note"],
-      presentation: [],
       tables: [],
       other: [],
     });
@@ -164,7 +172,6 @@ describe("the type check", () => {
       }),
     ).toEqual({
       missing: [],
-      presentation: [],
       tables: [],
       other: ['field "title" is required here and missing on the server'],
     });
@@ -215,7 +222,7 @@ describe("the type check", () => {
       ).toHaveLength(1);
     });
 
-    it("names a table or column whose label or description differs as presentation, not as a difference", () => {
+    it("counts no label or description, of a table or a column, that differs", () => {
       const labelled = {
         label: "Checks",
         description: "The checks.",
@@ -227,20 +234,6 @@ describe("the type check", () => {
       };
       expect(
         compare(withTables({ checks: labelled }), holding({ checks: table })),
-      ).toEqual({
-        ...none,
-        presentation: [
-          "table checks label",
-          "table checks description",
-          "table checks column name label",
-          "table checks column note description",
-        ],
-      });
-      expect(
-        compare(
-          withTables({ checks: labelled }),
-          holding({ checks: labelled }),
-        ),
       ).toEqual(none);
       expect(
         compare(withTables({ checks: table }), holding({ checks: labelled })),

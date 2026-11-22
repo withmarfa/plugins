@@ -49,7 +49,6 @@ async function mintWithConnections(
         "attached-to": "write",
       },
     }),
-    metadata_permissions: { types: "write", edge_types: "write" },
     default_tier: "feed",
   });
 }
@@ -134,7 +133,7 @@ export async function proveTracker(
       tracker.writes().slice(count);
 
     await check(
-      "tracker: its key is minted with write on its types and connection types, and the metadata to register both",
+      "tracker: its key is minted with write on proof.issue, proof.attachment, proof.sub-issue and attached-to",
       async () => {
         key = await mintWithConnections(viaMarfa, source, source, true);
         runner = new ConnectorUnderProof(source, url, key.key, env, entry);
@@ -143,7 +142,7 @@ export async function proveTracker(
     );
 
     await check(
-      "tracker: the first run writes the issues, the sub-issue connection and the attachment, uploading its bytes once and attaching it, and registers the connection type to orphan",
+      "tracker: the first run writes the issues, the sub-issue connection and the attachment, uploading its bytes once and attaching it, and proof.sub-issue orphans on delete",
       async () => {
         await runOnce();
         const rows = await issues();
@@ -648,7 +647,7 @@ export async function proveTracker(
     );
 
     await check(
-      "tracker: a type of its own force-deleted while it runs is registered again with its rows, and the runs after it succeed",
+      "tracker: a type of its own force-deleted while it runs stops the connector, naming the plugin to install, and an install again lets the next run succeed",
       async () => {
         const kept = (await rowsOf(marfa, "proof.attachment", source)).get(
           attachment.id,
@@ -693,33 +692,43 @@ export async function proveTracker(
           await edit(marfa, await row(parent.id), {
             body: "edited after the type went",
           });
-          await until(
-            () => Promise.resolve(parent.body === "edited after the type went"),
-            "the edit reaching the tracker",
-          );
-          await until(
-            async () =>
-              (await lastRun(manager, key.id)).outcome === "succeeded" &&
-              (await typeHeld(marfa, "proof.attachment")),
-            "a run succeeding with the type registered again",
-          );
+          // The look finds the type gone, the run it takes fails on it, and the
+          // connector starts again to check its types: with the plugin's type
+          // gone it stops, naming the install, and writes nothing.
+          await Promise.race([
+            exited,
+            new Promise<never>((_, fail) =>
+              setTimeout(() => {
+                fail(new Error("the connector never stopped"));
+              }, 60_000),
+            ),
+          ]);
           const output = said.join("");
           const failed = output
             .split("\n")
             .find((line) => line.includes("unknown_type"));
+          if (
+            failed === undefined ||
+            !output.includes("marfa plugins install") ||
+            (await typeHeld(marfa, "proof.attachment"))
+          ) {
+            throw new Error(`the connector said: ${output}`);
+          }
+          await runner.reinstall();
+          await runOnce();
           const again = (await rowsOf(marfa, "proof.attachment", source)).get(
             attachment.id,
           );
           if (
-            failed === undefined ||
-            !output.includes("so they are registered again") ||
-            again?.id !== kept?.id
+            again === undefined ||
+            again.id !== kept?.id ||
+            parent.body !== "edited after the type went"
           ) {
             throw new Error(
-              `the attachment row was ${String(kept?.id)} and is ${String(again?.id)}; the connector said: ${output}`,
+              `the attachment row was ${String(kept?.id)} and is ${String(again?.id)}; the parent reads ${parent.body}`,
             );
           }
-          return `${failed.slice(failed.indexOf("run failed"))}; registered again, the attachment row kept as ${String(again?.id)}, the edit reached the tracker, and the run after succeeded`;
+          return `${failed.slice(failed.indexOf("run failed"))}; the connector stopped naming the plugin to install, registered nothing, and once it was installed again the run found the attachment row kept as ${again.id} and carried the edit to the tracker`;
         } finally {
           child.kill("SIGTERM");
           await exited;

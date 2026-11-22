@@ -38,9 +38,6 @@ beforeEach(async () => {
     types: [calendarType, eventType],
     edges: [inCalendar, "parent-of"],
   }).start();
-  server.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   harness = new Harness(server);
   google = await new GoogleStub().start();
   google.scope = `openid ${eventsScope} ${calendarListScope}`;
@@ -77,8 +74,13 @@ afterEach(async () => {
 });
 
 async function once(settings: Record<string, string> = {}): Promise<number> {
+  const built = connector({
+    endpoints: { ...google.endpoints, api: calendar.url },
+  });
+  // The plugin's types are installed, as the kit never registers them.
+  server.install(built);
   return start(
-    connector({ endpoints: { ...google.endpoints, api: calendar.url } }),
+    built,
     harness.runtime(["--once"], {
       ...clientEnv,
       GOOGLE_REFRESH_TOKEN: freshToken(),

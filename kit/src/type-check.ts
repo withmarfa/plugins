@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import type { ConnectionDefinition, TypeDefinition } from "./define.js";
 import type { EdgeType } from "./marfa.js";
 
@@ -38,21 +37,15 @@ function show(value: unknown): string {
 }
 
 export interface TypeDifferences {
-  /** Optional fields the connector declares and the server lacks, the one
-   *  difference a connector puts right itself: a type gaining a field
-   *  leaves the rows it holds as they are. */
+  /** Optional fields the build declares and the server lacks, one of the two
+   *  differences a connector writes around: it writes the type without
+   *  them until the plugin is updated. */
   readonly missing: readonly string[];
-  /** Of `label`, `description` and `display_hints`, and of each table's and
-   *  column's `label` and `description`, those the connector carries and the
-   *  type holds differently itself, not by inheritance. A connector puts these
-   *  right itself: they change no stored item. */
-  readonly presentation: readonly string[];
-  /** Tables the connector declares that the server lacks, or lacks an
-   *  optional column of or the `order` of, the other difference a connector
-   *  puts right itself: each is named by its table, and no stored row is
-   *  changed by adding it. */
+  /** Tables the build declares that the server lacks, or lacks an optional
+   *  column of or the `order` of, the other difference a connector writes
+   *  around: each is named by its table. */
   readonly tables: readonly string[];
-  /** Every other difference, which only an operator may put right. */
+  /** Every other difference, which a connector cannot write around. */
   readonly other: readonly string[];
 }
 
@@ -67,34 +60,17 @@ const columnShape = [
   "adds_up",
 ] as const;
 
-/** What a table the connector declares needs of the server's: the tables and
- *  optional columns it lacks, the labels and descriptions the type itself
- *  holds differently, and what differs beyond that. The server's own tables
- *  and columns that the connector does not declare are no difference. */
+/** What a table the build declares needs of the server's: the tables and
+ *  optional columns it lacks, and what differs beyond that. The server's own
+ *  tables and columns that the build does not declare are no difference. */
 function tableDifferences(
   carried: Record<string, unknown>,
   served: Record<string, unknown>,
-  declared: Record<string, unknown>,
-): { missing: string[]; presentation: string[]; other: string[] } {
+): { missing: string[]; other: string[] } {
   const missing: string[] = [];
-  const presentation: string[] = [];
   const other: string[] = [];
   const mine = record(carried["tables"]);
   const theirs = record(served["tables"]);
-  const own = record(declared["tables"]);
-  const shown = (
-    wanted: Record<string, unknown>,
-    holds: Record<string, unknown>,
-    where: string,
-  ): void => {
-    for (const attribute of ["label", "description"] as const) {
-      if (
-        wanted[attribute] !== undefined &&
-        !isDeepStrictEqual(wanted[attribute], holds[attribute])
-      )
-        presentation.push(`${where} ${attribute}`);
-    }
-  };
   for (const name of Object.keys(mine).sort()) {
     if (!Object.hasOwn(theirs, name)) {
       missing.push(name);
@@ -104,8 +80,6 @@ function tableDifferences(
     const there = record(theirs[name]);
     const columns = record(here["columns"]);
     const held = record(there["columns"]);
-    const mineOwn = record(own[name]);
-    shown(here, mineOwn, `table ${name}`);
     let lacks = false;
     for (const column of Object.keys(columns).sort()) {
       const wanted = record(columns[column]);
@@ -118,11 +92,6 @@ function tableDifferences(
         continue;
       }
       const have = record(held[column]);
-      shown(
-        wanted,
-        record(record(mineOwn["columns"])[column]),
-        `table ${name} column ${column}`,
-      );
       for (const attribute of columnShape) {
         if (
           JSON.stringify(wanted[attribute]) !== JSON.stringify(have[attribute])
@@ -148,7 +117,7 @@ function tableDifferences(
     }
     if (lacks) missing.push(name);
   }
-  return { missing, presentation, other };
+  return { missing, other };
 }
 
 /** Fields the server holds and the connector does not declare are no
@@ -194,25 +163,28 @@ export function typeDifferences(
     const here = record(mine[name]);
     if (here["type"] !== "status") continue;
     // The server answers every word the chain gives, the type's own last, so
-    // each word this type declares has to be among them, in its group: one
-    // missing is added, and one in another group is for an operator.
+    // each word this type declares has to be among them, in its group. A
+    // connector cannot write the status without a word it declares, so a
+    // missing one stops the start like one in another group.
     const there = Array.isArray(record(theirs[name])["status_values"])
       ? (record(theirs[name])["status_values"] as unknown[]).map(record)
       : [];
+    const lacking: string[] = [];
     for (const word of Array.isArray(here["status_values"])
       ? (here["status_values"] as unknown[]).map(record)
       : []) {
       const held = there.find((one) => one["value"] === word["value"]);
-      if (held === undefined) {
-        // Words are added the way a field is: a status field gaining a word
-        // leaves the rows it holds as they are.
-        if (!missing.includes(name)) missing.push(name);
-      } else if (held["group"] !== word["group"]) {
+      if (held === undefined) lacking.push(show(word["value"]));
+      else if (held["group"] !== word["group"]) {
         other.push(
           `field "${name}" has the status word ${show(word["value"])} in group ${show(word["group"])} here and ${show(held["group"])} on the server`,
         );
       }
     }
+    if (lacking.length > 0)
+      other.push(
+        `field "${name}" lacks the status ${lacking.length === 1 ? "word" : "words"} ${lacking.join(", ")} on the server`,
+      );
   }
 
   const requiredDeclared = requiredSet(declared);
@@ -239,29 +211,37 @@ export function typeDifferences(
       `link_field is ${show(carried.link_field)} here and ${show(linkThere)} on the server`,
     );
   }
-  const typePresentation = (["label", "description", "display_hints"] as const)
-    .filter(
-      (name) =>
-        carried[name] !== undefined &&
-        !isDeepStrictEqual(carried[name], declared[name]),
-    )
-    .map(String);
-  const tables = tableDifferences(carried, served, declared);
+  const tables = tableDifferences(carried, served);
   other.push(...tables.other);
-  return {
-    missing,
-    presentation: [...typePresentation, ...tables.presentation],
-    tables: tables.missing,
-    other,
-  };
+  return { missing, tables: tables.missing, other };
+}
+
+/** Whether the installed endpoints take every type the build writes: an
+ *  installed list that is empty or holds `*` takes any, and a build that
+ *  names none needs one that does. The plugin installs the widest shape a
+ *  connector takes, so a build may write fewer. */
+function covers(
+  installed: readonly string[],
+  built: readonly string[] | undefined,
+): boolean {
+  const any = (values: readonly string[]) =>
+    values.length === 0 || values.includes("*");
+  if (any(installed)) return true;
+  if (built === undefined || any(built)) return false;
+  return built.every((value) => installed.includes(value));
+}
+
+/** An endpoint list as its names, since a logged list in brackets is cut. */
+function named(values: readonly string[] | undefined): string {
+  return values === undefined || values.length === 0
+    ? "any type"
+    : values.join(", ");
 }
 
 export function edgeTypeDifferences(
   carried: ConnectionDefinition,
   served: EdgeType,
 ): string[] {
-  const sorted = (values: readonly string[] | undefined) =>
-    [...(values ?? [])].sort();
   const pairs: [string, unknown, unknown][] = [
     ["cardinality", carried.cardinality, served.cardinality],
     [
@@ -269,52 +249,35 @@ export function edgeTypeDifferences(
       carried.cascade_on_delete ?? "orphan",
       served.cascade_on_delete,
     ],
-    [
-      "from_type_constraints",
-      sorted(carried.from_type_constraints),
-      sorted(served.from_type_constraints),
-    ],
-    [
-      "to_type_constraints",
-      sorted(carried.to_type_constraints),
-      sorted(served.to_type_constraints),
-    ],
     ["reverse_name", carried.reverse_name, served.reverse_name],
     ["written_from", carried.written_from ?? "from", served.written_from],
   ];
-  return pairs
-    .filter(([, here, there]) => JSON.stringify(here) !== JSON.stringify(there))
-    .map(
-      ([name, here, there]) =>
-        `${name} is ${show(here)} here and ${show(there)} on the server`,
-    );
-}
-
-export function constraintWidening(
-  carried: ConnectionDefinition,
-  served: EdgeType,
-): boolean {
-  if (
-    edgeTypeDifferences(
-      {
-        ...carried,
-        from_type_constraints: served.from_type_constraints,
-        to_type_constraints: served.to_type_constraints,
-      },
-      served,
-    ).length > 0 ||
-    !isDeepStrictEqual(carried.property_schema ?? {}, served.property_schema)
-  )
-    return false;
-  const widens = (before: readonly string[], after: readonly string[]) => {
-    const all = (values: readonly string[]) =>
-      values.length === 0 || values.includes("*");
-    if (all(after)) return true;
-    if (all(before)) return false;
-    return before.every((value) => after.includes(value));
-  };
-  return (
-    widens(served.from_type_constraints, carried.from_type_constraints ?? []) &&
-    widens(served.to_type_constraints, carried.to_type_constraints ?? [])
-  );
+  const ends: [string, readonly string[] | undefined, readonly string[]][] = [
+    [
+      "from_type_constraints",
+      carried.from_type_constraints,
+      served.from_type_constraints,
+    ],
+    [
+      "to_type_constraints",
+      carried.to_type_constraints,
+      served.to_type_constraints,
+    ],
+  ];
+  return [
+    ...pairs
+      .filter(
+        ([, here, there]) => JSON.stringify(here) !== JSON.stringify(there),
+      )
+      .map(
+        ([name, here, there]) =>
+          `${name} is ${show(here)} here and ${show(there)} on the server`,
+      ),
+    ...ends
+      .filter(([, here, there]) => !covers(there, here))
+      .map(
+        ([name, here, there]) =>
+          `${name} is ${named(here)} here and ${named(there)} on the server, which does not take every type the connector writes`,
+      ),
+  ];
 }

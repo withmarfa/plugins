@@ -2,6 +2,7 @@ import { type ChildProcess, execFile, spawn } from "node:child_process";
 import { createClient } from "@withmarfa/client";
 import { request } from "node:http";
 import type { Minted } from "./connector.js";
+import { rememberInstaller } from "./install.js";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -110,6 +111,7 @@ export class ProofServer {
       metadata_permissions: { "*": "write" },
       profile_permissions: { "*": "read" },
     });
+    rememberInstaller(url, key.key);
     const management = await this.mintKey({
       label: "connector proof reports",
       source: "proof-reports",

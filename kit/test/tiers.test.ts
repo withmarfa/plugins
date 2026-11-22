@@ -11,7 +11,7 @@ afterEach(async () => {
   await harness.close();
 });
 
-/** A client for the scripted server, once a run has registered the type. */
+/** A client for the scripted server, once a run has started against the installed type. */
 async function marfa(): Promise<Marfa> {
   expect(await harness.once(vendor([]))).toBe(0);
   return new Marfa(() =>

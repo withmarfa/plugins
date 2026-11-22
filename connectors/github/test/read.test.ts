@@ -50,9 +50,6 @@ beforeEach(async () => {
     types,
     edges: connections,
   }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.appPem = key;
 });
@@ -1112,9 +1109,7 @@ describe("a repository", () => {
 
   describe("shared with a second process", () => {
     const peerToken = "github_pat_peer_12345678";
-    const grants = {
-      metadata_permissions: { types: "write", edge_types: "write" },
-    };
+    const grants = {};
 
     /** A second process: its own key, which claims the source `github`, and
      *  its own personal token, so it keeps its own agreements. */

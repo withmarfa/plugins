@@ -31,7 +31,6 @@ export async function proveParentOf(
         source,
         type_permissions: { [type]: "write" },
         edge_permissions: { "parent-of": "write" },
-        metadata_permissions: { types: "write" },
         default_tier: "feed",
       });
       const marfa = createClient({ baseUrl: url, credential: key.key });

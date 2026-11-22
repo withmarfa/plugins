@@ -6,8 +6,7 @@ import {
   derivedFrom,
   edit,
   fieldsOf,
-  registeredAsKindOf,
-  typeHeld,
+  installedAsKindOf,
   item,
   keyBody,
   lastRun,
@@ -88,9 +87,8 @@ export async function proveTodoist(
     const all = [a, b, c, d, e];
     todoist.put(...all);
     await check(
-      "todoist: a first run registers todoist.task as a kind of core.task and writes the account's tasks at the feed tier, each linked to its task",
+      "todoist: a first run writes the account's tasks at the feed tier, to the todoist.task its plugin installed as a kind of core.task, each linked to its task",
       async () => {
-        const wasHeld = await typeHeld(marfa, "todoist.task");
         await runOnce();
         const written = await rows();
         const tiers = [...new Set([...written.values()].map((r) => r.tier))];
@@ -99,11 +97,10 @@ export async function proveTodoist(
             `${String(written.size)} rows at ${tiers.join(", ")}`,
           );
         }
-        const { own, inherited } = await registeredAsKindOf(
+        const { own, inherited } = await installedAsKindOf(
           marfa,
           "todoist.task",
           "core.task",
-          wasHeld,
           written.values(),
         );
         const expected =
@@ -145,7 +142,7 @@ export async function proveTodoist(
         if (JSON.stringify(landed) !== JSON.stringify(wanted)) {
           throw new Error(`the server holds ${JSON.stringify(landed)}`);
         }
-        return `todoist.task, absent before the run, registered with parent core.task, all ${String(inherited)} of its fields and ${own.join(", ")} beside them; ${String(written.size)} rows, tier feed, every property a field of the type, todoist_id ${links.join(", ")}; on the server ${JSON.stringify(landed)}`;
+        return `todoist.task, installed by the plugin with parent core.task, all ${String(inherited)} of its fields and ${own.join(", ")} beside them; ${String(written.size)} rows, tier feed, every property a field of the type, todoist_id ${links.join(", ")}; on the server ${JSON.stringify(landed)}`;
       },
     );
 
@@ -973,7 +970,7 @@ export async function proveTodoist(
     );
 
     await check(
-      "todoist: a key holding permissions beside its type, among them schema.write, is refused at start, before it registers the type or writes a row, naming every one",
+      "todoist: a key holding permissions beside its type, among them schema.write, is refused at start, before it checks the type or writes a row, naming every one",
       async () => {
         const { data: wide, error } = await marfa.POST("/keys", {
           body: {

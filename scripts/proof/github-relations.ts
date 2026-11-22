@@ -63,7 +63,6 @@ export async function proveGitHubRelations(
       edge_permissions: Object.fromEntries(
         connections.map((type) => [type, "write"]),
       ),
-      metadata_permissions: { types: "write", edge_types: "write" },
       default_tier: "feed",
     });
     const marfa = createClient({ baseUrl: url, credential: key.key });

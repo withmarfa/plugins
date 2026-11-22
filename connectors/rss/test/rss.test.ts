@@ -2100,7 +2100,7 @@ describe("the connector, run as a process", () => {
     return found;
   }
 
-  it("registers rss.entry as a kind of bookmark, and writes both feeds' entries at the feed tier", async () => {
+  it("writes both feeds' entries at the feed tier, to the rss.entry its plugin installed as a kind of bookmark", async () => {
     expect((await once()).code).toBe(0);
     const registered = marfa.types.get("rss.entry");
     expect(registered?.["parent"]).toBe("core.bookmark");
@@ -2109,7 +2109,9 @@ describe("the connector, run as a process", () => {
       "entry_id",
       "feed_origin",
       "feed_hash",
+      "rss_pictures",
     ]);
+    expect(marfa.requests.filter((one) => one.path === "/types")).toEqual([]);
     expect(marfa.rows).toHaveLength(4);
     expect(marfa.rows.every((candidate) => candidate.tier === "feed")).toBe(
       true,
@@ -3268,7 +3270,6 @@ describe("the connector, run as a process", () => {
     marfa.grants = {
       permissions: ["keys.mint"],
       type_permissions: { "rss.entry": "write" },
-      metadata_permissions: { types: "write" },
     };
     const { code } = await once();
     expect(code).toBe(1);

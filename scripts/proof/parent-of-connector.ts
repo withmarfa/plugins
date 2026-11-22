@@ -1,5 +1,6 @@
 import { appendFileSync } from "node:fs";
 import { defineConnector, main, type Entry } from "@withmarfa/connector";
+import { isProgram } from "./program.js";
 
 const source = "proof-parent-of";
 const type = "proof.parent.event";
@@ -21,53 +22,53 @@ function entries(): Entry[] {
   }));
 }
 
-void main(
-  defineConnector({
-    name: source,
-    description: "The proof's calendar, whose exceptions name their series.",
-    source,
-    types: [
-      {
-        type: {
-          id: type,
-          label: "Event",
-          description: "A calendar event or one occurrence of a series.",
-          link_field: "vendor_id",
-          fields: {
-            title: { type: "string", required: true },
-            vendor_id: { type: "string" },
-          },
+export const connector = defineConnector({
+  name: source,
+  description: "The proof's calendar, whose exceptions name their series.",
+  source,
+  types: [
+    {
+      type: {
+        id: type,
+        label: "Event",
+        description: "A calendar event or one occurrence of a series.",
+        link_field: "vendor_id",
+        fields: {
+          title: { type: "string", required: true },
+          vendor_id: { type: "string" },
         },
-        fields: ["title", "vendor_id"],
       },
-    ],
-    connections: [
-      {
-        id: "child-of",
-        cardinality: "many-to-one",
-        cascade_on_delete: "cascade",
-        from_type_constraints: [type],
-        to_type_constraints: [type],
-      },
-    ],
-    async run(context) {
-      await context.upsert(type, entries());
+      fields: ["title", "vendor_id"],
     },
-    onChange(change) {
-      appendFileSync(
-        journal,
-        `${JSON.stringify({
-          kind: change.kind,
-          event: change.item.source_id,
-          added: (change.connections?.["child-of"]?.added ?? []).map(
-            (row) => row.source_id,
-          ),
-          removed: (change.connections?.["child-of"]?.removed ?? []).map(
-            (row) => row.source_id,
-          ),
-        })}\n`,
-      );
-      return Promise.resolve(undefined);
+  ],
+  connections: [
+    {
+      id: "child-of",
+      cardinality: "many-to-one",
+      cascade_on_delete: "cascade",
+      from_type_constraints: [type],
+      to_type_constraints: [type],
     },
-  }),
-);
+  ],
+  async run(context) {
+    await context.upsert(type, entries());
+  },
+  onChange(change) {
+    appendFileSync(
+      journal,
+      `${JSON.stringify({
+        kind: change.kind,
+        event: change.item.source_id,
+        added: (change.connections?.["child-of"]?.added ?? []).map(
+          (row) => row.source_id,
+        ),
+        removed: (change.connections?.["child-of"]?.removed ?? []).map(
+          (row) => row.source_id,
+        ),
+      })}\n`,
+    );
+    return Promise.resolve(undefined);
+  },
+});
+
+if (isProgram(import.meta.url)) await main(connector);
