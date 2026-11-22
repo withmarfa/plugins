@@ -1495,7 +1495,6 @@ export async function runOnce<E extends SettingsDeclaration>(
     const found = await setup.marfa.ownRows(
       type,
       state,
-      "all",
       options?.edges === true,
     );
     return found

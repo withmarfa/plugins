@@ -164,7 +164,7 @@ function marfa(documents: ReaderDocument[], tier: "feed" | "library" = "feed") {
             id: value.source_id,
             source_id: value.source_id,
             type,
-            tier: prior?.tier ?? value.tier ?? "feed",
+            tier: prior?.tier ?? "feed",
             state: prior?.state ?? "active",
             properties: {
               ...value.properties,
@@ -181,7 +181,7 @@ function marfa(documents: ReaderDocument[], tier: "feed" | "library" = "feed") {
     who: keyof typeof agreed,
     jobs: ContentJob[],
     options: {
-      setting?: "save" | "save-in-library";
+      setting?: "save";
       limits?: ConstructorParameters<typeof PictureBudget>[1];
       land?: boolean;
     } = {},
@@ -403,14 +403,13 @@ describe("Reader pictures on other websites", () => {
     expect(m.reader.calls - calls).toBeLessThanOrEqual(3);
   });
 
-  it("saves the pictures of library documents alone with save-in-library", async () => {
-    const feed = marfa([thirdParty], "feed");
-    await feed.run("reader", [job("one")], { setting: "save-in-library" });
-    expect(feed.fetch).not.toHaveBeenCalled();
-    const library = marfa([thirdParty], "library");
-    await library.run("reader", [job("one")], { setting: "save-in-library" });
-    expect(library.fetch).toHaveBeenCalledTimes(1);
-    expect(library.rows.get(pictureKey("one", a))?.tier).toBe("library");
+  it("saves the pictures of a document in the feed as of one in the library", async () => {
+    for (const tier of ["feed", "library"] as const) {
+      const held = marfa([thirdParty], tier);
+      await held.run("reader", [job("one")], { setting: "save" });
+      expect(held.fetch).toHaveBeenCalledTimes(1);
+      expect(held.rows.get(pictureKey("one", a))).toBeDefined();
+    }
   });
 
   it("takes each img address once and saves at most 50 pictures of a document", async () => {

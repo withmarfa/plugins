@@ -920,7 +920,6 @@ export class Marfa {
   async ownRows(
     type: string,
     state: "any" | "active" = "any",
-    tier: "feed" | "library" | "all" = "all",
     edges = false,
   ): Promise<Item[]> {
     const rows: Item[] = [];
@@ -930,7 +929,6 @@ export class Marfa {
           query: {
             type: this.out(type),
             state,
-            ...(tier !== "all" && { tier }),
             ...(edges && { include: "edges" }),
             limit: listingPage,
             ...(cursor !== undefined && { cursor }),

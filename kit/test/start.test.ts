@@ -378,13 +378,6 @@ describe("the key check on start", () => {
     expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
   });
 
-  it("refuses a key whose default tier is not the feed, since the connector names no tier on most writes", async () => {
-    harness.server.grants = { default_tier: "library" } as never;
-    expect(await harness.once(vendor([entry]))).toBe(3);
-    expect(harness.lastRun().error).toContain("a default tier of library");
-    expect(harness.server.rows).toEqual([]);
-  });
-
   it("refuses a key an app made, however narrow, before it registers anything, saying how to mint another", async () => {
     harness.server.grants = {
       oauth_client_id: "client-1",

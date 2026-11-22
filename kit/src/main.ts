@@ -152,11 +152,6 @@ function keyWiderThanTypes(
   held("edge", key.edge_permissions, (name) => edges.has(name));
   held("extension", key.extension_permissions, () => false);
   held("profile", key.profile_permissions, () => false);
-  // A connector writes at the feed tier unless a row belongs to something
-  // already in the library, which it names.
-  if (key.default_tier !== "feed") {
-    wider.push(`a default tier of ${key.default_tier}`);
-  }
   // An exemption from the instance's own rules is never a connector's.
   for (const lever of Object.keys(key.enforcement_override ?? {})) {
     wider.push(`an enforcement override of ${lever}`);

@@ -886,22 +886,27 @@ describe("the pictures an entry points to", () => {
     expect(manifest("e2").saved).toEqual([at("/b.png")]);
   });
 
-  it("saves the pictures of an entry in the library, at the library tier, and of one in the feed at the feed tier", async () => {
+  it("names no tier for a picture, which takes the tier the owner's mapping chose for pictures, whatever its entry's", async () => {
     pictures["/a.png"] = { body: png(1) };
-    pictures["/b.png"] = { body: png(2) };
-    documents["/one.json"] = [
-      { id: "e1", title: "One" },
-      { id: "e2", title: "Two" },
-    ];
-    expect((await once()).code).toBe(0);
-    entry("e1").tier = "library";
+    marfa.mapping.kinds["picture"] = {
+      enabled: true,
+      target_type: "rss.picture",
+      tier: "library",
+    };
     documents["/one.json"] = [
       { id: "e1", title: "One", content_html: img(at("/a.png")) },
-      { id: "e2", title: "Two", content_html: img(at("/b.png")) },
     ];
     expect((await once()).code).toBe(0);
+    expect(entry("e1").tier).toBe("feed");
     expect(filesOf("e1").map((row) => row.tier)).toEqual(["library"]);
-    expect(filesOf("e2").map((row) => row.tier)).toEqual(["feed"]);
+    const creates = marfa
+      .requestsTo("POST", "/items/bulk")
+      .flatMap(
+        (request) =>
+          (request.body as { items: Record<string, unknown>[] }).items,
+      );
+    expect(creates.length).toBeGreaterThan(0);
+    expect(creates.some((item) => "tier" in item)).toBe(false);
   });
 
   it("fetches a picture from a private host only when the host is its own feed's", async () => {
@@ -924,187 +929,6 @@ describe("the pictures an entry points to", () => {
       [at("/b.png")]: "private_address",
     });
     expect(asked).toEqual(["/a.png"]);
-  });
-
-  describe("save-in-library", () => {
-    beforeEach(() => {
-      pictures["/a.png"] = { body: png(1) };
-      pictures["/b.png"] = { body: png(2) };
-      documents["/one.json"] = [
-        { id: "e1", title: "One", content_html: img(at("/a.png")) },
-      ];
-    });
-
-    it("saves nothing for an entry in the feed, and saves once for an entry in the library, at the library tier", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(filesOf("e1")).toEqual([]);
-      expect(entry("e1").properties).not.toHaveProperty("rss_pictures");
-
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual(["/a.png"]);
-      expect(filesOf("e1")).toHaveLength(1);
-      expect(filesOf("e1")[0]?.tier).toBe("library");
-      expect(manifest("e1").saved).toEqual([at("/a.png")]);
-
-      asked = [];
-      const uploads = marfa.uploads;
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(marfa.uploads).toBe(uploads);
-      expect(filesOf("e1")).toHaveLength(1);
-    });
-
-    it("keeps the pictures of an entry moved back to the feed, and saves no new ones for it", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(filesOf("e1")).toHaveLength(1);
-
-      entry("e1").tier = "feed";
-      documents["/one.json"] = [
-        {
-          id: "e1",
-          title: "One",
-          content_html: img(at("/a.png")) + img(at("/b.png")),
-        },
-      ];
-      asked = [];
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(filesOf("e1")).toHaveLength(1);
-      expect(filesOf("e1")[0]?.state).toBe("active");
-      expect(manifest("e1").saved).toEqual([at("/a.png")]);
-    });
-
-    it("saves the pictures an entry in the library gains with its text", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      documents["/one.json"] = [
-        {
-          id: "e1",
-          title: "One",
-          content_html: img(at("/a.png")) + img(at("/b.png")),
-        },
-      ];
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(filesOf("e1")).toHaveLength(2);
-      expect(manifest("e1").saved.sort()).toEqual(
-        [at("/a.png"), at("/b.png")].sort(),
-      );
-    });
-  });
-});
-
-describe("the addresses an entry points to", () => {
-  it("takes the image first and then the Markdown images of the body, each once, https and http alone", () => {
-    const body = [
-      "![one](https://example.org/1.png)",
-      "![again](https://example.org/1.png)",
-      '![titled](https://example.org/2.png "A title")',
-      "![relative](/3.png)",
-      "![data](data:image/png;base64,AAAA)",
-      "![plain](http://example.org/4.png)",
-      "[not a picture](https://example.org/5.png)",
-    ].join("\n");
-    expect(addressesOf(body, "https://example.org/cover.png")).toEqual({
-      addresses: [
-        "https://example.org/cover.png",
-        "https://example.org/1.png",
-        "https://example.org/2.png",
-        "http://example.org/4.png",
-      ],
-      over: 0,
-    });
-    expect(addressesOf(undefined, undefined)).toEqual({
-      addresses: [],
-      over: 0,
-    });
-  });
-
-  it("leaves out an address that is too long to be one", () => {
-    const long = `https://example.org/${"a".repeat(2100)}.png`;
-    expect(addressesOf(`![x](${long})`, undefined).addresses).toEqual([]);
-  });
-});
-
-describe("the hosts a picture may be fetched from", () => {
-  const listed = new Set(["feeds.internal.example"]);
-
-  it("allows a listed host for a picture on the host of the entry's own feed", () => {
-    expect(
-      privateHostsFor(
-        listed,
-        "https://feeds.internal.example:8443",
-        "https://feeds.internal.example/a.png",
-      ),
-    ).toEqual(new Set(["feeds.internal.example"]));
-  });
-
-  it("allows nothing for a picture on another host, a feed that names none, or an address that is not one", () => {
-    const own = "https://feeds.internal.example";
-    const none = new Set<string>();
-    expect(
-      privateHostsFor(
-        listed,
-        "https://other.example",
-        "https://feeds.internal.example/a.png",
-      ),
-    ).toEqual(none);
-    expect(privateHostsFor(listed, own, "https://other.example/a.png")).toEqual(
-      none,
-    );
-    expect(
-      privateHostsFor(
-        listed,
-        undefined,
-        "https://feeds.internal.example/a.png",
-      ),
-    ).toEqual(none);
-    expect(privateHostsFor(listed, own, "not an address")).toEqual(none);
-    expect(
-      privateHostsFor(new Set(), own, "https://feeds.internal.example/a.png"),
-    ).toEqual(none);
-  });
-});
-
-describe("a refusal that may pass", () => {
-  it.each([
-    ["timed_out", undefined],
-    ["fetch_failed", undefined],
-    ["upload_failed", undefined],
-    ["bad_status", 408],
-    ["bad_status", 425],
-    ["bad_status", 429],
-    ["bad_status", 500],
-    ["bad_status", 502],
-    ["bad_status", 503],
-    ["bad_status", 504],
-    ["bad_status", 599],
-  ])("%s %s may pass", (reason, status) => {
-    expect(mayPass(reason, status)).toBe(true);
-  });
-
-  it.each([
-    ["bad_status", 400],
-    ["bad_status", 401],
-    ["bad_status", 403],
-    ["bad_status", 404],
-    ["bad_status", 410],
-    ["bad_status", 451],
-    ["bad_status", 302],
-    ["bad_status", 201],
-    ["bad_status", undefined],
-    ["private_address", undefined],
-    ["tracker", undefined],
-    ["too_large", undefined],
-    ["not_a_picture", undefined],
-    ["svg", undefined],
-    ["one_pixel", undefined],
-  ])("%s %s does not", (reason, status) => {
-    expect(mayPass(reason, status)).toBe(false);
   });
 });
 

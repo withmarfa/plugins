@@ -18,23 +18,17 @@ import rssPicture from "./rss.picture.json" with { type: "json" };
  * What the connector does with the pictures an entry points to:
  *
  * - `addresses`: nothing. The entry keeps the addresses in its text.
- * - `save`: saves the pictures of each entry as files, in the tier the entry
- *   is in.
- * - `save-in-library`: saves the pictures of each entry that is in the
- *   library, and of none that is in the feed.
+ * - `save`: saves the pictures of each entry as files, at the tier the
+ *   owner's mapping chose for pictures, the feed by default.
  */
-export const picturesSettings = [
-  "addresses",
-  "save",
-  "save-in-library",
-] as const;
+export const picturesSettings = ["addresses", "save"] as const;
 export type PicturesSetting = (typeof picturesSettings)[number];
 
 export function picturesSetting(value: string | undefined): PicturesSetting {
   if (value === undefined) return "addresses";
   const setting = picturesSettings.find((one) => one === value);
   if (setting === undefined) {
-    throw new Error("rss_pictures must be addresses, save or save-in-library");
+    throw new Error("rss_pictures must be addresses or save");
   }
   return setting;
 }
@@ -387,14 +381,7 @@ export async function savePictures(
   let bytes = 0;
   for (const entry of entries) {
     const entryId = entry.source_id;
-    const tier = entry.tier ?? "feed";
-    if (
-      entryId === undefined ||
-      entry.state !== "active" ||
-      (options.setting === "save-in-library" && tier !== "library")
-    ) {
-      continue;
-    }
+    if (entryId === undefined || entry.state !== "active") continue;
     const text = textHash(
       entry.properties["body"],
       entry.properties["image_url"],
@@ -468,7 +455,6 @@ export async function savePictures(
                 .filter((field) => held.properties[field] !== undefined)
                 .map((field) => [field, held.properties[field]]),
             ),
-            tier: held.tier,
             connections: connection,
           });
           if (archived) revival.push(id);
@@ -519,7 +505,6 @@ export async function savePictures(
             title: titleOf(address, got.mime_type),
             source_url: address,
           },
-          tier,
           connections: connection,
           file: {
             key: sha256(got.bytes),
