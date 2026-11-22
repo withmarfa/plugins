@@ -1,10 +1,10 @@
 # Tickets
 
-Tickets lets you track work and questions in Marfa, from backlog to done. It adds `common.ticket` and four kinds of ticket:
+Tickets lets you track work and questions in Marfa, from backlog to done. It adds four kinds of ticket, grouped under `common.ticket`:
 
 | Type                    | Use it for                                                      |
 | ----------------------- | --------------------------------------------------------------- |
-| `common.ticket`         | Any work or question you want tracked, when no kind fits.       |
+| `common.ticket`         | Every ticket, of any kind. Write one of the kinds below.        |
 | `common.ticket.epic`    | An outcome made of several tickets. Its tickets sit beneath it. |
 | `common.ticket.feature` | A change that people using a product or service would notice.   |
 | `common.ticket.spike`   | A question to answer before deciding or building.               |
