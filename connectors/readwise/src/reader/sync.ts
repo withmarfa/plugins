@@ -39,7 +39,7 @@ import { parseConfig } from "./config.js";
 import type { settings } from "../settings.js";
 import { ReaderIdentities } from "./identity.js";
 import { packIdentities, unpackIdentities } from "./checkpoint.js";
-import { heldRows } from "../held.js";
+import { heldRows, ProgressNotSaved } from "../held.js";
 export const readerArchived = (
   properties: Readonly<Record<string, unknown>>,
 ): boolean => properties["reader_location"] === "archive";
@@ -203,7 +203,7 @@ async function checkpoint(scope: ReaderScope, saved: Progress): Promise<void> {
     );
   const result = await scope.state.checkpoint("listing", stored);
   if (!result.committed)
-    throw new Error(`Reader listing progress was not saved: ${result.reason}`);
+    throw new ProgressNotSaved("Reader listing progress", result.reason);
 }
 function idFromKey(account: string, key: string): string {
   for (const kind of ["document", "highlight"]) {

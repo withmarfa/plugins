@@ -30,6 +30,7 @@ import {
 } from "./content-queue.js";
 import { readerFileFields, readerFileType } from "./content-types.js";
 import { ReadwiseAuthorizationError, ReadwiseThrottleError } from "./http.js";
+import { ProgressNotSaved } from "./held.js";
 import { mapReaderSource } from "./reader.js";
 import type { ReaderReader } from "./reader-client.js";
 
@@ -213,7 +214,7 @@ async function savePictureState(
   );
   const result = await state.checkpoint(stateKey, value);
   if (!result.committed)
-    throw new Error(`Reader picture progress was not saved: ${result.reason}`);
+    throw new ProgressNotSaved("Reader picture progress", result.reason);
 }
 
 /** How Reader's content preservation lists pictures under the setting. */

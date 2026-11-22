@@ -229,6 +229,61 @@ describe("with Reader on", () => {
     },
   );
 
+  it.each([
+    ["off", { READWISE_READER: "false" }],
+    ["inbound only", { READWISE_READER_INBOUND_ONLY: "true" }],
+  ])(
+    "says a lost save is why nothing imports while Reader is %s, and settles it once Reader is back",
+    async (_, paused) => {
+      const { marfa, vendor, once } = await adopted();
+      const made = marfa.insert(
+        undefined,
+        {
+          account: "primary",
+          title: "Made in Marfa",
+          url: "https://example.com/made",
+          reader_create: true,
+        },
+        "readwise.source",
+        "person",
+      );
+      vendor.uncertain();
+      await once().catch(() => undefined);
+      const saves = () =>
+        vendor.writes.filter((write) => write.path === "/v3/save/");
+      expect(saves()).toHaveLength(1);
+      vendor.sources.push({
+        user_book_id: 3,
+        source: "kindle",
+        external_id: "book-3",
+        title: "Later book",
+        highlights: [],
+      });
+      const written = vendor.writes.length;
+      const failure = await once(paused).then(
+        () => undefined,
+        (error: unknown) => String((error as { stderr?: unknown }).stderr),
+      );
+      expect(failure).toContain("A save to Reader was sent but not confirmed");
+      expect(failure).toContain("Turn Reader back on");
+      expect(failure).not.toContain("row-refused");
+      expect(vendor.writes).toHaveLength(written);
+      expect(() => marfa.row("primary:source:3")).toThrow();
+      expect(Object.keys(marfa.problems.get("readwise") ?? {})).toContain(
+        "readwise:reader-save-unconfirmed",
+      );
+      await once();
+      await once();
+      expect(saves()).toHaveLength(1);
+      expect(marfa.byId(made.id).properties["canonical_key"]).toBe(
+        "primary:reader-document:created",
+      );
+      expect(marfa.row("primary:source:3").properties["title"]).toBe(
+        "Later book",
+      );
+    },
+  );
+
   it("carries a supported edit back to Reader and leaves an unsupported one", async () => {
     const { marfa, vendor, once } = await adopted();
     marfa.edit(marfa.row("primary:source:1").id, { title: "Marfa title" });

@@ -16,6 +16,7 @@ import {
   type ReaderEnrichment,
 } from "../readwise.js";
 import type { settings } from "../settings.js";
+import { ProgressNotSaved } from "../held.js";
 export type IdentityContext = Pick<
   RunContext<typeof settings>,
   "inspect" | "held" | "pendingOutbound" | "log"
@@ -392,7 +393,7 @@ export class ReaderIdentities {
       );
     const saved = await this.state.checkpoint("identities", stored);
     if (!saved.committed)
-      throw new Error(`Reader identity cache was not saved: ${saved.reason}`);
+      throw new ProgressNotSaved("Reader identity cache", saved.reason);
   }
 
   private alias(
@@ -589,9 +590,7 @@ export class ReaderIdentities {
       value ? catalogVersion : false,
     );
     if (!saved.committed)
-      throw new Error(
-        `Reader lifecycle evidence was not saved: ${saved.reason}`,
-      );
+      throw new ProgressNotSaved("Reader lifecycle evidence", saved.reason);
     this.lifecycleReady = value;
   }
   private activeAlias(

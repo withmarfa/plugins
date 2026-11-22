@@ -28,7 +28,7 @@ import {
   SharedRows,
   type SharedContext,
 } from "./managed.js";
-import type { Held } from "./held.js";
+import { ProgressNotSaved, type Held } from "./held.js";
 import { settings } from "./settings.js";
 import { highlightType, sourceType } from "./readwise.js";
 
@@ -125,7 +125,7 @@ function progress(
 async function checkpoint(scope: ReadScope, value: Progress): Promise<void> {
   const result = await scope.state.checkpoint(stateKey, value);
   if (!result.committed)
-    throw new Error(`Readwise export progress was not saved: ${result.reason}`);
+    throw new ProgressNotSaved("Readwise export progress", result.reason);
 }
 async function write(
   scope: ReadScope,
@@ -406,7 +406,7 @@ export async function sync(
           new Date(now()).toISOString(),
         );
         if (!refreshed.committed)
-          throw new Error(`Reader refresh was not saved: ${refreshed.reason}`);
+          throw new ProgressNotSaved("Reader refresh", refreshed.reason);
       }
     }
     if (saved.shape !== shape) {

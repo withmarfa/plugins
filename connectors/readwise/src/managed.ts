@@ -20,7 +20,7 @@ import {
   type ReaderDocument,
   parseReaderPage,
 } from "./readwise.js";
-import { nothingHeld, type Held } from "./held.js";
+import { nothingHeld, ProgressNotSaved, type Held } from "./held.js";
 
 export interface IdentityInspection {
   items: readonly Item[];
@@ -499,15 +499,17 @@ export class SharedRows {
       if (complete) {
         const saved = await scope.state?.checkpoint("cursor", row.id);
         if (saved !== undefined && !saved.committed)
-          throw new Error(
-            `Reader refresh progress was not saved: ${saved.reason ?? "unknown"}`,
+          throw new ProgressNotSaved(
+            "Reader refresh progress",
+            saved.reason ?? "unknown",
           );
       }
     }
     const saved = await scope.state?.checkpoint("cursor", null);
     if (saved !== undefined && !saved.committed)
-      throw new Error(
-        `Reader refresh completion was not saved: ${saved.reason ?? "unknown"}`,
+      throw new ProgressNotSaved(
+        "Reader refresh completion",
+        saved.reason ?? "unknown",
       );
     return complete;
   }

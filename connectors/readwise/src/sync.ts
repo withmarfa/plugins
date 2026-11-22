@@ -1,6 +1,11 @@
 import type { RunContext } from "@withmarfa/connector";
 import { pictureListing } from "./readwise.js";
-import { heldRows } from "./held.js";
+import {
+  heldRows,
+  ProgressNotSaved,
+  unconfirmedSave,
+  type Held,
+} from "./held.js";
 import { settings } from "./settings.js";
 import { parseConfig } from "./reader/config.js";
 import { sync as exportSync, type ReadContext } from "./export-sync.js";
@@ -24,6 +29,35 @@ export async function sync(
     context.pendingOutbound(),
     config.reader && !config.inboundOnly,
   );
+  try {
+    await read(context, held, config, fromReader);
+  } catch (error) {
+    throw explained(context, held, error);
+  }
+}
+
+/**
+ * A scope refused its progress because the kit holds every entry of a type
+ * for a create whose answer was lost: say that, and how it settles, in place
+ * of the kit's reason.
+ */
+function explained(context: Context, held: Held, error: unknown): unknown {
+  if (
+    !held.unlinkedCreate ||
+    !(error instanceof ProgressNotSaved) ||
+    error.reason !== "row-refused"
+  )
+    return error;
+  context.log.condition("readwise:reader-save-unconfirmed", unconfirmedSave);
+  return new Error(unconfirmedSave);
+}
+
+async function read(
+  context: Context,
+  held: Held,
+  config: ReturnType<typeof parseConfig>,
+  fromReader: Set<string> | undefined,
+): Promise<void> {
   if (!config.reader) {
     await exportSync(context, { held });
     return;
