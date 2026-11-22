@@ -4,13 +4,25 @@ import {
   verifyHmac,
   type Entry,
   type Item,
+  type SettingsDeclaration,
 } from "@withmarfa/connector";
 import type { Issue } from "./tracker-stub.js";
 
-const env = {
-  PROOF_VENDOR_URL: "required",
-  PROOF_WEBHOOK_SECRET: "secret",
-} as const;
+const settings = [
+  {
+    name: "proof_vendor_url",
+    label: "Proof vendor url",
+    kind: "text",
+    required: true,
+  },
+  {
+    name: "proof_webhook_secret",
+    label: "Proof webhook secret",
+    kind: "text",
+    secret: true,
+    required: true,
+  },
+] as const satisfies SettingsDeclaration;
 
 function issueEntry(issue: Issue): Entry {
   return {
@@ -83,10 +95,10 @@ const connector = defineConnector({
     },
   ],
   carries: () => ["proof.issue"],
-  env,
+  settings,
   async run({ env: values, signal, hints, upsert, linked, log }) {
     const call = async (path: string): Promise<Response> =>
-      fetch(new URL(path, values.PROOF_VENDOR_URL), { signal });
+      fetch(new URL(path, values.proof_vendor_url), { signal });
     const named = hints?.get("proof.issue");
     const issues: Issue[] = [];
     if (named === undefined) {
@@ -119,7 +131,7 @@ const connector = defineConnector({
             key: etag,
             load: async (loading: AbortSignal) => {
               const answer = await fetch(
-                new URL(`attachments/${id}`, values.PROOF_VENDOR_URL),
+                new URL(`attachments/${id}`, values.proof_vendor_url),
                 { signal: loading },
               );
               if (!answer.ok || answer.body === null) {
@@ -146,7 +158,7 @@ const connector = defineConnector({
       path: string,
       body?: unknown,
     ): Promise<Issue> => {
-      const answer = await fetch(new URL(path, context.env.PROOF_VENDOR_URL), {
+      const answer = await fetch(new URL(path, context.env.proof_vendor_url), {
         method,
         signal: context.signal,
         headers: { "Content-Type": "application/json" },
@@ -210,7 +222,7 @@ const connector = defineConnector({
   inbound: {
     verify: (delivery, values) =>
       verifyHmac({
-        secret: values.PROOF_WEBHOOK_SECRET,
+        secret: values.proof_webhook_secret,
         body: delivery.body,
         signature: delivery.header("X-Hub-Signature-256"),
         prefix: "sha256=",

@@ -1,0 +1,8 @@
+{
+  "id": "github.sub-issue-of",
+  "label": "Sub-issue of",
+  "description": "A GitHub issue beneath its parent issue.",
+  "cardinality": "many-to-one",
+  "from_type_constraints": ["github.issue"],
+  "to_type_constraints": ["github.issue"]
+}

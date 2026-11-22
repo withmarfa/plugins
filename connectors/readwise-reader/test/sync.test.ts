@@ -62,15 +62,15 @@ function fixture(capacity = false, hints?: ReaderContext["hints"]) {
   let writeFails = false;
   const context: ReaderContext = {
     env: {
-      READWISE_ACCOUNT: "one",
-      READWISE_ACCESS_TOKEN: "token",
-      READWISE_API_URL: undefined,
-      READWISE_READER_API_URL: undefined,
-      READWISE_READER_INCLUDE_FEED: undefined,
-      READWISE_READER_PICTURES: undefined,
-      READWISE_READER_INBOUND_ONLY: undefined,
-      READWISE_READER_PROPAGATE_PURGE: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
+      readwise_account: "one",
+      readwise_access_token: "token",
+      readwise_api_url: undefined,
+      readwise_reader_api_url: undefined,
+      readwise_reader_include_feed: undefined,
+      readwise_reader_pictures: undefined,
+      readwise_reader_inbound_only: undefined,
+      readwise_reader_propagate_purge: undefined,
+      readwise_content_max_bytes: undefined,
     },
     signal: controller.signal,
     waitUntil: () => Promise.resolve(),
@@ -262,8 +262,8 @@ describe("Reader durable metadata", () => {
     await f.run();
     const before = f.requests.length;
     (
-      f.context.env as { READWISE_READER_PICTURES?: string }
-    ).READWISE_READER_PICTURES = "save";
+      f.context.env as { readwise_reader_pictures?: string }
+    ).readwise_reader_pictures = "save";
     await f.run();
     expect(f.requests.slice(before)).toEqual([
       { updatedAfter: expect.any(String) as string },
@@ -1372,9 +1372,9 @@ it.each(["resume", "checkpoint failure", "cancellation"] as const)(
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const base = `http://127.0.0.1:${String((http.address() as AddressInfo).port)}`;
     Object.assign(f.context.env, {
-      READWISE_API_URL: `${base}/api/v2/`,
-      READWISE_READER_API_URL: `${base}/api/v3/`,
-      READWISE_ACCESS_TOKEN: `inbound-${outcome}`,
+      readwise_api_url: `${base}/api/v2/`,
+      readwise_reader_api_url: `${base}/api/v3/`,
+      readwise_access_token: `inbound-${outcome}`,
     });
     const waitUntil = vi.fn((until: string) => {
       expect(until).toBe("2026-10-15T00:01:00.000Z");

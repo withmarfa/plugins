@@ -4,13 +4,14 @@ import { createClient } from "@withmarfa/client";
 import type {
   ConnectionDefinition,
   Connector,
-  EnvDeclaration,
-  EnvValues,
+  SettingsDeclaration,
+  SettingValues,
 } from "./define.js";
 import {
   checkDefinition,
   ConfigurationError,
   readEnvironment,
+  variableOf,
   type Environment,
 } from "./environment.js";
 import { withoutBodies } from "./exception-text.js";
@@ -266,7 +267,7 @@ async function ensureConnections(
 }
 
 /** Every way the key is wrong at once, so one new key mends them all. */
-function keyProblems<E extends EnvDeclaration>(
+function keyProblems<E extends SettingsDeclaration>(
   connector: Connector<E>,
   key: Key,
 ): string | undefined {
@@ -295,7 +296,7 @@ function keyProblems<E extends EnvDeclaration>(
  * all the same; the next start asks again. An answer that does not come, or a
  * key Marfa refuses, ends the attempt as it ends any other call of the start.
  */
-async function nameSource<E extends EnvDeclaration>(
+async function nameSource<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   logger: Logger,
@@ -321,7 +322,7 @@ async function nameSource<E extends EnvDeclaration>(
   }
 }
 
-async function registerAndCheck<E extends EnvDeclaration>(
+async function registerAndCheck<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   environment: Environment,
@@ -337,7 +338,7 @@ async function registerAndCheck<E extends EnvDeclaration>(
     readOnlyTypesOf(
       specsOf(
         connector,
-        environment.values as EnvValues<E>,
+        environment.values as SettingValues<E>,
         undefined,
       ).values(),
     ),
@@ -395,7 +396,7 @@ interface Started {
 /** The key check and the type step again, for a connector running without
  *  fields its key may not add, since the key or the type may have changed
  *  since. */
-async function checkTypesAgain<E extends EnvDeclaration>(
+async function checkTypesAgain<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   logger: Logger,
@@ -414,27 +415,27 @@ async function checkTypesAgain<E extends EnvDeclaration>(
   );
 }
 
-function carriesBack<E extends EnvDeclaration>(
+function carriesBack<E extends SettingsDeclaration>(
   connector: Connector<E>,
   environment: Environment,
 ): boolean {
   return [
     ...specsOf(
       connector,
-      environment.values as EnvValues<E>,
+      environment.values as SettingValues<E>,
       undefined,
     ).values(),
   ].some((spec) => spec.twoWay);
 }
 
-function looks<E extends EnvDeclaration>(
+function looks<E extends SettingsDeclaration>(
   connector: Connector<E>,
   environment: Environment,
 ): boolean {
   return connector.inbound !== undefined || carriesBack(connector, environment);
 }
 
-async function awaitChanges<E extends EnvDeclaration>(
+async function awaitChanges<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   held: (trigger: Trigger) => Promise<RunResult | undefined>,
   everyMs: number,
@@ -487,9 +488,12 @@ async function awaitChanges<E extends EnvDeclaration>(
   }
 }
 
-function helpOf<E extends EnvDeclaration>(connector: Connector<E>): string[] {
-  const named = Object.entries(connector.env ?? {}).map(
-    ([name, kind]) => `  ${name} (${kind})`,
+function helpOf<E extends SettingsDeclaration>(
+  connector: Connector<E>,
+): string[] {
+  const named = (connector.settings ?? []).map(
+    (setting) =>
+      `  ${variableOf(setting.name)} (${setting.label}${setting.required === true ? "" : ", optional"}${setting.secret === true ? ", secret" : ""})`,
   );
   return [
     `${connector.name}: ${usage}`,
@@ -542,7 +546,7 @@ function startProblem(error: unknown, server: string, guide: string): string {
   return `could not start against the server at MARFA_API_URL (${server}): ${describe(error)}`;
 }
 
-interface Shared<E extends EnvDeclaration> {
+interface Shared<E extends SettingsDeclaration> {
   readonly connector: Connector<E>;
   readonly environment: Environment;
   readonly schedule: Exclude<Schedule, { mode: "help" }>;
@@ -555,7 +559,7 @@ interface Shared<E extends EnvDeclaration> {
   readonly telemetry: Telemetry;
 }
 
-export async function start<E extends EnvDeclaration>(
+export async function start<E extends SettingsDeclaration>(
   connector: Connector<E>,
   runtime: Runtime,
 ): Promise<number> {
@@ -602,7 +606,7 @@ export async function start<E extends EnvDeclaration>(
     const unlinked = [
       ...specsOf(
         connector,
-        environment.values as EnvValues<E>,
+        environment.values as SettingValues<E>,
         undefined,
       ).values(),
     ].filter((spec) => spec.twoWay && spec.link === undefined);
@@ -659,7 +663,7 @@ export async function start<E extends EnvDeclaration>(
 }
 
 /** The start, once the settings are read. */
-async function started<E extends EnvDeclaration>(
+async function started<E extends SettingsDeclaration>(
   connector: Connector<E>,
   runtime: Runtime,
   environment: Environment,
@@ -670,7 +674,7 @@ async function started<E extends EnvDeclaration>(
   const { clock } = runtime;
   try {
     if (schedule.mode !== "setup") {
-      await connector.checkEnv?.(environment.values as EnvValues<E>);
+      await connector.checkEnv?.(environment.values as SettingValues<E>);
     }
   } catch (error) {
     cannotStart(logger, `cannot start: ${describe(error)}`);
@@ -724,7 +728,7 @@ async function started<E extends EnvDeclaration>(
 /** Registers, then runs, until the process is told to stop or its key or
  *  registration is lost. Answers `registration` where registering again
  *  would mend it. */
-async function serve<E extends EnvDeclaration>(
+async function serve<E extends SettingsDeclaration>(
   shared: Shared<E>,
   again: boolean,
 ): Promise<number | "registration"> {
@@ -1144,7 +1148,7 @@ export function untilLapsed(
   return Math.min(intervalMs, Math.max(30_000, at - now + 1000));
 }
 
-export async function main<E extends EnvDeclaration>(
+export async function main<E extends SettingsDeclaration>(
   connector: Connector<E>,
 ): Promise<void> {
   process.exitCode = await start(connector, nodeRuntime());

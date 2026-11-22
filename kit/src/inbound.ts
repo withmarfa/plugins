@@ -1,7 +1,7 @@
 import type {
   Delivery,
-  EnvDeclaration,
-  EnvValues,
+  SettingsDeclaration,
+  SettingValues,
   Hint,
   Inbound,
 } from "./define.js";
@@ -23,10 +23,10 @@ export interface Collected {
   readonly unverified: number;
 }
 
-async function bounded<E extends EnvDeclaration>(
+async function bounded<E extends SettingsDeclaration>(
   inbound: Inbound<E>,
   delivery: Delivery,
-  env: EnvValues<E>,
+  env: SettingValues<E>,
   signal: AbortSignal,
   clock: Clock,
 ): Promise<boolean | "late"> {
@@ -69,11 +69,11 @@ function delivery(row: InboundDeliveryRow, body: Uint8Array): Delivery {
   };
 }
 
-export async function collect<E extends EnvDeclaration>(
+export async function collect<E extends SettingsDeclaration>(
   marfa: Marfa,
   connectorId: string,
   inbound: Inbound<E>,
-  env: EnvValues<E>,
+  env: SettingValues<E>,
   signal: AbortSignal,
   clock: Clock,
 ): Promise<Collected> {

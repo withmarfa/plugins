@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { EnvDeclaration, SetupContext } from "@withmarfa/connector";
+import type { SettingsDeclaration, SetupContext } from "@withmarfa/connector";
 import { when } from "./conditions.js";
 import { settings, type GoogleOptions, type Settings } from "./endpoints.js";
 import { GoogleError } from "./errors.js";
@@ -7,7 +7,7 @@ import { requestTokens, type Tokens } from "./token.js";
 
 /** What `signIn` needs of the kit's setup context. */
 export type GoogleSetupContext = Pick<
-  SetupContext<EnvDeclaration>,
+  SetupContext<SettingsDeclaration>,
   "signal" | "log" | "secret" | "listen"
 > & { readonly env: Readonly<Record<string, string | undefined>> };
 
@@ -78,9 +78,9 @@ export async function signIn(
   context: GoogleSetupContext,
   scopes: readonly string[],
   options?: GoogleOptions,
-): Promise<{ GOOGLE_REFRESH_TOKEN: string }> {
-  const clientId = context.env["GOOGLE_CLIENT_ID"];
-  const clientSecret = context.env["GOOGLE_CLIENT_SECRET"];
+): Promise<{ google_refresh_token: string }> {
+  const clientId = context.env["google_client_id"];
+  const clientSecret = context.env["google_client_secret"];
   if (clientId === undefined || clientSecret === undefined) {
     throw new Error(
       "setup needs GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in the environment: the Desktop app client of your Google Cloud project",
@@ -88,7 +88,7 @@ export async function signIn(
   }
   const used = settings(options);
   const own = ["openid", ...scopes];
-  const existing = context.env["GOOGLE_REFRESH_TOKEN"];
+  const existing = context.env["google_refresh_token"];
   let before: Tokens | undefined;
   let asked = [...new Set(own)];
   if (existing !== undefined) {
@@ -211,5 +211,5 @@ export async function signIn(
     );
   }
   context.log.info(`signed in to Google: ${everywhere}`);
-  return { GOOGLE_REFRESH_TOKEN: tokens.refreshToken };
+  return { google_refresh_token: tokens.refreshToken };
 }

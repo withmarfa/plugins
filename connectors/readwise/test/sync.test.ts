@@ -75,11 +75,11 @@ function fixture() {
   };
   const context: ReadContext = {
     env: {
-      READWISE_ACCOUNT: "primary",
-      READWISE_ACCESS_TOKEN: "token",
-      READWISE_API_URL: undefined,
-      READWISE_CONTENT_MAX_BYTES: undefined,
-      READWISE_READER_API_URL: undefined,
+      readwise_account: "primary",
+      readwise_access_token: "token",
+      readwise_api_url: undefined,
+      readwise_content_max_bytes: undefined,
+      readwise_reader_api_url: undefined,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),
@@ -152,7 +152,7 @@ describe("Readwise export checkpoints", () => {
     "rejects invalid content limit %s before contacting the provider",
     async (maximum) => {
       const f = fixture();
-      f.context.env = { ...f.context.env, READWISE_CONTENT_MAX_BYTES: maximum };
+      f.context.env = { ...f.context.env, readwise_content_max_bytes: maximum };
       await expect(f.run()).rejects.toThrow("READWISE_CONTENT_MAX_BYTES");
       expect(f.requests).toEqual([]);
     },
@@ -362,7 +362,7 @@ describe("Readwise export checkpoints", () => {
   it("refuses an account or endpoint change against saved progress", async () => {
     const f = fixture();
     await f.run();
-    f.context.env = { ...f.context.env, READWISE_ACCOUNT: "different" };
+    f.context.env = { ...f.context.env, readwise_account: "different" };
     await expect(f.run()).rejects.toThrow("account or endpoint");
   });
 });
@@ -441,9 +441,9 @@ it.each(["refresh", "source", "export"] as const)(
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const base = `http://127.0.0.1:${String((http.address() as AddressInfo).port)}`;
     Object.assign(f.context.env, {
-      READWISE_API_URL: `${base}/api/v2/`,
-      READWISE_READER_API_URL: `${base}/api/v3/`,
-      READWISE_ACCESS_TOKEN: `failed-wait-${mode}`,
+      readwise_api_url: `${base}/api/v2/`,
+      readwise_reader_api_url: `${base}/api/v3/`,
+      readwise_access_token: `failed-wait-${mode}`,
     });
     f.context.waitUntil = vi.fn(() =>
       Promise.reject(new Error("checkpoint ACK lost")),

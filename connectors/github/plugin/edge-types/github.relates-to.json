@@ -1,0 +1,8 @@
+{
+  "id": "github.relates-to",
+  "label": "Relates to",
+  "description": "Two related GitHub issues, ordered by node ID.",
+  "cardinality": "many-to-many",
+  "from_type_constraints": ["github.issue"],
+  "to_type_constraints": ["github.issue"]
+}

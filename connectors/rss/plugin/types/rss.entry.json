@@ -1,0 +1,28 @@
+{
+  "id": "rss.entry",
+  "label": "RSS Entry",
+  "description": "An entry from an Atom, RSS or JSON Feed, as the RSS connector reads it: a bookmark whose body is the entry's content as Markdown and whose description is its summary as plain text.",
+  "parent": "core.bookmark",
+  "fields": {
+    "entry_id": {
+      "type": "string",
+      "required": true,
+      "description": "The entry's id in its feed: its Atom id, RSS guid, RSS 1.0 rdf:about or JSON Feed id, else its link."
+    },
+    "feed_origin": {
+      "type": "url",
+      "required": true,
+      "description": "The origin of the feed's address: its scheme, host and port, without the path or query where a private feed carries its token."
+    },
+    "feed_hash": {
+      "type": "string",
+      "required": true,
+      "description": "A hash of what identifies the feed in the connector's configuration, its name there or else its address, the same for every entry of one feed, which names the feed where its address may not go."
+    },
+    "rss_pictures": {
+      "type": "object",
+      "description": "What became of each picture address in the entry's text and image: those saved, those left for the next run, and those not kept with a reason, beside a hash of the text they were read from. The connector sets it; the addresses are not secrets, and signed ones should not be in a feed."
+    }
+  },
+  "display_hints": { "title_field": "title", "body_field": "body" }
+}

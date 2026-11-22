@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
-import type { Entry, EnvDeclaration, RunContext } from "@withmarfa/connector";
+import type {
+  Entry,
+  SettingsDeclaration,
+  RunContext,
+} from "@withmarfa/connector";
 import {
   discussionType,
   issueType,
@@ -69,7 +73,7 @@ export interface RestThread {
   } | null;
 }
 
-type RootContext = RunContext<EnvDeclaration>;
+type RootContext = RunContext<SettingsDeclaration>;
 
 export interface Options extends Origin {
   /** Absent, nothing is read and nothing is reported. */

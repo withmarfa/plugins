@@ -41,7 +41,7 @@ it("adopts the current Highlights canonical link through verified identity evide
     defineConnector({
       name: reader ? "readwise-reader" : "readwise",
       source: "readwise",
-      env: {},
+      settings: [],
       types: [
         {
           type: sourceType,

@@ -1,5 +1,5 @@
 import type {
-  EnvDeclaration,
+  SettingsDeclaration,
   Entry,
   Item,
   RunContext,
@@ -31,7 +31,10 @@ import { issuesByNode, nodesOfNumbers } from "./graph.js";
  * may be mid-transfer is not written until it is known to be one or not.
  */
 
-type Context = Pick<RunContext<EnvDeclaration>, "linked" | "known" | "log">;
+type Context = Pick<
+  RunContext<SettingsDeclaration>,
+  "linked" | "known" | "log"
+>;
 
 /** How long GitHub may take to record a transfer on the new issue's
  *  timeline. An issue Marfa has no row for, changed within it and made
@@ -208,7 +211,7 @@ export async function movedFrom(
  *  Marfa already has a row for is not a move: that is a duplicate, which
  *  `follow` finds from the old row's side. */
 export async function movedNamed(
-  context: Pick<RunContext<EnvDeclaration>, "inspect">,
+  context: Pick<RunContext<SettingsDeclaration>, "inspect">,
   unseen: readonly string[],
   all: readonly Issue[],
   ask: (repository: string, number: number) => Promise<Asked | undefined>,
@@ -491,7 +494,7 @@ export const unreadable = "a repository the App cannot read";
  *  Otherwise where the new issue is, so the caller archives the old row:
  *  unreadable, outside the sync, or not the same issue. */
 export async function follow(
-  context: Pick<RunContext<EnvDeclaration>, "inspect">,
+  context: Pick<RunContext<SettingsDeclaration>, "inspect">,
   octokit: Client,
   row: Item,
   link: string,

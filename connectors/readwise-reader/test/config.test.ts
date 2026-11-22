@@ -2,15 +2,15 @@ import { expect, it } from "vitest";
 import { parseConfig } from "../src/config.js";
 
 const values = (maximum: string | undefined) => ({
-  READWISE_ACCOUNT: "sample",
-  READWISE_ACCESS_TOKEN: "fixture",
-  READWISE_API_URL: undefined,
-  READWISE_READER_API_URL: undefined,
-  READWISE_READER_INCLUDE_FEED: undefined,
-  READWISE_READER_PICTURES: undefined,
-  READWISE_READER_INBOUND_ONLY: undefined,
-  READWISE_READER_PROPAGATE_PURGE: undefined,
-  READWISE_CONTENT_MAX_BYTES: maximum,
+  readwise_account: "sample",
+  readwise_access_token: "fixture",
+  readwise_api_url: undefined,
+  readwise_reader_api_url: undefined,
+  readwise_reader_include_feed: undefined,
+  readwise_reader_pictures: undefined,
+  readwise_reader_inbound_only: undefined,
+  readwise_reader_propagate_purge: undefined,
+  readwise_content_max_bytes: maximum,
 });
 
 it.each([
@@ -47,14 +47,14 @@ it.each([
   ["save-in-library", "save-in-library"],
 ] as const)("reads READWISE_READER_PICTURES %s", (input, expected) => {
   expect(
-    parseConfig({ ...values(undefined), READWISE_READER_PICTURES: input }),
+    parseConfig({ ...values(undefined), readwise_reader_pictures: input }),
   ).toMatchObject({ pictures: expected });
 });
 it.each(["", "true", "Save", "library"])(
   "refuses READWISE_READER_PICTURES %s at start",
   (input) => {
     expect(() =>
-      parseConfig({ ...values(undefined), READWISE_READER_PICTURES: input }),
+      parseConfig({ ...values(undefined), readwise_reader_pictures: input }),
     ).toThrow(
       "READWISE_READER_PICTURES must be addresses, save or save-in-library",
     );

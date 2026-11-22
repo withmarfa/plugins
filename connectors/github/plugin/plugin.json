@@ -1,0 +1,150 @@
+{
+  "name": "github",
+  "title": "GitHub",
+  "description": "Repositories, issues, discussions, comments, pull requests, notifications and Markdown files from chosen repository paths, with relations and checks. A personal token reads only; a GitHub App can carry issue, discussion and comment edits back.",
+  "mark": "simple-icons:github",
+  "maker": "WithMarfa",
+  "marfa": "0.0.95",
+  "connector": {
+    "source": "github",
+    "source_name": "GitHub",
+    "source_mark": "simple-icons:github",
+    "kinds": [
+      { "name": "file", "type": "github.file", "direction": "in" },
+      { "name": "file_image", "type": "github.file.image", "direction": "in" },
+      { "name": "repository", "type": "github.repository", "direction": "in" },
+      { "name": "issue", "type": "github.issue", "direction": "both" },
+      { "name": "comment", "type": "github.comment", "direction": "both" },
+      {
+        "name": "discussion",
+        "type": "github.discussion",
+        "direction": "both"
+      },
+      {
+        "name": "pull_request",
+        "type": "github.pull_request",
+        "direction": "in"
+      },
+      {
+        "name": "notification",
+        "type": "github.notification",
+        "direction": "in"
+      },
+      {
+        "name": "repository_file",
+        "type": "github.repository_file",
+        "direction": "in"
+      },
+      { "name": "directory", "type": "github.directory", "direction": "in" }
+    ],
+    "edge_types": [
+      "attached-to",
+      "about",
+      "github.in-repository",
+      "github.sub-issue-of",
+      "github.blocked-by",
+      "github.relates-to",
+      "github.duplicate-of",
+      "references",
+      "in-thread",
+      "comments-on",
+      "parent-of",
+      "in-collection",
+      "github.closes",
+      "github.closed-by"
+    ],
+    "settings": [
+      {
+        "name": "github_app_id",
+        "label": "GitHub App ID",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_private_key",
+        "label": "GitHub App private key",
+        "kind": "text",
+        "secret": true,
+        "required": false
+      },
+      {
+        "name": "github_webhook_secret",
+        "label": "Webhook secret",
+        "kind": "text",
+        "secret": true,
+        "required": false
+      },
+      {
+        "name": "github_personal_token",
+        "label": "Personal access token",
+        "kind": "text",
+        "secret": true,
+        "required": false
+      },
+      {
+        "name": "github_notifications_token",
+        "label": "Notifications token",
+        "kind": "text",
+        "secret": true,
+        "required": false
+      },
+      {
+        "name": "github_read_only",
+        "label": "Read only",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_stars",
+        "label": "Read your stars",
+        "kind": "boolean",
+        "default": true,
+        "required": false
+      },
+      {
+        "name": "github_api_url",
+        "label": "GitHub API address",
+        "kind": "text",
+        "default": "https://api.github.com",
+        "required": false
+      },
+      {
+        "name": "github_request_spacing_ms",
+        "label": "Spacing between requests in milliseconds",
+        "kind": "number",
+        "required": false
+      },
+      {
+        "name": "github_public_url",
+        "label": "Public address of Marfa",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_organization",
+        "label": "Organization",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_app_name",
+        "label": "GitHub App name",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_repositories",
+        "label": "Repositories",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "github_files",
+        "label": "Files",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "runs": { "on": "host" }
+  }
+}

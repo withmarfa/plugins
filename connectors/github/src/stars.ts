@@ -1,5 +1,5 @@
 import type {
-  EnvDeclaration,
+  SettingsDeclaration,
   Entry,
   Item,
   RunContext,
@@ -19,7 +19,7 @@ import {
 } from "./github.js";
 
 type Context = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   "held" | "inspect" | "upsert" | "archive" | "derive" | "log" | "signal"
 >;
 

@@ -1,0 +1,27 @@
+{
+  "id": "github.comment",
+  "label": "GitHub Comment",
+  "description": "A comment on an issue or a discussion in a repository the GitHub connector syncs. A reply comments on the comment it answers. Its body travels both ways.",
+  "parent": "core.message",
+  "link_field": "github_id",
+  "fields": {
+    "github_id": {
+      "type": "string",
+      "description": "The comment's GitHub node id. A row without one has not been sent to GitHub."
+    },
+    "repository": {
+      "type": "string",
+      "description": "The repository's full name, as owner/name."
+    },
+    "private": {
+      "type": "boolean",
+      "description": "Whether the repository this row is in is private on GitHub, as of the last read: a row marked private holds what is not public, and its contents are not to be copied into a public place."
+    },
+    "url": { "type": "url", "description": "The comment's address on GitHub." },
+    "github_files": {
+      "type": "object",
+      "description": "Attachment UUIDs, unavailable links and safe retry outcomes. Signed download addresses are never retained."
+    }
+  },
+  "display_hints": { "body_field": "body" }
+}

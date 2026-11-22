@@ -154,7 +154,7 @@ async function runGroups(groups: Group[], context: Context): Promise<void> {
 try {
   const groups = chosen();
   const shared = groups.filter((group) => group.instance === "shared");
-  const reader = groups.filter((group) => group.instance === "reader");
+  const own = groups.filter((group) => group.instance === "own");
   console.log(`running ${groups.map((group) => group.name).join(", ")}`);
   if (shared.length > 0) {
     let started: { server: ProofServer; booted: Booted } | undefined;
@@ -191,10 +191,11 @@ try {
     }
     await runGroups(shared, context);
   }
-  if (reader.length > 0) {
+  for (const group of own) {
     const { server, booted } = await boot();
-    console.log(`Reader fixture proof server ${booted.server}`);
-    await runGroups(reader, contextOf(server, booted));
+    console.log(`${group.name} proof server ${booted.server}`);
+    await runGroups([group], contextOf(server, booted));
+    await server.stop();
   }
   console.log(
     `ok   all ${String(statementsHeld())} statements held in ${String(groups.length)} groups`,

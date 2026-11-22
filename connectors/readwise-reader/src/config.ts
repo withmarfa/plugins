@@ -2,20 +2,38 @@ import {
   contentMaxBytes,
   endpoint,
   identity,
+  readwiseSettings,
   type PicturesSetting,
 } from "@withmarfa/readwise";
-import type { EnvValues } from "@withmarfa/connector";
-export const env = {
-  READWISE_ACCOUNT: "required",
-  READWISE_ACCESS_TOKEN: "secret",
-  READWISE_API_URL: "optional",
-  READWISE_CONTENT_MAX_BYTES: "optional",
-  READWISE_READER_API_URL: "optional",
-  READWISE_READER_INCLUDE_FEED: "optional",
-  READWISE_READER_PICTURES: "optional",
-  READWISE_READER_INBOUND_ONLY: "optional",
-  READWISE_READER_PROPAGATE_PURGE: "optional",
-} as const;
+import type { SettingsDeclaration, SettingValues } from "@withmarfa/connector";
+export const settings = [
+  ...readwiseSettings,
+  {
+    name: "readwise_reader_include_feed",
+    label: "Include the feed",
+    kind: "boolean",
+    default: false,
+  },
+  {
+    name: "readwise_reader_pictures",
+    label: "Pictures",
+    kind: "choice",
+    choices: ["addresses", "save", "save-in-library"],
+    default: "addresses",
+  },
+  {
+    name: "readwise_reader_inbound_only",
+    label: "Inbound only",
+    kind: "boolean",
+    default: false,
+  },
+  {
+    name: "readwise_reader_propagate_purge",
+    label: "Carry a purge back to Reader",
+    kind: "boolean",
+    default: false,
+  },
+] as const satisfies SettingsDeclaration;
 export interface ReaderConfig {
   account: string;
   readerBase: string;
@@ -44,26 +62,28 @@ export function picturesSetting(value: string | undefined): PicturesSetting {
     "READWISE_READER_PICTURES must be addresses, save or save-in-library",
   );
 }
-export function parseConfig(values: EnvValues<typeof env>): ReaderConfig {
-  identity(values.READWISE_ACCOUNT, "source", 1);
+export function parseConfig(
+  values: SettingValues<typeof settings>,
+): ReaderConfig {
+  identity(values.readwise_account, "source", 1);
   return {
-    account: values.READWISE_ACCOUNT,
-    contentMaxBytes: contentMaxBytes(values.READWISE_CONTENT_MAX_BYTES),
+    account: values.readwise_account,
+    contentMaxBytes: contentMaxBytes(values.readwise_content_max_bytes),
     readerBase: endpoint(
-      values.READWISE_READER_API_URL ?? "https://readwise.io/api/v3/",
+      values.readwise_reader_api_url ?? "https://readwise.io/api/v3/",
     ),
-    exportBase: endpoint(values.READWISE_API_URL),
+    exportBase: endpoint(values.readwise_api_url),
     includeFeed: flag(
-      values.READWISE_READER_INCLUDE_FEED,
+      values.readwise_reader_include_feed,
       "READWISE_READER_INCLUDE_FEED",
     ),
     inboundOnly: flag(
-      values.READWISE_READER_INBOUND_ONLY,
+      values.readwise_reader_inbound_only,
       "READWISE_READER_INBOUND_ONLY",
     ),
-    pictures: picturesSetting(values.READWISE_READER_PICTURES),
+    pictures: picturesSetting(values.readwise_reader_pictures),
     propagatePurge: flag(
-      values.READWISE_READER_PROPAGATE_PURGE,
+      values.readwise_reader_propagate_purge,
       "READWISE_READER_PROPAGATE_PURGE",
     ),
   };

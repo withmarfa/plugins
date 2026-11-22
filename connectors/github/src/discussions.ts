@@ -1,6 +1,6 @@
 import { GraphqlResponseError } from "@octokit/graphql";
 import { RequestError } from "@octokit/request-error";
-import type { EnvDeclaration, RunContext } from "@withmarfa/connector";
+import type { SettingsDeclaration, RunContext } from "@withmarfa/connector";
 import {
   commentType,
   discussionCommentEntry,
@@ -549,7 +549,7 @@ export async function deleteDiscussionComment(
 }
 
 type Reading = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   "upsert" | "linked" | "linkedEach" | "archive" | "log" | "hints"
 >;
 

@@ -89,7 +89,7 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
       defineConnector({
         name: reader ? "readwise-reader" : "readwise",
         source: "readwise",
-        env: {},
+        settings: [],
         retired: [{ type: highlightType.id, connection: "references" }],
         connections: [
           {

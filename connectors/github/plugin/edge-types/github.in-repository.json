@@ -1,0 +1,15 @@
+{
+  "id": "github.in-repository",
+  "label": "In repository",
+  "description": "An issue, discussion, comment, pull request, repository file or directory in the GitHub repository it belongs to.",
+  "cardinality": "many-to-one",
+  "from_type_constraints": [
+    "github.issue",
+    "github.comment",
+    "github.discussion",
+    "github.pull_request",
+    "github.repository_file",
+    "github.directory"
+  ],
+  "to_type_constraints": ["github.repository"]
+}

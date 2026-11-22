@@ -43,12 +43,12 @@ const longestSpacing = 60_000;
  *  trimmed, where an empty value is unset. It is for a stub of the API: against
  *  GitHub's own address a spacing below GitHub's minimum would be accepted. */
 export function spacingOf(values: {
-  readonly GITHUB_REQUEST_SPACING_MS?: string | undefined;
-  readonly GITHUB_API_URL?: string | undefined;
+  readonly github_request_spacing_ms?: string | undefined;
+  readonly github_api_url?: string | undefined;
 }): number | undefined {
-  const value = values.GITHUB_REQUEST_SPACING_MS;
+  const value = values.github_request_spacing_ms;
   if (value === undefined) return undefined;
-  if (values.GITHUB_API_URL === undefined)
+  if (values.github_api_url === undefined)
     throw new Error(
       "GITHUB_REQUEST_SPACING_MS is for a stub of the API, so it needs GITHUB_API_URL",
     );

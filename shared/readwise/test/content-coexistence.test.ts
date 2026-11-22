@@ -74,7 +74,7 @@ it.each(["same bytes", "changed bytes"])(
       const connector = defineConnector({
         name: source,
         source: "readwise",
-        env: {},
+        settings: [],
         types: [
           { type: sourceType, fields: sourceFields },
           {

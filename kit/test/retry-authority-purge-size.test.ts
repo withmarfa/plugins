@@ -12,7 +12,7 @@ it("retains a compact failed purge while another row has journaled work", async 
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (!seed) return;

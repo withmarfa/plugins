@@ -26,9 +26,11 @@ void main(
         ],
       },
     ],
-    env: { PROOF_MODE: "required" },
+    settings: [
+      { name: "proof_mode", label: "Proof mode", kind: "text", required: true },
+    ],
     async run(context) {
-      const mode = context.env.PROOF_MODE;
+      const mode = context.env.proof_mode;
       if (mode === "type") return;
       if (mode === "fail")
         context.log.condition("vendor:A", "Vendor A is unavailable");

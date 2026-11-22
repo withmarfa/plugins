@@ -1,6 +1,6 @@
 import type {
   CheckpointState,
-  EnvDeclaration,
+  SettingsDeclaration,
   RunContext,
 } from "@withmarfa/connector";
 import {
@@ -189,7 +189,7 @@ function pictureState(state: Pick<CheckpointState, "get">): PictureState {
  *  saved in its place, so that picture work starts again. */
 async function loadPictureState(
   state: CheckpointState,
-  log: Pick<RunContext<EnvDeclaration>["log"], "condition">,
+  log: Pick<RunContext<SettingsDeclaration>["log"], "condition">,
 ): Promise<PictureState> {
   try {
     return pictureState(state);
@@ -242,7 +242,7 @@ export function pictureListing(
 export async function admitPictures(
   state: CheckpointState,
   jobs: readonly ContentJob[],
-  log: Pick<RunContext<EnvDeclaration>["log"], "condition">,
+  log: Pick<RunContext<SettingsDeclaration>["log"], "condition">,
 ): Promise<void> {
   const saved = await loadPictureState(state, log);
   let changed = false;
@@ -287,7 +287,7 @@ type PictureContext = Pick<
   Context,
   "inspect" | "known" | "linked" | "signal" | "log" | "forScope"
 > &
-  Pick<RunContext<EnvDeclaration>, "held">;
+  Pick<RunContext<SettingsDeclaration>, "held">;
 
 /**
  * One run of Reader's picture work, outside the content queue: hands

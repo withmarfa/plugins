@@ -23,7 +23,7 @@ it.each([false, true])(
       description: "Identity lookup test",
       source: "test",
       types: [{ type, fields: ["title", "vendor_id"] }],
-      env: {},
+      settings: [],
       async run(context) {
         if (!checking) {
           await context.upsert(
@@ -73,7 +73,7 @@ it("does not prove a refused new identity and preserves an existing agreement", 
     description: "Refused identity lookup test",
     source: "test",
     types: [{ type: testType, fields: ["title"] }],
-    env: {},
+    settings: [],
     async run(context) {
       await context.upsert(testType.id, [
         { source_id: "known", properties: { title: "Before" } },
@@ -112,7 +112,7 @@ it("propagates a refused identity lookup instead of reporting absence", async ()
     description: "Unavailable identity lookup test",
     source: "test",
     types: [{ type: testType, fields: ["title"] }],
-    env: {},
+    settings: [],
     async run(context) {
       harness.server.refuseNext("POST /items/lookup", 403, "permission_denied");
       await expect(context.known(testType.id, ["missing"])).rejects.toThrow();
@@ -126,7 +126,7 @@ it("inspects unagreed identities in every state and tombstones by link and natur
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (!checking) {
@@ -203,7 +203,7 @@ it("enumerates legacy same-source rows in every retained state", async () => {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       const rows = await context.held(linkedType.id, { state: "any" });
@@ -237,7 +237,7 @@ it("explicitly includes visible unlinked rows from other sources without natural
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       for (const reader of [context, context.forScope("inventory")]) {

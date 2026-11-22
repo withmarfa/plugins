@@ -11,7 +11,7 @@ import {
   testFields,
   testType,
 } from "../../../kit/test/harness.js";
-import { connectGoogle, googleEnv, signIn } from "../src/index.js";
+import { connectGoogle, googleSettings, signIn } from "../src/index.js";
 import { clientEnv, freshToken, GoogleStub } from "./stub.js";
 
 const A = "https://www.googleapis.com/auth/a";
@@ -41,7 +41,7 @@ function connector(scopes: string[], reads?: () => void) {
     name: "test",
     source,
     types: [{ type: testType, fields: testFields }],
-    env: googleEnv,
+    settings: googleSettings,
     async run(context) {
       const google = connectGoogle(
         context,
@@ -62,7 +62,7 @@ function writer(fails = false) {
     name: "test",
     source,
     types: [{ type: linkedType, fields: testFields }],
-    env: googleEnv,
+    settings: googleSettings,
     async run(context) {
       const google = connectGoogle(
         context,

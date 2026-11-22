@@ -46,7 +46,7 @@ it.each([false, true])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [type],
       connections,
       async run(context) {
@@ -79,7 +79,7 @@ it.each([false, true])(
     const definition = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [type],
       connections,
       async run(context) {

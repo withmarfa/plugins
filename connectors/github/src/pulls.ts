@@ -1,5 +1,5 @@
 import { GraphqlResponseError } from "@octokit/graphql";
-import type { EnvDeclaration, RunContext } from "@withmarfa/connector";
+import type { SettingsDeclaration, RunContext } from "@withmarfa/connector";
 import { batches, query, type Client } from "./github.js";
 import { loginOf } from "./graph.js";
 import {
@@ -337,7 +337,7 @@ async function mapped(octokit: Client, node: GraphPR): Promise<PullRequest> {
  *  refused it this run, since a write without the field would clear it and
  *  unknown is not none. A pull request with no row yet has none. */
 export async function withStoredChecks(
-  context: Pick<RunContext<EnvDeclaration>, "inspect">,
+  context: Pick<RunContext<SettingsDeclaration>, "inspect">,
   prs: readonly PullRequest[],
 ): Promise<CheckedPullRequest[]> {
   const unknown = prs.filter((pr) => pr.checks === undefined);
@@ -361,7 +361,7 @@ export async function withStoredChecks(
  *  item, which must be written first. A pull request whose checks GitHub
  *  refused this run is left as it was, since unknown is not none. */
 export async function syncChecks(
-  context: Pick<RunContext<EnvDeclaration>, "tables">,
+  context: Pick<RunContext<SettingsDeclaration>, "tables">,
   prs: readonly PullRequest[],
 ): Promise<void> {
   for (const pr of prs) {

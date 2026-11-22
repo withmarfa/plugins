@@ -13,7 +13,7 @@ it("withholds moved inbound identity while a purged row has pending work", async
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (moved) {

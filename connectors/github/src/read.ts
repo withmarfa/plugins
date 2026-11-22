@@ -1,5 +1,5 @@
 import type {
-  EnvDeclaration,
+  SettingsDeclaration,
   Item,
   RunContext,
   ScopedRunContext,
@@ -133,7 +133,7 @@ export interface Kept {
   waiting?: Record<string, string>;
 }
 
-type RootContext = RunContext<EnvDeclaration>;
+type RootContext = RunContext<SettingsDeclaration>;
 type Context = Omit<RootContext, "state" | "forScope">;
 
 interface Installation {
@@ -596,7 +596,7 @@ async function readAll(
     return;
   }
   const save = async (
-    scoped: ScopedRunContext<EnvDeclaration>,
+    scoped: ScopedRunContext<SettingsDeclaration>,
     node: string,
     completed?: Kept,
   ): Promise<void> => {
@@ -670,7 +670,7 @@ async function readAll(
 
   const permissions: string[] = [];
   const readDiscussions = async (
-    scoped: ScopedRunContext<EnvDeclaration>,
+    scoped: ScopedRunContext<SettingsDeclaration>,
     installation: number,
     node: string,
     repository: Kept,

@@ -17,9 +17,11 @@ export {
   type Delivery,
   type Entry,
   type Hint,
-  type EnvDeclaration,
-  type EnvKind,
-  type EnvValues,
+  type Direction,
+  type Setting,
+  type SettingKind,
+  type SettingsDeclaration,
+  type SettingValues,
   type FileSource,
   type Inbound,
   type Item,
@@ -41,7 +43,9 @@ export {
   type WatchContext,
 } from "./define.js";
 export { main } from "./main.js";
+export { settingsFromEnvironment, variableOf } from "./environment.js";
 export { carriedTypes } from "./run.js";
+export { edgeTypesOf, shippedConnection } from "./shipped.js";
 export { Declined, LinkTaken, Refused, Unreachable } from "./rows.js";
 export {
   rowId,

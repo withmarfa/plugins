@@ -38,10 +38,7 @@ const fixer = {
   type_permissions: { "test.entry": "write" },
 };
 
-type Work = (
-  context: RunContext<Record<string, never>>,
-  itemId: string,
-) => Promise<void>;
+type Work = (context: RunContext<readonly []>, itemId: string) => Promise<void>;
 
 function connectorDoing(work: Work, type: TypeDefinition = tabled) {
   return defineConnector({
@@ -49,7 +46,7 @@ function connectorDoing(work: Work, type: TypeDefinition = tabled) {
     description: "A connector that writes table rows.",
     source: "test",
     types: [{ type, fields: testFields }],
-    env: {},
+    settings: [],
     async run(context) {
       await context.upsert(type.id, [entry]);
       await work(context, "a:1");

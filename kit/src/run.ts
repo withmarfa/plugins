@@ -17,8 +17,8 @@ import type {
   ChangeKind,
   Connector,
   Entry,
-  EnvDeclaration,
-  EnvValues,
+  SettingsDeclaration,
+  SettingValues,
   Item,
   Log,
   RunContext,
@@ -95,7 +95,7 @@ import {
   type OutboundRecord,
 } from "./outbound.js";
 
-export interface RunSetup<E extends EnvDeclaration> {
+export interface RunSetup<E extends SettingsDeclaration> {
   connector: Connector<E>;
   environment: Environment;
   marfa: Marfa;
@@ -237,9 +237,9 @@ function sending(change: Change): string {
 const purgeAgainMs = 24 * 3_600_000;
 
 /** The types whose changes go back to the vendor for an environment. */
-export function carriedTypes<E extends EnvDeclaration>(
+export function carriedTypes<E extends SettingsDeclaration>(
   connector: Connector<E>,
-  env: EnvValues<E>,
+  env: SettingValues<E>,
 ): ReadonlySet<string> {
   return new Set(
     connector.onChange === undefined
@@ -249,9 +249,9 @@ export function carriedTypes<E extends EnvDeclaration>(
   );
 }
 
-export function specsOf<E extends EnvDeclaration>(
+export function specsOf<E extends SettingsDeclaration>(
   connector: Connector<E>,
-  env: EnvValues<E>,
+  env: SettingValues<E>,
   narrowed: Narrowed | undefined,
 ): Map<string, Spec> {
   const carried = carriedTypes(connector, env);
@@ -410,12 +410,12 @@ function jsonValue(value: unknown, seen = new Set<object>()): unknown {
   }
 }
 
-export async function runOnce<E extends EnvDeclaration>(
+export async function runOnce<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   trigger: Trigger,
 ): Promise<RunResult> {
   const { connector, logger, clock } = setup;
-  const env = setup.environment.values as EnvValues<E>;
+  const env = setup.environment.values as SettingValues<E>;
   interface Scope {
     name: string;
     retry?: InboundRetryCapability;
@@ -3774,13 +3774,13 @@ export async function runOnce<E extends EnvDeclaration>(
   };
 }
 
-export async function waitingInMarfa<E extends EnvDeclaration>(
+export async function waitingInMarfa<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   cursor: string | undefined,
 ): Promise<{ waiting: boolean; cursor: string | undefined }> {
   const specs = specsOf(
     setup.connector,
-    setup.environment.values as EnvValues<E>,
+    setup.environment.values as SettingValues<E>,
     setup.narrowed,
   );
   const read = await new Watch(

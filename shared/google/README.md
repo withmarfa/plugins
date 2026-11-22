@@ -4,22 +4,22 @@ The Google sign-in that every Google connector shares. A connector built on it s
 
 This page is reference. It describes what the package does, the conditions a person can meet and what to do about each. The setup steps for a person belong in the Marfa docs.
 
-## The environment
+## The settings
 
-Every Google connector declares the same three variables, exported as `googleEnv`.
+Every Google connector declares the same three settings, exported as `googleSettings`. Until Marfa holds a connector's settings, the kit reads each from the environment variable named in capitals.
 
-| Variable               | Kind     | Holds                                                                      |
-| ---------------------- | -------- | -------------------------------------------------------------------------- |
-| `GOOGLE_CLIENT_ID`     | required | The ID of a Desktop app OAuth client in the person's Google Cloud project. |
-| `GOOGLE_CLIENT_SECRET` | secret   | That client's secret.                                                      |
-| `GOOGLE_REFRESH_TOKEN` | secret   | The one grant that `--setup` writes. Absent until setup has run.           |
+| Setting                | Variable               | Holds                                                                          |
+| ---------------------- | ---------------------- | ------------------------------------------------------------------------------ |
+| `google_client_id`     | `GOOGLE_CLIENT_ID`     | The ID of a Desktop app OAuth client in the person's Google Cloud project.     |
+| `google_client_secret` | `GOOGLE_CLIENT_SECRET` | That client's secret. A secret, and required.                                  |
+| `google_refresh_token` | `GOOGLE_REFRESH_TOKEN` | The one grant that `--setup` writes. A secret, and absent until setup has run. |
 
 The refresh token is the only value setup produces. A Google connector reads all three from its environment and writes none of them.
 
 ## Use in a connector
 
 ```ts
-import { connectGoogle, googleEnv, signIn } from "@withmarfa/google";
+import { connectGoogle, googleSettings, signIn } from "@withmarfa/google";
 
 const scopes = ["https://www.googleapis.com/auth/calendar.readonly"];
 const source = "google-calendar";
@@ -28,7 +28,7 @@ const needs = { source, scopes, types: ["google.calendar.event"] };
 export default defineConnector({
   // ...
   source,
-  env: googleEnv,
+  settings: googleSettings,
   setup: (context) => signIn(context, scopes),
   async run(context) {
     const google = connectGoogle(context, needs);

@@ -154,9 +154,9 @@ export function connectGoogle(
       "connectGoogle takes the run's own context, not one from forScope, which cannot keep the Google account",
     );
   }
-  const clientId = context.env["GOOGLE_CLIENT_ID"];
-  const clientSecret = context.env["GOOGLE_CLIENT_SECRET"];
-  const refreshToken = context.env["GOOGLE_REFRESH_TOKEN"];
+  const clientId = context.env["google_client_id"];
+  const clientSecret = context.env["google_client_secret"];
+  const refreshToken = context.env["google_refresh_token"];
   if (
     clientId === undefined ||
     clientSecret === undefined ||

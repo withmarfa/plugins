@@ -303,7 +303,7 @@ describe("a secret made at run time", () => {
       name: "test",
       source: "test",
       types: [{ type: testType, fields: testFields }],
-      env: {},
+      settings: [],
       run(context) {
         context.secret("short");
         return Promise.resolve();

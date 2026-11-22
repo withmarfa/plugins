@@ -18,13 +18,13 @@ import {
   type ReaderReader,
 } from "@withmarfa/readwise";
 import { claimKind, claimedId, claimsKey, readClaims } from "./claims.js";
-import { env, parseConfig, type ReaderConfig } from "./config.js";
+import { settings, parseConfig, type ReaderConfig } from "./config.js";
 import {
   ReaderWriteClient,
   ReaderWriteRefused,
   type ReaderBody,
 } from "./reader-write-client.js";
-type Context = WatchContext<typeof env>;
+type Context = WatchContext<typeof settings>;
 interface Plan {
   account: string;
   base: string;
@@ -327,7 +327,7 @@ async function inspectPurges(
   const config = parseConfig(context.env);
   const client = new ReaderWriteClient(
     config.readerBase,
-    context.env.READWISE_ACCESS_TOKEN,
+    context.env.readwise_access_token,
     context.signal,
   );
   const purges = new Set<string>();

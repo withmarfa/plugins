@@ -21,14 +21,14 @@ function fixture() {
   let seed = true;
   let send: (
     change: Change,
-    context: WatchContext<Record<string, never>>,
+    context: WatchContext<readonly []>,
   ) => void | Promise<void> = () => undefined;
   let preflight: (purges: readonly Change[]) => void | Promise<void> = () =>
     undefined;
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "note", "vendor_id"] }],
     async run(context) {
       if (seed) {
@@ -335,7 +335,7 @@ it.each([false, true])(
     const connector = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [{ type: linkedType, fields: ["title", "note", "vendor_id"] }],
       async run(context) {
         if (seed) {
@@ -660,7 +660,7 @@ it("keeps uncertain requests visible to scoped and unscoped inbound readers", as
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     run(context) {
       pending.push(context.pendingOutbound().length);
@@ -700,7 +700,7 @@ it.each([
     const connector = defineConnector({
       name: "test",
       source: "test",
-      env: {},
+      settings: [],
       types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
       async run(context) {
         const scope = context.forScope("reader");
@@ -792,7 +792,7 @@ it("merges a newer vendor edit after a confirmed create's later step was refused
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (remote !== undefined) await context.upsert(linkedType.id, [remote]);

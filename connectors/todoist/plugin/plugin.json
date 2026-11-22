@@ -1,0 +1,38 @@
+{
+  "name": "todoist",
+  "title": "Todoist",
+  "description": "Tasks from a Todoist account, read through the Sync API, and every todoist.task in Marfa carried back to it.",
+  "mark": "simple-icons:todoist",
+  "maker": "WithMarfa",
+  "marfa": "0.0.95",
+  "connector": {
+    "source": "todoist",
+    "source_name": "Todoist",
+    "source_mark": "simple-icons:todoist",
+    "kinds": [{ "name": "task", "type": "todoist.task", "direction": "both" }],
+    "settings": [
+      {
+        "name": "todoist_api_token",
+        "label": "Todoist API token",
+        "kind": "text",
+        "secret": true,
+        "required": true
+      },
+      {
+        "name": "todoist_api_url",
+        "label": "Todoist API address",
+        "kind": "text",
+        "default": "https://api.todoist.com",
+        "required": false
+      },
+      {
+        "name": "todoist_read_only",
+        "label": "Read only",
+        "kind": "boolean",
+        "default": false,
+        "required": false
+      }
+    ],
+    "runs": { "on": "host" }
+  }
+}

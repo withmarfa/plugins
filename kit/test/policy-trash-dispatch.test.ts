@@ -18,7 +18,7 @@ it.each(["adopt", "restore", "edit", "witness"])(
       const connector = defineConnector({
         name: "test",
         source: "test",
-        env: {},
+        settings: [],
         types: [
           {
             type: linkedType,

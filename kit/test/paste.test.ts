@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defineConnector,
   type LocalCallback,
+  type SettingsDeclaration,
   type SetupContext,
 } from "../src/define.js";
 import { start } from "../src/main.js";
@@ -24,7 +25,15 @@ afterEach(async () => {
 });
 
 const made = "pem_private_key_made_by_the_vendor";
-const env = { TEST_APP_KEY: "secret" } as const;
+const settings = [
+  {
+    name: "test_app_key",
+    label: "Test app key",
+    kind: "text",
+    secret: true,
+    required: true,
+  },
+] as const satisfies SettingsDeclaration;
 
 interface Held {
   opened?: LocalCallback;
@@ -35,14 +44,17 @@ const consent = "https://vendor.example/consent?client=connector";
 
 function connector(
   held: Held,
-  after?: (context: SetupContext<typeof env>, local: LocalCallback) => void,
+  after?: (
+    context: SetupContext<typeof settings>,
+    local: LocalCallback,
+  ) => void,
   paste = true,
 ) {
   return defineConnector({
     name: "test",
     source: "test",
     types: [{ type: testType, fields: testFields }],
-    env,
+    settings,
     async run() {
       // Nothing to read in these tests.
     },
@@ -53,7 +65,7 @@ function connector(
       );
       held.query = await held.opened.redirected;
       after?.(context, held.opened);
-      return { TEST_APP_KEY: made };
+      return { test_app_key: made };
     },
   });
 }

@@ -43,10 +43,17 @@ void main(
         to_type_constraints: ["proof.checkpoint.issue"],
       },
     ],
-    env: { PROOF_CONTROL_URL: "required" },
+    settings: [
+      {
+        name: "proof_control_url",
+        label: "Proof control url",
+        kind: "text",
+        required: true,
+      },
+    ],
     async run(context) {
       const actions = (await (
-        await fetch(context.env.PROOF_CONTROL_URL, { signal: context.signal })
+        await fetch(context.env.proof_control_url, { signal: context.signal })
       ).json()) as Action[];
       for (const action of actions) {
         const scope = context.forScope(action.scope);
@@ -80,7 +87,7 @@ void main(
           }
         }
         if (action.observe !== undefined) {
-          const answer = await fetch(context.env.PROOF_CONTROL_URL, {
+          const answer = await fetch(context.env.proof_control_url, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

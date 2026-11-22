@@ -17,7 +17,7 @@ import {
 import {
   birthdays,
   calendarType,
-  env,
+  settings,
   eventsScope,
   eventType,
 } from "./config.js";
@@ -44,8 +44,8 @@ import {
 } from "./recurrence.js";
 import { iso } from "./time.js";
 
-export type Context = RunContext<typeof env>;
-type Scoped = ScopedRunContext<typeof env>;
+export type Context = RunContext<typeof settings>;
+type Scoped = ScopedRunContext<typeof settings>;
 
 /** Bumped when the way events are read changes, so that every calendar is
  *  read whole once more. */

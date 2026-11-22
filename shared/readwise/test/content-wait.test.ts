@@ -77,7 +77,7 @@ it("refreshes expired storage outside the kit row write and resumes after its du
   const connector = defineConnector({
     name: "readwise-content-wait",
     source: "readwise",
-    env: {},
+    settings: [],
     types: [
       { type: sourceType, fields: sourceFields },
       { type: readerFileType, fields: readerFileFields },

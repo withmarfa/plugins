@@ -79,9 +79,11 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     // Everything under a plugin's folder is plugin code, Markdown included: a
     // type's guidance is a file of the plugin, and a change to only that file
     // is checked and installed like any other. `types/README.md` is
-    // documentation; any other file in `types/` fails the plugin check.
+    // documentation; any other file in `types/` fails the plugin check. A
+    // connector's folder is also read by the script that generates it, which
+    // `Checks` runs to see that every type has its guidance.
     [/^types\/(?!README\.md$)/, ["plugins", "proof"]],
-    [/^connectors\/[^/]+\/plugin\/.*\.md$/i, ["plugins", "proof"]],
+    [/^connectors\/[^/]+\/plugin\/.*\.md$/i, ["code", "plugins", "proof"]],
     // Markdown, the licence, settings and the instructions for agents are read
     // only by Prettier and the personal-detail scan, which `Checks` runs for
     // every change.
@@ -96,12 +98,9 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     [/^connectors\/([a-z0-9-]+)\/test\//, ["code", "tests"], connectorOf],
     [/^(kit|shared\/[^/]+)\/test\//, ["code", "tests"]],
     [
-      /^scripts\/(test\/|no-skipped-tests\.ts$|retried-tests\.ts$|check-pr-description\.ts$|connector-list\.ts$)/,
+      /^scripts\/(test\/|no-skipped-tests\.ts$|retried-tests\.ts$|check-pr-description\.ts$|connector-plugins\.ts$)/,
       ["code", "tests"],
     ],
-    // Generated from the connectors' definitions; `Checks` builds them and
-    // fails when the file is out of date.
-    [/^connectors\.json$/, ["code"]],
     // The check reads the plugins, and the proof builds and installs them,
     // through the files they share. The release workflow runs these too, and
     // the proof's plugins group is the gate it publishes behind.

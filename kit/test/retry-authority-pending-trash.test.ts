@@ -12,7 +12,7 @@ it("retries a durable trash while its row remains in the bin", async () => {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (!seed) return;

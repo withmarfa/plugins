@@ -3,8 +3,9 @@ import { isDeepStrictEqual } from "node:util";
 import type {
   ConnectionDefinition,
   Entry,
-  EnvDeclaration,
+  SettingsDeclaration,
   Item,
+  Kind,
   RunContext,
   TypeDefinition,
 } from "@withmarfa/connector";
@@ -66,7 +67,9 @@ export function entryTypeWithManifest(): TypeDefinition {
   };
 }
 
-export const pictureKind = {
+export const pictureKind: Kind = {
+  name: "picture",
+  direction: "in",
   type: rssPicture as TypeDefinition,
   fields: ["title", "source_url", "blob_ref", "mime_type"],
 };
@@ -233,7 +236,7 @@ export function titleOf(address: string, type: PictureType): string {
 }
 
 type Context = Pick<
-  RunContext<EnvDeclaration>,
+  RunContext<SettingsDeclaration>,
   "held" | "archive" | "derive" | "upsert" | "inspect" | "signal" | "log"
 >;
 

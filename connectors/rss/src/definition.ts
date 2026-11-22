@@ -114,9 +114,10 @@ function refusal(error: unknown): string | undefined {
   return undefined;
 }
 
-/** The settings that add a type, and each value they take: the connector list
- *  builds the connector under every one to name every type it can write. */
-export const settingsAddingTypes = { RSS_PICTURES: picturesSettings };
+/** The settings that give the connector its widest shape: pictures saved, so
+ *  it declares the picture type, its connection and the manifest field, which
+ *  the plugin's folder holds whatever a process is set to. */
+export const widest: Settings = { rss_pictures: "save" };
 
 // A process that saves no pictures declares no picture type, connection or
 // manifest field, so its key needs, and holds, nothing for them. A value
@@ -124,7 +125,7 @@ export const settingsAddingTypes = { RSS_PICTURES: picturesSettings };
 // feed is read.
 function savingOf(settings: Settings): PicturesSetting {
   try {
-    return picturesSetting(settings["RSS_PICTURES"]);
+    return picturesSetting(settings["rss_pictures"]);
   } catch {
     return "addresses";
   }
@@ -136,6 +137,9 @@ export function connector(settings: Settings) {
   const savesPictures = savingOf(settings) !== "addresses";
   return defineConnector({
     name: "rss",
+    title: "RSS",
+    mark: "simple-icons:rss",
+    maker: "WithMarfa",
     description: "Entries from Atom, RSS and JSON feeds.",
     source: "rss",
     sourceName: "RSS",
@@ -143,6 +147,8 @@ export function connector(settings: Settings) {
     readme: "connectors/rss/README.md",
     types: [
       {
+        name: "entry",
+        direction: "in",
         // Imported JSON widens every string, so its field types read as
         // `string` here; the check on start holds the file to the server's.
         type: savesPictures
@@ -157,22 +163,34 @@ export function connector(settings: Settings) {
       ...(savesPictures ? [pictureKind] : []),
     ],
     ...(savesPictures && { connections: [attachedTo] }),
-    // A secret, since a private feed's address carries its token.
-    env: {
-      RSS_FEEDS: "secret",
-      RSS_PRIVATE_HOSTS: "optional",
-      RSS_PICTURES: "optional",
-    },
+    settings: [
+      {
+        name: "rss_feeds",
+        label: "Feeds",
+        kind: "text",
+        // A secret, since a private feed's address carries its token.
+        secret: true,
+        required: true,
+      },
+      { name: "rss_private_hosts", label: "Private hosts", kind: "text" },
+      {
+        name: "rss_pictures",
+        label: "Pictures",
+        kind: "choice",
+        choices: [...picturesSettings],
+        default: "addresses",
+      },
+    ],
     checkEnv(env) {
-      feedList(env.RSS_FEEDS);
-      privateHosts(env.RSS_PRIVATE_HOSTS);
-      picturesSetting(env.RSS_PICTURES);
+      feedList(env.rss_feeds);
+      privateHosts(env.rss_private_hosts);
+      picturesSetting(env.rss_pictures);
     },
     async run(context) {
       const { env, signal, state, log, forScope } = context;
-      const setting = picturesSetting(env.RSS_PICTURES);
-      const feeds = feedList(env.RSS_FEEDS);
-      const allowed = privateHosts(env.RSS_PRIVATE_HOSTS);
+      const setting = picturesSetting(env.rss_pictures);
+      const feeds = feedList(env.rss_feeds);
+      const allowed = privateHosts(env.rss_private_hosts);
       // A write of an entry clears a property it leaves out, so each carries
       // the manifest its row holds.
       const manifests: ReadonlyMap<string, Manifest> =

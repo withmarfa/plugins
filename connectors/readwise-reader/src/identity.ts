@@ -15,9 +15,9 @@ import {
   type Source,
   type ReaderEnrichment,
 } from "@withmarfa/readwise";
-import type { env } from "./config.js";
+import type { settings } from "./config.js";
 export type IdentityContext = Pick<
-  RunContext<typeof env>,
+  RunContext<typeof settings>,
   "inspect" | "held" | "pendingOutbound" | "log"
 >;
 interface Alias {

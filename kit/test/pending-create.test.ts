@@ -16,7 +16,7 @@ afterEach(async () => {
   await harness.close();
 });
 
-type Context = WatchContext<Record<string, never>>;
+type Context = WatchContext<readonly []>;
 
 /** A vendor that names what a create makes after the row it was for, as a
  *  vendor taking a client-chosen id does, so a lost create can be found. */
@@ -54,7 +54,7 @@ function fixture() {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run() {
       // The vendor is not read: these tests are about carrying.
@@ -484,7 +484,7 @@ it("hands a trash the pending remake it overtakes", async () => {
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run(context) {
       if (!seed) return;
@@ -564,7 +564,7 @@ it("keeps the pending create, without failing the run, when onChange leaves it u
   const connector = defineConnector({
     name: "test",
     source: "test",
-    env: {},
+    settings: [],
     types: [{ type: linkedType, fields: ["title", "vendor_id"] }],
     async run() {
       // Nothing to read.

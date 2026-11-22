@@ -1,4 +1,4 @@
-import type { Connector, EnvDeclaration } from "./define.js";
+import type { Connector, Setting, SettingsDeclaration } from "./define.js";
 import { shippedConnection, wireOf } from "./shipped.js";
 
 export class ConfigurationError extends Error {
@@ -32,7 +32,30 @@ function isServerUrl(value: string): boolean {
   }
 }
 
-export function readEnvironment<E extends EnvDeclaration>(
+/**
+ * The environment variable a setting is read from until Marfa holds the
+ * values: its name in capitals, so `github_token` is `GITHUB_TOKEN`. The
+ * kit knows the mapping here and nowhere else.
+ */
+export function variableOf(setting: string): string {
+  return setting.toUpperCase();
+}
+
+/**
+ * The settings a definition is built from, read from the environment under
+ * `variableOf`'s mapping: each variable's name in lowercase. A definition
+ * that varies with a setting is built from these, and reads no environment
+ * of its own.
+ */
+export function settingsFromEnvironment(
+  env: Readonly<Record<string, string | undefined>>,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(env).map(([name, value]) => [name.toLowerCase(), value]),
+  );
+}
+
+export function readEnvironment<E extends SettingsDeclaration>(
   connector: Connector<E>,
   env: Readonly<Record<string, string | undefined>>,
   setup = false,
@@ -53,18 +76,14 @@ export function readEnvironment<E extends EnvDeclaration>(
   const key = need("MARFA_API_KEY");
   const values: Record<string, string | undefined> = {};
   const secrets = new Map([["MARFA_API_KEY", key]]);
-  for (const [name, kind] of Object.entries(connector.env ?? {})) {
+  for (const setting of connector.settings ?? []) {
+    const variable = variableOf(setting.name);
     // Setup makes what the connector needs later, so it needs none of it.
     const value =
-      kind === "optional" || kind === "optional-secret" || setup
-        ? present(name)
-        : need(name);
-    values[name] = value;
-    if (
-      (kind === "secret" || kind === "optional-secret") &&
-      value !== undefined
-    )
-      secrets.set(name, value);
+      setting.required !== true || setup ? present(variable) : need(variable);
+    values[setting.name] = value;
+    if (setting.secret === true && value !== undefined)
+      secrets.set(variable, value);
   }
   if (missing.length > 0) {
     throw new ConfigurationError(
@@ -89,9 +108,120 @@ export function readEnvironment<E extends EnvDeclaration>(
   return { url, key, values, secrets: [...secrets.values()] };
 }
 
+function fitsText(text: string, longest: number): boolean {
+  return text.trim() !== "" && text.length <= longest;
+}
+
+/** A setting's or a kind's name as the contract writes it. */
+const snakeCase = /^[a-z][a-z0-9_]*$/;
+
+const settingKinds: readonly string[] = ["text", "number", "boolean", "choice"];
+const directions: readonly string[] = ["in", "out", "both"];
+
+function fits(setting: Setting): boolean {
+  const given = setting.default;
+  if (given === undefined) return true;
+  switch (setting.kind) {
+    case "text":
+      return typeof given === "string";
+    case "number":
+      return typeof given === "number" && Number.isFinite(given);
+    case "boolean":
+      return typeof given === "boolean";
+    case "choice":
+      return (
+        typeof given === "string" && (setting.choices ?? []).includes(given)
+      );
+    default:
+      return false;
+  }
+}
+
+/** What stops the settings a connector declares from being the plugin's
+ *  manifest: each is a refusal `POST /plugins` would make, found here first. */
+function settingProblems(settings: readonly Setting[]): string[] {
+  const problems: string[] = [];
+  const named = settings.map((setting) => setting.name);
+  const bad = named.filter((name) => !snakeCase.test(name) || name.length > 64);
+  if (bad.length > 0) {
+    problems.push(
+      `each setting named in lowercase letters, digits and underscores, starting with a letter, at most 64 characters, where ${bad.join(", ")} is not`,
+    );
+  }
+  if (new Set(named).size !== named.length) problems.push("each setting once");
+  const unlabeled = settings.filter(
+    (setting) =>
+      typeof setting.label !== "string" ||
+      setting.label.trim() === "" ||
+      setting.label.length > 100,
+  );
+  if (unlabeled.length > 0) {
+    problems.push(
+      `each setting labeled with 1 to 100 characters, where ${unlabeled.map((setting) => setting.name).join(", ")} is not`,
+    );
+  }
+  const kindless = settings.filter(
+    (setting) => !settingKinds.includes(setting.kind),
+  );
+  if (kindless.length > 0) {
+    problems.push(
+      `each setting of kind text, number, boolean or choice, where ${kindless.map((setting) => setting.name).join(", ")} is not`,
+    );
+  }
+  const secrets = settings.filter((setting) => setting.secret === true);
+  const wrongKind = secrets.filter((setting) => setting.kind !== "text");
+  if (wrongKind.length > 0) {
+    problems.push(
+      `a secret setting to be text, where ${wrongKind.map((setting) => setting.name).join(", ")} is not`,
+    );
+  }
+  const withDefault = secrets.filter(
+    (setting) => setting.default !== undefined,
+  );
+  if (withDefault.length > 0) {
+    problems.push(
+      `a secret setting to have no default, where ${withDefault.map((setting) => setting.name).join(", ")} has one`,
+    );
+  }
+  const misfit = settings.filter(
+    (setting) =>
+      settingKinds.includes(setting.kind) &&
+      setting.secret !== true &&
+      !fits(setting),
+  );
+  if (misfit.length > 0) {
+    problems.push(
+      `a default of its setting's kind, and one of its choices for a choice, where ${misfit.map((setting) => setting.name).join(", ")} has not`,
+    );
+  }
+  const choiceless = settings.filter((setting) =>
+    setting.kind === "choice"
+      ? (setting.choices ?? []).length === 0
+      : setting.choices !== undefined,
+  );
+  if (choiceless.length > 0) {
+    problems.push(
+      `choices for each choice setting and for no other, where ${choiceless.map((setting) => setting.name).join(", ")} does not`,
+    );
+  }
+  const choices = settings.filter(
+    (setting) =>
+      new Set(setting.choices).size !== (setting.choices ?? []).length ||
+      (setting.choices ?? []).some(
+        (choice) => choice === "" || choice.length > 100,
+      ),
+  );
+  if (choices.length > 0) {
+    problems.push(
+      `choices of 1 to 100 characters, each once, where ${choices.map((setting) => setting.name).join(", ")} has others`,
+    );
+  }
+  return problems;
+}
+
 /** The 200, 2000 and 200 limits are the server's bounds on a registration and
  *  a source. */
-export function checkDefinition<E extends EnvDeclaration>(
+export function checkDefinition<E extends SettingsDeclaration>(
   connector: Connector<E>,
 ): void {
   const problems: string[] = [];
@@ -109,6 +239,35 @@ export function checkDefinition<E extends EnvDeclaration>(
   if (reservedSourcePrefixes.some((prefix) => lowered.startsWith(prefix))) {
     problems.push(
       `a source outside the reserved ${reservedSourcePrefixes.join(" and ")} prefixes`,
+    );
+  }
+  problems.push(...settingProblems(connector.settings ?? []));
+  if (connector.title !== undefined && !fitsText(connector.title, 100)) {
+    problems.push("a title of 1 to 100 characters");
+  }
+  if (connector.maker !== undefined && !fitsText(connector.maker, 64)) {
+    problems.push("a maker of 1 to 64 characters");
+  }
+  const kindNames = connector.types.flatMap((kind) =>
+    kind.name === undefined ? [] : [kind.name],
+  );
+  const badKindNames = kindNames.filter(
+    (name) => !snakeCase.test(name) || name.length > 64,
+  );
+  if (badKindNames.length > 0) {
+    problems.push(
+      `each kind named in lowercase letters, digits and underscores, starting with a letter, at most 64 characters, where ${badKindNames.join(", ")} is not`,
+    );
+  }
+  if (new Set(kindNames).size !== kindNames.length)
+    problems.push("each kind once");
+  const badDirections = connector.types.filter(
+    (kind) =>
+      kind.direction !== undefined && !directions.includes(kind.direction),
+  );
+  if (badDirections.length > 0) {
+    problems.push(
+      `each kind to move in, out or both, where ${badDirections.map((kind) => kind.type.id).join(", ")} does not`,
     );
   }
   const ids = connector.types.map((kind) => kind.type.id);

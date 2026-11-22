@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import type {
   Entry,
-  EnvDeclaration,
+  SettingsDeclaration,
   PendingInbound,
   ScopedRunContext,
 } from "../src/define.js";
@@ -351,7 +351,7 @@ it("keeps the full journal's condition through runs that do not commit the scope
       message: "Bad",
     });
   const run = async (
-    work?: (scope: ScopedRunContext<EnvDeclaration>) => Promise<unknown>,
+    work?: (scope: ScopedRunContext<SettingsDeclaration>) => Promise<unknown>,
   ) => {
     const source = vendor();
     source.read = async (ctx) => {

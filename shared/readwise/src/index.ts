@@ -3,6 +3,7 @@ export * from "./display.js";
 export * from "./kinds.js";
 export * from "./mapping.js";
 export * from "./types.js";
+export * from "./settings.js";
 export * from "./reader.js";
 export * from "./http.js";
 export * from "./export-client.js";

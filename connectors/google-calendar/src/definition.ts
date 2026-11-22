@@ -11,7 +11,6 @@ import {
   calendarListScope,
   calendarType,
   childOf,
-  env,
   eventDefinition,
   eventDerived,
   eventFields,
@@ -20,6 +19,7 @@ import {
   inCalendar,
   needs,
   scopes,
+  settings,
   source,
 } from "./config.js";
 import { calendarChecks, readCalendars } from "./read.js";
@@ -62,6 +62,9 @@ export function connector(options?: GoogleOptions) {
   const writing: Writing = { options, base };
   return defineConnector({
     name: "google-calendar",
+    title: "Google Calendar",
+    mark: "simple-icons:googlecalendar",
+    maker: "WithMarfa",
     description:
       "Calendars and events of a Google account, read through the Calendar API, with changes to events made in Marfa carried back.",
     source,
@@ -69,8 +72,15 @@ export function connector(options?: GoogleOptions) {
     sourceMark: "simple-icons:googlecalendar",
     readme: "connectors/google-calendar/README.md",
     types: [
-      { type: calendarDefinition as TypeDefinition, fields: calendarFields },
       {
+        name: "calendar",
+        direction: "in",
+        type: calendarDefinition as TypeDefinition,
+        fields: calendarFields,
+      },
+      {
+        name: "event",
+        direction: "both",
         type: eventDefinition as TypeDefinition,
         fields: eventFields,
         readOnly: eventReadOnly,
@@ -79,7 +89,7 @@ export function connector(options?: GoogleOptions) {
     ],
     carries: () => [eventType],
     connections,
-    env,
+    settings,
     setup: (context) => signIn(context, scopes, options),
     async run(context) {
       const google = connectGoogle(context, needs, options);
@@ -93,7 +103,7 @@ export function connector(options?: GoogleOptions) {
         context,
         api: new CalendarApi(google, base),
         access,
-        named: names(context.env.GOOGLE_CALENDAR_READ_ONLY_CALENDARS),
+        named: names(context.env.google_calendar_read_only_calendars),
         now,
       });
     },

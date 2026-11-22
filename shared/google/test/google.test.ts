@@ -9,7 +9,7 @@ import {
 } from "../src/index.js";
 import {
   captured,
-  clientEnv,
+  clientSettings,
   freshToken,
   GoogleStub,
   idToken,
@@ -46,14 +46,17 @@ function own(...sourceIds: string[]) {
 }
 
 function run(token: string, state = new Map<string, unknown>()) {
-  const seen = captured({ ...clientEnv, GOOGLE_REFRESH_TOKEN: token }, state);
+  const seen = captured(
+    { ...clientSettings, google_refresh_token: token },
+    state,
+  );
   return seen;
 }
 
 /** What `onChange`, `remake` or `preflight` is handed. */
 function watch(token: string, state = new Map<string, unknown>()) {
   return captured(
-    { ...clientEnv, GOOGLE_REFRESH_TOKEN: token },
+    { ...clientSettings, google_refresh_token: token },
     state,
     "watch",
   );
@@ -87,12 +90,12 @@ describe("the access token", () => {
     const call = stub.token[0];
     expect(call?.method).toBe("POST");
     expect(call?.form.get("grant_type")).toBe("refresh_token");
-    expect(call?.form.get("client_id")).toBe(clientEnv.GOOGLE_CLIENT_ID);
+    expect(call?.form.get("client_id")).toBe(clientSettings.google_client_id);
     expect(call?.form.get("client_secret")).toBe(
-      clientEnv.GOOGLE_CLIENT_SECRET,
+      clientSettings.google_client_secret,
     );
     expect(call?.form.get("refresh_token")).toBe(
-      seen.context.env["GOOGLE_REFRESH_TOKEN"],
+      seen.context.env["google_refresh_token"],
     );
     await google.json(`${stub.url}/things`);
     expect(stub.api[0]?.authorization).toBe(
@@ -558,7 +561,7 @@ describe("the Google account", () => {
 
   it("does not keep an account in a run started between scheduled runs", async () => {
     const seen = captured(
-      { ...clientEnv, GOOGLE_REFRESH_TOKEN: freshToken() },
+      { ...clientSettings, google_refresh_token: freshToken() },
       new Map(),
     );
     const context = { ...seen.context, hints: new Map() };
@@ -794,7 +797,7 @@ describe("secrets", () => {
     for (const secret of [
       original,
       issued,
-      clientEnv.GOOGLE_CLIENT_SECRET,
+      clientSettings.google_client_secret,
       "ya29.access-token-number-1",
       idToken(stub.sub),
     ]) {

@@ -8,6 +8,7 @@ import {
   type Inbound,
   type Log,
   type RunContext,
+  type SettingsDeclaration,
   type Target,
   type TypeDefinition,
 } from "../src/define.js";
@@ -111,10 +112,19 @@ export const linkedType: TypeDefinition = {
 /** `toString` is a name every object answers. */
 export const testFields = ["title", "note", "link", "vendor_id", "toString"];
 
+export const testSettings = [
+  {
+    name: "test_token",
+    label: "Test token",
+    kind: "text",
+    secret: true,
+    required: true,
+  },
+  { name: "test_region", label: "Test region", kind: "text" },
+] as const satisfies SettingsDeclaration;
+
 export interface Vendor {
-  read?: (
-    context: RunContext<{ TEST_TOKEN: "secret"; TEST_REGION: "optional" }>,
-  ) => Promise<void>;
+  read?: (context: RunContext<typeof testSettings>) => Promise<void>;
   entries: Entry[];
   archived: string[];
   token: string | undefined;
@@ -188,7 +198,7 @@ export function testConnector(held: Vendor) {
     ],
     ...(held.connections !== undefined && { connections: held.connections }),
     ...(held.retired !== undefined && { retired: held.retired }),
-    env: { TEST_TOKEN: "secret", TEST_REGION: "optional" },
+    settings: testSettings,
     async run(context) {
       held.runs += 1;
       if (held.gate !== undefined) await held.gate;
@@ -228,7 +238,7 @@ function twoWayConnector(held: Vendor) {
     ],
     ...(held.connections !== undefined && { connections: held.connections }),
     ...(held.retired !== undefined && { retired: held.retired }),
-    env: { TEST_TOKEN: "secret", TEST_REGION: "optional" },
+    settings: testSettings,
     async run(context) {
       held.runs += 1;
       if (held.gate !== undefined) await held.gate;
@@ -349,7 +359,7 @@ function twoWayConnector(held: Vendor) {
 
 export const hung: AbortSignal[] = [];
 
-const testInbound: Inbound<{ TEST_TOKEN: "secret" }> = {
+const testInbound: Inbound<typeof testSettings> = {
   verify: (delivery, env, signal) => {
     if (delivery.header("x-hang") !== undefined) {
       hung.push(signal);
@@ -363,7 +373,7 @@ const testInbound: Inbound<{ TEST_TOKEN: "secret" }> = {
       throw new Error(`cannot read ${new TextDecoder().decode(delivery.body)}`);
     }
     return verifyHmac({
-      secret: env.TEST_TOKEN,
+      secret: env.test_token,
       body: delivery.body,
       signature: delivery.header("x-signature"),
     });

@@ -1,0 +1,3 @@
+**Use for:** a task from a Todoist account, read through the Sync API: a task whose priority, due date and completion are the core task's, with Todoist's own placing of it beside them. Every `todoist.task` in Marfa is carried back to Todoist, unless the connector is set read only.
+
+**Recurrence:** `recurrence_text` says how the task repeats in Todoist's own words, such as "every day at 2pm", while Todoist reads the due date as recurring. A change made in Marfa reaches Todoist, read in the account's language, from the task's current date; clearing it leaves the task due once on that date. The core recurrence beside it holds the same repeat as RFC 5545 lines only where Todoist's words state it exactly, and a change to that is not sent.

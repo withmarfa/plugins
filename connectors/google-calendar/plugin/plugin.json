@@ -1,0 +1,57 @@
+{
+  "name": "google-calendar",
+  "title": "Google Calendar",
+  "description": "Calendars and events of a Google account, read through the Calendar API, with changes to events made in Marfa carried back.",
+  "mark": "simple-icons:googlecalendar",
+  "maker": "WithMarfa",
+  "marfa": "0.0.95",
+  "connector": {
+    "source": "google-calendar",
+    "source_name": "Google Calendar",
+    "source_mark": "simple-icons:googlecalendar",
+    "kinds": [
+      {
+        "name": "calendar",
+        "type": "google.calendar.calendar",
+        "direction": "in"
+      },
+      { "name": "event", "type": "google.calendar.event", "direction": "both" }
+    ],
+    "edge_types": ["google.calendar.in-calendar", "parent-of"],
+    "settings": [
+      {
+        "name": "google_client_id",
+        "label": "Google client ID",
+        "kind": "text",
+        "required": true
+      },
+      {
+        "name": "google_client_secret",
+        "label": "Google client secret",
+        "kind": "text",
+        "secret": true,
+        "required": true
+      },
+      {
+        "name": "google_refresh_token",
+        "label": "Google refresh token",
+        "kind": "text",
+        "secret": true,
+        "required": true
+      },
+      {
+        "name": "google_calendar_read_only_calendars",
+        "label": "Calendars to keep read only",
+        "kind": "text",
+        "required": false
+      },
+      {
+        "name": "google_calendar_confirm_deletes",
+        "label": "Confirmation of a held batch of deletes",
+        "kind": "text",
+        "required": false
+      }
+    ],
+    "runs": { "on": "host" }
+  }
+}

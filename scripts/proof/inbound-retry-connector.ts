@@ -48,7 +48,14 @@ await main(
         to_type_constraints: [type],
       },
     ],
-    env: { PROOF_CONTROL_URL: "required" },
+    settings: [
+      {
+        name: "proof_control_url",
+        label: "Proof control url",
+        kind: "text",
+        required: true,
+      },
+    ],
     async run(context) {
       for (let index = 0; index < (config.conditions ?? 0); index++)
         context.log.condition(
@@ -65,7 +72,7 @@ await main(
           ? undefined
           : { retry: { mode: config.mode, context: config.context } },
       );
-      const listing = await fetch(`${context.env.PROOF_CONTROL_URL}/entries`, {
+      const listing = await fetch(`${context.env.proof_control_url}/entries`, {
         headers: { "If-None-Match": '"owned"' },
       });
       if (!listing.ok && listing.status !== 304)
@@ -80,14 +87,14 @@ await main(
           if (record.mode === "replay") attempts.push(record.intent.entry);
           else {
             const response = await fetch(
-              `${context.env.PROOF_CONTROL_URL}/refetch/${encodeURIComponent(record.identity.sourceId)}`,
+              `${context.env.proof_control_url}/refetch/${encodeURIComponent(record.identity.sourceId)}`,
             );
             if (response.ok) attempts.push((await response.json()) as Entry);
           }
         }
       await scope.upsert(type, attempts);
       const result = await scope.state.checkpoint("page", config.page);
-      await fetch(context.env.PROOF_CONTROL_URL, {
+      await fetch(context.env.proof_control_url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ result, pending: scope.refusals.pending() }),

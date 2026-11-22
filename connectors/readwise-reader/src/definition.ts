@@ -10,7 +10,7 @@ import {
   readerFileFields,
   readerFilePolicy,
 } from "@withmarfa/readwise";
-import { env, parseConfig } from "./config.js";
+import { settings, parseConfig } from "./config.js";
 import { sync, readerArchived } from "./sync.js";
 import { onChange, preflight } from "./outbound.js";
 import { readerPolicy } from "./policy.js";
@@ -19,12 +19,15 @@ export function connector() {
   let inboundOnly = false;
   return defineConnector({
     name: "readwise-reader",
+    title: "Readwise Reader",
+    mark: "lucide:book-open",
+    maker: "WithMarfa",
     source: "readwise",
     sourceName: "Readwise",
     description:
       "Reader documents, highlights, annotations, and retained content with supported two-way edits.",
     readme: "connectors/readwise-reader/README.md",
-    env,
+    settings,
     checkEnv(values) {
       const config = parseConfig(values);
       account = config.account;
@@ -32,6 +35,8 @@ export function connector() {
     },
     types: [
       {
+        name: "source",
+        direction: "both",
         type: sourceType,
         fields: sourceFields,
         readOnly: sourceFields.filter(
@@ -43,6 +48,8 @@ export function connector() {
         archived: readerArchived,
       },
       {
+        name: "highlight",
+        direction: "both",
         type: highlightType,
         fields: highlightFields,
         readOnly: highlightFields.filter(
@@ -55,6 +62,8 @@ export function connector() {
           readerPolicy(highlightType.id, account, item, entry, inboundOnly),
       },
       {
+        name: "file",
+        direction: "in",
         type: readerFileType,
         fields: readerFileFields,
         policy: (item, entry) => readerFilePolicy(account, item, entry),

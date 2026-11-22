@@ -21,7 +21,7 @@ function connector(plan: Plan) {
     name: "test",
     source: "test",
     types: [{ type: testType, fields: testFields }],
-    env: {},
+    settings: [],
     async run(context) {
       await context.upsert(testType.id, plan.entries);
     },

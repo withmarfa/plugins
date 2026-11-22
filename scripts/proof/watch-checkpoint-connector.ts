@@ -39,7 +39,14 @@ void main(
         fields: ["title", "note", "vendor_id"],
       },
     ],
-    env: { PROOF_CONTROL_URL: "required" },
+    settings: [
+      {
+        name: "proof_control_url",
+        label: "Proof control url",
+        kind: "text",
+        required: true,
+      },
+    ],
     ...(journal && {
       preflight(inventory: { purges: readonly unknown[] }) {
         if (!Array.isArray(inventory.purges))
@@ -48,7 +55,7 @@ void main(
       },
     }),
     async run(context) {
-      const url = context.env.PROOF_CONTROL_URL;
+      const url = context.env.proof_control_url;
       const response = await fetch(`${url}/entries`, {
         signal: context.signal,
       });
@@ -78,7 +85,7 @@ void main(
             baseline: { source_id: change.item.source_id ?? null },
           })))
         : undefined;
-      const response = await fetch(`${context.env.PROOF_CONTROL_URL}/push`, {
+      const response = await fetch(`${context.env.proof_control_url}/push`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(

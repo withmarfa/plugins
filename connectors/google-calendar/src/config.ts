@@ -1,4 +1,5 @@
-import { googleEnv } from "@withmarfa/google";
+import type { SettingsDeclaration } from "@withmarfa/connector";
+import { googleSettings } from "@withmarfa/google";
 import calendarDefinition from "./google.calendar.calendar.json" with { type: "json" };
 import eventDefinition from "./google.calendar.event.json" with { type: "json" };
 
@@ -20,11 +21,19 @@ export const scopes = [eventsScope, calendarListScope] as const;
  *  hold the account in their `source_id`. */
 export const needs = { source, scopes, types: [calendarType, eventType] };
 
-export const env = {
-  ...googleEnv,
-  GOOGLE_CALENDAR_READ_ONLY_CALENDARS: "optional",
-  GOOGLE_CALENDAR_CONFIRM_DELETES: "optional",
-} as const;
+export const settings = [
+  ...googleSettings,
+  {
+    name: "google_calendar_read_only_calendars",
+    label: "Calendars to keep read only",
+    kind: "text",
+  },
+  {
+    name: "google_calendar_confirm_deletes",
+    label: "Confirmation of a held batch of deletes",
+    kind: "text",
+  },
+] as const satisfies SettingsDeclaration;
 
 /** The event fields Google holds that Marfa never changes there: they are
  *  put back where a person changes them. */

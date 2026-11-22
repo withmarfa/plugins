@@ -2,7 +2,7 @@ import { defineConnector, type Item, type Entry } from "@withmarfa/connector";
 import { contentMaxBytes, endpoint } from "@withmarfa/readwise";
 import { identity } from "@withmarfa/readwise";
 import { highlightsPolicy } from "./coexistence.js";
-import { env, sync } from "./sync.js";
+import { settings, sync } from "./sync.js";
 import {
   sourceType,
   highlightType,
@@ -17,6 +17,9 @@ export function connector() {
   let account: string | undefined;
   return defineConnector({
     name: "readwise",
+    title: "Readwise",
+    mark: "lucide:highlighter",
+    maker: "WithMarfa",
     source: "readwise",
     sourceName: "Readwise",
     description:
@@ -24,18 +27,24 @@ export function connector() {
     readme: "connectors/readwise/README.md",
     types: [
       {
+        name: "source",
+        direction: "in",
         type: sourceType,
         fields: sourceFields,
         policy: (item: Item | undefined, entry?: Entry) =>
           highlightsPolicy(sourceType.id, item, entry),
       },
       {
+        name: "highlight",
+        direction: "in",
         type: highlightType,
         fields: highlightFields,
         policy: (item: Item | undefined, entry?: Entry) =>
           highlightsPolicy(highlightType.id, item, entry),
       },
       {
+        name: "file",
+        direction: "in",
         type: readerFileType,
         fields: readerFileFields,
         policy: (item, entry) => readerFilePolicy(account, item, entry),
@@ -67,12 +76,12 @@ export function connector() {
         to_type_constraints: [sourceType.id, highlightType.id],
       },
     ],
-    env,
+    settings,
     checkEnv(values) {
-      identity(values.READWISE_ACCOUNT, "source", 1);
-      account = values.READWISE_ACCOUNT;
-      endpoint(values.READWISE_API_URL);
-      contentMaxBytes(values.READWISE_CONTENT_MAX_BYTES);
+      identity(values.readwise_account, "source", 1);
+      account = values.readwise_account;
+      endpoint(values.readwise_api_url);
+      contentMaxBytes(values.readwise_content_max_bytes);
     },
     run: sync,
   });

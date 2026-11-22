@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   defineConnector,
   type LocalCallback,
+  type SettingsDeclaration,
   type SetupContext,
 } from "../src/define.js";
 import { start } from "../src/main.js";
@@ -30,7 +31,16 @@ afterEach(async () => {
 });
 
 const made = "pem_private_key_made_by_the_vendor";
-const env = { TEST_APP_KEY: "secret", TEST_REGION: "optional" } as const;
+const settings = [
+  {
+    name: "test_app_key",
+    label: "Test app key",
+    kind: "text",
+    secret: true,
+    required: true,
+  },
+  { name: "test_region", label: "Test region", kind: "text" },
+] as const satisfies SettingsDeclaration;
 
 interface Held {
   opened?: LocalCallback;
@@ -41,14 +51,14 @@ interface Held {
 function withSetup(
   held: Held,
   setup?: (
-    context: SetupContext<typeof env>,
+    context: SetupContext<typeof settings>,
   ) => Promise<Record<string, string>>,
 ) {
   return defineConnector({
     name: "test",
     source: "test",
     types: [{ type: testType, fields: testFields }],
-    env,
+    settings,
     async run() {
       // Nothing to read in these tests.
     },
@@ -63,7 +73,7 @@ function withSetup(
         context.log.info(`the vendor posts to ${held.endpoint.url}`);
         context.secret(made);
         context.log.info(`code ${query.get("code") ?? ""} became ${made}`);
-        return held.answer ?? { TEST_APP_KEY: made };
+        return held.answer ?? { test_app_key: made };
       }),
   });
 }
@@ -133,7 +143,7 @@ describe("--setup", () => {
           (callback) => `<form data-redirect="${callback}"></form>`,
         );
         await held.opened.redirected;
-        return { TEST_APP_KEY: made };
+        return { test_app_key: made };
       }),
       harness.runtime(["--setup", file]),
     );
@@ -157,7 +167,7 @@ describe("--setup", () => {
         held.opened.onward(
           `https://vendor.example/apps/${query.get("code") ?? ""}/install`,
         );
-        return { TEST_APP_KEY: made };
+        return { test_app_key: made };
       }),
       harness.runtime(["--setup", file]),
     );
@@ -218,7 +228,7 @@ describe("--setup", () => {
       withSetup(plain, async (context) => {
         plain.opened = await context.listen("<form></form>");
         await plain.opened.redirected;
-        return { TEST_APP_KEY: made };
+        return { test_app_key: made };
       }),
       harness.runtime(["--setup", join(dir, "one.json")]),
     );
@@ -233,7 +243,7 @@ describe("--setup", () => {
         withSetup(early, async (context) => {
           const local = await context.listen("<form></form>");
           local.onward("https://vendor.example/next");
-          return { TEST_APP_KEY: made };
+          return { test_app_key: made };
         }),
         harness.runtime(["--setup", join(dir, "two.json")]),
       ),
@@ -246,7 +256,7 @@ describe("--setup", () => {
         elsewhere.opened = await context.listen("<form></form>");
         await elsewhere.opened.redirected;
         elsewhere.opened.onward("javascript:alert(1)");
-        return { TEST_APP_KEY: made };
+        return { test_app_key: made };
       }),
       harness.runtime(["--setup", join(dir, "three.json")]),
     );
@@ -266,7 +276,7 @@ describe("--setup", () => {
         await context.listen(() => {
           throw new Error("the manifest could not be written");
         });
-        return { TEST_APP_KEY: made };
+        return { test_app_key: made };
       }),
       harness.runtime(["--setup", file]),
     );
@@ -407,7 +417,7 @@ describe("a secret made at run time", () => {
       name: "test",
       source: "test",
       types: [{ type: testType, fields: testFields }],
-      env: {},
+      settings: [],
       run(context) {
         context.secret(token);
         context.log.warn(`holding ${token}`);
