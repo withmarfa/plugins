@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { quietRun } from "../../../kit/test/quiet-run.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
-import { readerVendor } from "../../../scripts/proof/readwise-reader-stub.js";
+import { readwiseVendor } from "../../../scripts/proof/readwise-vendor.js";
 
 const run = promisify(execFile);
 const built = resolve(import.meta.dirname, "../dist/main.js");
@@ -16,7 +16,7 @@ quietRun({
       edges: ["excerpt-of", "references", "attached-to"],
     }).start();
     marfa.grants = { metadata_permissions: { types: "write" } };
-    const vendor = await readerVendor({ incremental: true });
+    const vendor = await readwiseVendor({ incremental: true });
     for (let at = 0; at < size; at += 1) {
       vendor.sources.push({
         user_book_id: 1000 + at,

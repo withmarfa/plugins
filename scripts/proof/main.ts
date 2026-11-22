@@ -25,7 +25,7 @@ import { proveInbound } from "./inbound.js";
 import { proveParentOf } from "./parent-of.js";
 import { proveKeys } from "./keys.js";
 import { proveReadwise } from "./readwise.js";
-import { proveReadwiseReader } from "./readwise-reader.js";
+import { proveReadwiseWithReader } from "./readwise-with-reader.js";
 import { proveRss } from "./rss.js";
 import { proveTodoist } from "./todoist.js";
 import { proveTracker } from "./tracker.js";
@@ -72,8 +72,8 @@ const runners: Record<GroupName, (c: Context) => Promise<void>> = {
   "inbound-retry": (c) => proveInboundRetry(c.url, c.marfa),
   "retry-archive": (c) => proveRetryArchive(c.marfa, c.url),
   plugins: (c) => provePlugins(c.url, c.mintKey),
-  "readwise-reader": (c) =>
-    proveReadwiseReader(c.marfa, c.url, c.mintKey, c.updateKey),
+  "readwise-with-reader": (c) =>
+    proveReadwiseWithReader(c.marfa, c.url, c.mintKey),
 };
 
 /**

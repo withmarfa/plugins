@@ -10,13 +10,12 @@ A connector is a small process that holds a key to a Marfa instance. It register
 
 - [`types/`](./types/README.md): the common type families, one folder each, starting with Tickets.
 - [`kit/`](./kit): the package `@withmarfa/connector`, which makes a connector a page of code.
-- [`shared/`](./shared): private packages that related connectors share: Readwise's schemas and mappings, and the Google sign-in in [`shared/google`](./shared/google/README.md). They are never published.
+- [`shared/`](./shared): private packages that related connectors share, today the Google sign-in in [`shared/google`](./shared/google/README.md). They are never published.
 - [`template/`](./template): what a new connector starts from. Its [README](./template/README.md) is the guide to writing one, minting its key, running it, and deploying it with launchd or Docker.
 - [`connectors/`](./connectors): the connectors, one folder each, run and never published.
   - [`github`](./connectors/github/README.md): repositories, issues, discussions, comments, read-only pull requests and retained issue/comment files from a personal token or GitHub App, with relations, closing issues and checks; App runs carry issue, discussion and comment edits back.
   - [`todoist`](./connectors/todoist/README.md): a Todoist account's tasks, with changes carried back.
-  - [`readwise`](./connectors/readwise/README.md): sources and complete highlights from one Readwise account, read only, with resumable export checkpoints.
-  - [`readwise-reader`](./connectors/readwise-reader/README.md): Reader documents, highlights, retained content, and supported two-way edits, with independent registration and shared identities.
+  - [`readwise`](./connectors/readwise/README.md): sources and complete highlights from one Readwise account, read only, with resumable export checkpoints; with Reader turned on, also Reader documents, retained content, and supported two-way edits, one item per document.
   - [`rss`](./connectors/rss/README.md): the entries of the feeds it is given, read only, and on request the pictures they point to, saved as files.
   - [`google-calendar`](./connectors/google-calendar/README.md): a Google account's calendars and events, with series, changed occurrences and cancellations, and changes to events carried back.
 - `connectors/<name>/plugin/`: the plugin each connector is published as, generated from the connector's own definition and read by `marfa plugins check` and the release. Its `plugin.json` names the connector's source, its kinds with the direction each moves, its settings and the edge types it writes; each kind has a type file and its guidance. `pnpm build`, then `pnpm connectors:generate` regenerates the JSON, and CI fails when it is out of date.

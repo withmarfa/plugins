@@ -8,9 +8,6 @@
       "path": "shared/google"
     },
     {
-      "path": "shared/readwise"
-    },
-    {
       "path": "template/connector"
     },
     {
@@ -24,9 +21,6 @@
     },
     {
       "path": "connectors/readwise"
-    },
-    {
-      "path": "connectors/readwise-reader"
     },
     {
       "path": "connectors/google-calendar"

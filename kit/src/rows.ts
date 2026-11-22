@@ -6,6 +6,7 @@ import {
   merge,
   occurredKey,
   sideOf,
+  stateKey,
   unchangedAtVendor,
   type Agreement,
   type Merged,
@@ -123,6 +124,7 @@ export interface Spec {
   readonly owned?: boolean;
   readonly observed?: ReadonlySet<string>;
   readonly firstAgreement?: "preserve" | "hold";
+  readonly adopt?: boolean;
   readonly type: string;
   readonly source: string;
   readonly link: string | undefined;
@@ -184,6 +186,7 @@ export function forRow(
     ...(policy.firstAgreement !== undefined && {
       firstAgreement: policy.firstAgreement,
     }),
+    ...(policy.adopt === true && entry !== undefined && { adopt: true }),
     twoWay: kind.twoWay && policy.owned !== false,
   };
 }
@@ -205,8 +208,6 @@ export function carriable(
 ): boolean {
   return Object.keys(waiting ?? {}).some((key) => key !== connectKey);
 }
-
-export const stateKey = "@state";
 
 const raced = new Set([
   "version_conflict",
@@ -821,6 +822,7 @@ export class Rows {
       retired: kind.retired,
       preserveFirst: kind.firstAgreement === "preserve",
       firstHold: kind.firstAgreement === "hold",
+      adopt: kind.adopt === true,
       agreement,
       row: {
         properties: row.properties,

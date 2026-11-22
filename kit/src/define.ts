@@ -28,6 +28,11 @@ export interface RowPolicy {
   readonly fields?: Readonly<Record<string, FieldPolicy>>;
   /** Preserve schedules divergent mutable values; hold seeds missing fields and keeps existing initial values without inventing an outbound edit. */
   readonly firstAgreement?: "preserve" | "hold";
+  /** The entry takes over a row another rule of the connector held: the
+   *  row's state, as it stands, becomes the agreed one, so a state change
+   *  made in Marfa under the earlier rule, such as an archive, is not
+   *  carried. Given with an entry only. */
+  readonly adopt?: boolean;
 }
 
 /** A shipped connection type repeats the instance's own `cascade_on_delete`

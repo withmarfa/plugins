@@ -6,6 +6,7 @@ import {
   mark,
   noteWaiting,
   sideOf,
+  stateKey,
   type Agreement,
 } from "./agreement.js";
 import type {
@@ -55,7 +56,6 @@ import {
   LinkTaken,
   Refused,
   Rows,
-  stateKey,
   Stopped,
   Unreachable,
   type Counts,
