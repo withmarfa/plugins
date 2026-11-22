@@ -1,7 +1,7 @@
 {
   "id": "github.comment",
   "label": "GitHub Comment",
-  "description": "A comment on an issue or a discussion in a repository the GitHub connector syncs; a reply on a discussion is also a child of the comment it answers. Its body travels both ways.",
+  "description": "A comment on an issue or a discussion in a repository the GitHub connector syncs. A reply comments on the comment it answers. Its body travels both ways.",
   "parent": "core.message",
   "link_field": "github_id",
   "fields": {
