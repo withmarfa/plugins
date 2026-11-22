@@ -3778,11 +3778,7 @@ export async function waitingInMarfa<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   cursor: string | undefined,
 ): Promise<{ waiting: boolean; cursor: string | undefined }> {
-  const specs = specsOf(
-    setup.connector,
-    setup.values,
-    setup.narrowed,
-  );
+  const specs = specsOf(setup.connector, setup.values, setup.narrowed);
   const read = await new Watch(
     setup.marfa,
     [...specs.keys()],

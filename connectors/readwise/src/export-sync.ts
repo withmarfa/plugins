@@ -299,9 +299,7 @@ export async function sync(
   );
   identity(account, "source", 1);
   const base = endpoint(context.env.readwise_api_url);
-  const readerBase = endpoint(
-    context.env.readwise_reader_api_url ?? "https://readwise.io/api/v3/",
-  );
+  const readerBase = endpoint(context.env.readwise_reader_api_url);
   const reader =
     options.reader ??
     new ReaderClient(

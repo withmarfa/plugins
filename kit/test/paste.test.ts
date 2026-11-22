@@ -123,10 +123,7 @@ describe("a redirect that arrives by paste", () => {
   it("reads nothing and says nothing of pasting where the connector does not ask for it", async () => {
     const input = new PassThrough();
     const held: Held = {};
-    const exit = start(
-      connector(held, undefined, false),
-      withInput(input),
-    );
+    const exit = start(connector(held, undefined, false), withInput(input));
     await until(() => held.opened !== undefined);
     expect(input.listenerCount("data") + input.listenerCount("readable")).toBe(
       0,
@@ -199,10 +196,7 @@ describe("a redirect that arrives by paste", () => {
 
   it("needs no standard input at all", async () => {
     const held: Held = {};
-    const exit = start(
-      connector(held),
-      withInput(undefined),
-    );
+    const exit = start(connector(held), withInput(undefined));
     await until(() => held.opened !== undefined);
     await fetch(`${held.opened?.callback ?? ""}?code=abc`);
     expect(await exit).toBe(0);
@@ -241,10 +235,7 @@ describe("a redirect that arrives by paste", () => {
   it("takes the first of the browser and a paste, and ignores the second", async () => {
     const browserFirst = new PassThrough();
     const one: Held = {};
-    const exitOne = start(
-      connector(one),
-      withInput(browserFirst),
-    );
+    const exitOne = start(connector(one), withInput(browserFirst));
     await until(() => one.opened !== undefined);
     const first = opened(one);
     expect((await fetch(`${first.callback}?code=browser`)).status).toBe(200);
@@ -254,10 +245,7 @@ describe("a redirect that arrives by paste", () => {
 
     const pasteFirst = new PassThrough();
     const two: Held = {};
-    const exitTwo = start(
-      connector(two),
-      withInput(pasteFirst),
-    );
+    const exitTwo = start(connector(two), withInput(pasteFirst));
     await until(() => two.opened !== undefined);
     const second = opened(two);
     pasteFirst.write(`${elsewhere(second, "code=paste")}\n`);

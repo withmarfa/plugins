@@ -80,7 +80,10 @@ function everything(): string {
 describe("settings read from Marfa", () => {
   it("reads only MARFA_API_URL and MARFA_API_KEY from the environment", async () => {
     const seen: Seen[] = [];
-    harness.server.settings = { test_token: secretToken, test_note: "from Marfa" };
+    harness.server.settings = {
+      test_token: secretToken,
+      test_note: "from Marfa",
+    };
     const code = await start(
       typed(seen),
       harness.runtime(["--once"], {
@@ -152,9 +155,9 @@ describe("settings read from Marfa", () => {
       return typed([]);
     };
     harness.server.settings = { test_token: secretToken, test_on: false };
-    expect(
-      await start(build as never, harness.runtime(["--once"]), {} as never),
-    ).toBe(exitCode.stopped);
+    expect(await start(build as never, harness.runtime(["--once"]), {})).toBe(
+      exitCode.stopped,
+    );
     // For the installed plugin, for the start's checks, then for the run.
     expect(shapes).toEqual([true, true, false]);
   });
@@ -355,7 +358,10 @@ describe("the key", () => {
 
     harness.server.revoked = false;
     const held = vendor([entry]);
-    const exit = start(testConnector(held), harness.runtime(["--every", "15m"]));
+    const exit = start(
+      testConnector(held),
+      harness.runtime(["--every", "15m"]),
+    );
     await harness.clock.sleeping(15 * minute);
     harness.server.revoked = true;
     await harness.clock.wake(15 * minute);
@@ -391,7 +397,10 @@ describe("exit codes", () => {
 
   it("exits 2 for a command line or a definition that is wrong", async () => {
     expect(
-      await start(testConnector(vendor()), harness.runtime(["--every", "soon"])),
+      await start(
+        testConnector(vendor()),
+        harness.runtime(["--every", "soon"]),
+      ),
     ).toBe(exitCode.definition);
     expect(
       await start(

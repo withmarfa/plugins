@@ -98,7 +98,6 @@ export function readSettings<E extends SettingsDeclaration>(
     const answered = held.settings.find((one) => one.name === setting.name);
     if (answered?.unreadable === true) unreadable.push(setting);
     let value = answered?.value ?? undefined;
-    if (value === null) value = undefined;
     value ??= setting.secret === true ? undefined : setting.default;
     if (value === undefined) {
       if (setting.required === true) missing.add(setting.name);
@@ -106,7 +105,9 @@ export function readSettings<E extends SettingsDeclaration>(
       continue;
     }
     if (!fitsKind(setting, value)) {
-      invalid.push(`${named(setting)} is not ${kindWords[setting.kind] ?? setting.kind}`);
+      invalid.push(
+        `${named(setting)} is not ${kindWords[setting.kind] ?? setting.kind}`,
+      );
       continue;
     }
     if (
@@ -124,7 +125,8 @@ export function readSettings<E extends SettingsDeclaration>(
   const problems: string[] = [];
   const unreadableNames = new Set(unreadable.map((setting) => setting.name));
   const lacking = declared.filter(
-    (setting) => missing.has(setting.name) && !unreadableNames.has(setting.name),
+    (setting) =>
+      missing.has(setting.name) && !unreadableNames.has(setting.name),
   );
   if (lacking.length > 0) {
     problems.push(
@@ -137,7 +139,9 @@ export function readSettings<E extends SettingsDeclaration>(
     );
   }
   if (invalid.length > 0) {
-    problems.push(`a setting holds a value the connector cannot use: ${invalid.join("; ")}`);
+    problems.push(
+      `a setting holds a value the connector cannot use: ${invalid.join("; ")}`,
+    );
   }
   if (problems.length > 0) {
     return {

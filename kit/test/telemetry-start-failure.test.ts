@@ -64,9 +64,9 @@ it.each([
       harness.runtime(["--once"], telemetry()),
     );
     expect(code).toBe(4);
-    expect(harness.lines.some((line) => line.endsWith(` error ${expected}`))).toBe(
-      true,
-    );
+    expect(
+      harness.lines.some((line) => line.endsWith(` error ${expected}`)),
+    ).toBe(true);
     expect(collector.logRecords().map((record) => record.body)).toContain(
       expected,
     );

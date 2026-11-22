@@ -269,7 +269,9 @@ describe("the pictures an entry points to", () => {
   it("refuses a setting it does not know, before any feed is read", async () => {
     const result = await once("everything");
     expect(result.code).toBe(4);
-    expect(result.output).toContain("Pictures (rss_pictures) is not one of its choices");
+    expect(result.output).toContain(
+      "Pictures (rss_pictures) is not one of its choices",
+    );
     expect(marfa.rows).toEqual([]);
   });
 

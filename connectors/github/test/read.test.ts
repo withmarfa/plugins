@@ -1107,7 +1107,6 @@ describe("a repository", () => {
     expect(row(comment.node).state).toBe("active");
   });
 
-
   it("whose installation refuses the App changes nothing and says so", async () => {
     const repository = github.addRepository("someone/tracker");
     const issue = github.addIssue(repository);

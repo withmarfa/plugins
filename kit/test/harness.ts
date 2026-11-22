@@ -491,7 +491,12 @@ export class Harness {
     let named = false;
     for (const [name, value] of Object.entries(values)) {
       if (!/^[a-z]/.test(name)) {
-        env[name] = value === undefined ? undefined : String(value);
+        env[name] =
+          value === undefined
+            ? undefined
+            : typeof value === "string"
+              ? value
+              : JSON.stringify(value);
         continue;
       }
       named = true;

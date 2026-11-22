@@ -654,7 +654,13 @@ export class ScriptedServer {
     for (const [name, value] of Object.entries(values)) {
       if (/^[a-z]/.test(name)) {
         if (value !== undefined) settings[name] = value;
-      } else env[name] = value === undefined ? undefined : String(value);
+      } else
+        env[name] =
+          value === undefined
+            ? undefined
+            : typeof value === "string"
+              ? value
+              : JSON.stringify(value);
     }
     this.settings = settings;
     return env;

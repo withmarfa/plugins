@@ -280,9 +280,9 @@ describe("--setup", () => {
   });
 
   it("prints nothing where setup fails", async () => {
-    const failing = withSetup({}, async () => {
-      throw new Error("the vendor refused the manifest");
-    });
+    const failing = withSetup({}, () =>
+      Promise.reject(new Error("the vendor refused the manifest")),
+    );
     expect(await start(failing, harness.runtime(["--setup"]))).toBe(1);
     expect(harness.printed).toEqual([]);
     expect(harness.lines.join("\n")).toContain(

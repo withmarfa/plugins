@@ -97,14 +97,6 @@ function signedIn(token = freshToken()) {
 const posts = (): number =>
   stub.api.filter((call) => call.method === "POST").length;
 
-async function until(holds: () => boolean): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (!holds()) {
-    if (Date.now() > deadline) throw new Error("the condition never held");
-    await new Promise((resolve) => setTimeout(resolve, 2));
-  }
-}
-
 /** Everything the run said and reported, where a secret must not be. */
 function reported(): string {
   return [

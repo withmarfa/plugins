@@ -1,5 +1,4 @@
 import { createClient } from "@withmarfa/client";
-import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
 import { freshConnectorKey } from "./host.js";
 import {
@@ -12,10 +11,7 @@ import {
 } from "./connector.js";
 import { appKey, GitHubStub } from "./github-stub.js";
 
-export async function proveGitHubPullRequests(
-  url: string,
-  mintKey: ProofServer["mintKey"],
-): Promise<void> {
+export async function proveGitHubPullRequests(url: string): Promise<void> {
   const github = await new GitHubStub().start();
   github.appPem = appKey();
   try {
@@ -38,34 +34,6 @@ export async function proveGitHubPullRequests(
       },
     });
     issue.closed_by = pr.node;
-    const types = [
-      "github.repository",
-      "github.issue",
-      "github.comment",
-      "github.pull_request",
-      "github.discussion",
-      "github.notification",
-      "github.repository_file",
-      "github.directory",
-      "github.file",
-      "github.file.image",
-    ];
-    const connections = [
-      "github.in-repository",
-      "github.sub-issue-of",
-      "github.blocked-by",
-      "github.relates-to",
-      "github.duplicate-of",
-      "github.closes",
-      "github.closed-by",
-      "parent-of",
-      "references",
-      "in-thread",
-      "comments-on",
-      "about",
-      "in-collection",
-      "attached-to",
-    ];
     const key = await freshConnectorKey(url, "github");
     const marfa = createClient({ baseUrl: url, credential: key.key });
     const run = async () => {

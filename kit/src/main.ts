@@ -151,7 +151,7 @@ function keyWiderThanTypes(
   // A connector writes at the feed tier unless a row belongs to something
   // already in the library, which it names.
   if (key.default_tier !== "feed") {
-    wider.push(`a default tier of ${String(key.default_tier)}`);
+    wider.push(`a default tier of ${key.default_tier}`);
   }
   // An exemption from the instance's own rules is never a connector's.
   for (const lever of Object.keys(key.enforcement_override ?? {})) {
@@ -729,7 +729,9 @@ type Halt = Ended | "settings" | "unhosted" | "definition";
 
 /** Said when the settings door answers that this key is not the one a
  *  connector host minted for the plugin's connector. */
-function unhostedProblem(connector: Pick<Connector, "name" | "readme">): string {
+function unhostedProblem(
+  connector: Pick<Connector, "name" | "readme">,
+): string {
   return `Marfa will not give this connector its settings: MARFA_API_KEY is not the key a connector host minted for the ${connector.name} plugin's connector, or the plugin no longer holds it. Install the plugin, assign its connector to a host, and start the connector with the key the host mints, as ${keyGuide(connector)} says.`;
 }
 
@@ -837,7 +839,8 @@ async function serve<E extends SettingsDeclaration>(
       const refused = settingsRefusal(error, connector);
       cannotStart(
         logger,
-        refused ?? `could not read the connector's settings from Marfa: ${describe(error)}`,
+        refused ??
+          `could not read the connector's settings from Marfa: ${describe(error)}`,
       );
       return refused === undefined ? exitCode.failed : exitCode.key;
     }
@@ -997,7 +1000,10 @@ async function serve<E extends SettingsDeclaration>(
     }
     let values = {} as SettingValues<E>;
     if (held !== undefined) {
-      const read = readSettings(connector.settings ?? ([] as unknown as E), held);
+      const read = readSettings(
+        connector.settings ?? ([] as unknown as E),
+        held,
+      );
       if (read.problem !== undefined) {
         await refuseStart(read.problem);
         end("settings");
@@ -1030,9 +1036,7 @@ async function serve<E extends SettingsDeclaration>(
       end("settings", error);
       return undefined;
     }
-    const wanted = readOnlyTypesOf(
-      specsOf(shaped, values, undefined).values(),
-    );
+    const wanted = readOnlyTypesOf(specsOf(shaped, values, undefined).values());
     if (!isDeepStrictEqual([...wanted].sort(), [...readOnly].sort())) {
       try {
         await marfa.register(connector.name, connector.description, wanted);

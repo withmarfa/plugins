@@ -336,10 +336,7 @@ it("sends only supported changed fields, including explicit note and tag clears,
   expect(c.intent()?.acknowledged).toBe(true);
   expect(c.answer()?.properties["description"]).toBe("Summary");
 });
-it.each([
-  { readwise_reader: false },
-  { readwise_reader_inbound_only: true },
-])(
+it.each([{ readwise_reader: false }, { readwise_reader_inbound_only: true }])(
   "keeps a write unsent and unacknowledged while Reader may not be written (%o)",
   async (paused) => {
     const c = context();

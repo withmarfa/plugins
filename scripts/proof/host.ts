@@ -6,7 +6,6 @@ import { installPlugin, type InstallOptions } from "./install.js";
 const managers = new Map<string, MarfaClient>();
 const managerKeys = new Map<string, string>();
 const hosts = new Map<string, Promise<MarfaClient>>();
-const assigned = new Set<string>();
 
 export function rememberManager(url: string, key: string): void {
   managers.set(url, createClient({ baseUrl: url, credential: key }));
@@ -83,9 +82,15 @@ export async function connectorKey(
 ): Promise<ConnectorKey> {
   await installPlugin(url, plugin, entry, options);
   const host = await hostAt(url);
-  if (!assigned.has(`${url} ${plugin}`)) {
-    const { data: self } = await host.GET("/connector-hosts/self");
-    const put = await managerAt(url).PUT("/plugins/{name}/connector", {
+  // Removing a plugin unassigns its connector, so the assignment is read
+  // each time rather than remembered.
+  const { data: self } = await host.GET("/connector-hosts/self");
+  const manager = managerAt(url);
+  const held = await manager.GET("/plugins/{name}/connector", {
+    params: { path: { name: plugin } },
+  });
+  if (held.data?.host !== self?.id) {
+    const put = await manager.PUT("/plugins/{name}/connector", {
       params: { path: { name: plugin } },
       body: { host: self?.id ?? null },
     });
@@ -93,7 +98,6 @@ export async function connectorKey(
       throw new Error(
         `assigning ${plugin} was refused: ${JSON.stringify(put.error)}`,
       );
-    assigned.add(`${url} ${plugin}`);
   }
   const minted = await host.POST(
     "/connector-hosts/self/connectors/{plugin}/key",

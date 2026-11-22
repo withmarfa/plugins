@@ -3,9 +3,9 @@ import { createHmac } from "node:crypto";
 import { resolve } from "node:path";
 import { createClient, type MarfaClient } from "@withmarfa/client";
 import { check } from "./check.js";
-import type { ProofServer } from "./server.js";
 import {
   ConnectorUnderProof,
+  hostMintedKey,
   create,
   edit,
   item,
@@ -19,6 +19,7 @@ import {
   typeHeld,
   type Item,
 } from "./connector.js";
+import { connectorKey } from "./host.js";
 import { pixel, Tracker } from "./tracker-stub.js";
 
 const entry = resolve(import.meta.dirname, "tracker-connector.js");
@@ -94,7 +95,6 @@ export async function proveTracker(
   marfa: MarfaClient,
   url: string,
   manager: MarfaClient,
-  mintKey: ProofServer["mintKey"],
 ): Promise<void> {
   const viaMarfa = async (body: Record<string, unknown>): Promise<Minted> => {
     const { data, error } = await marfa.POST("/keys", {
@@ -112,8 +112,8 @@ export async function proveTracker(
     parent.sub_issues.push(child.id);
     const attachment = tracker.attach(parent, pixel, "image/png");
     const env = {
-      PROOF_VENDOR_URL: tracker.url,
-      PROOF_WEBHOOK_SECRET: secret,
+      proof_vendor_url: tracker.url,
+      proof_webhook_secret: secret,
     };
     let key: Minted = { id: "", key: "" };
     let runner = new ConnectorUnderProof(source, url, "", env, entry);
@@ -132,14 +132,12 @@ export async function proveTracker(
     const writesSince = (count: number): string[] =>
       tracker.writes().slice(count);
 
-    await check(
-      "tracker: its key is minted with write on proof.issue, proof.attachment, proof.sub-issue and attached-to",
-      async () => {
-        key = await mintWithConnections(viaMarfa, source, source, true);
-        runner = new ConnectorUnderProof(source, url, key.key, env, entry);
-        return `a key for ${source} with proof.issue, proof.attachment, proof.sub-issue and attached-to`;
-      },
-    );
+    key = await hostMintedKey(url, source, {
+      entry,
+      types: ["proof.issue", "proof.attachment"],
+      edges: ["proof.sub-issue", "attached-to"],
+    });
+    runner = new ConnectorUnderProof(source, url, key.key, env, entry);
 
     await check(
       "tracker: the first run writes the issues, the sub-issue connection and the attachment, uploading its bytes once and attaching it, and proof.sub-issue orphans on delete",
@@ -358,7 +356,7 @@ export async function proveTracker(
           params: { path: { id: key.id } },
         });
         if (!revoked.response.ok) throw new Error("the revoke was refused");
-        key = await mintWithConnections(mintKey, `${source}-2`, source, true);
+        key = await connectorKey(url, source, entry);
         runner = new ConnectorUnderProof(source, url, key.key, env, entry);
         await runOnce();
         const held = (await issues()).has(loose.id);
@@ -515,7 +513,7 @@ export async function proveTracker(
     );
 
     await check(
-      "tracker: a key that may not write its connection types is refused at start",
+      "tracker: a key that may not write its connection types is refused at start with exit 3",
       async () => {
         const narrow = await mintWithConnections(
           viaMarfa,
@@ -531,7 +529,7 @@ export async function proveTracker(
           entry,
         ).once();
         const error = (await lastRun(manager, narrow.id)).error ?? "";
-        if (refused.code !== 1 || !error.includes("may not write edge")) {
+        if (refused.code !== 3 || !error.includes("may not write edge")) {
           throw new Error(`exit ${String(refused.code)}, ${error}`);
         }
         return error.slice(error.indexOf("may not write"));
@@ -714,7 +712,11 @@ export async function proveTracker(
           ) {
             throw new Error(`the connector said: ${output}`);
           }
+          // Removing the plugin revoked the connector's key, so its host
+          // mints another.
           await runner.reinstall();
+          key = await connectorKey(url, source, entry);
+          runner = new ConnectorUnderProof(source, url, key.key, env, entry);
           await runOnce();
           const again = (await rowsOf(marfa, "proof.attachment", source)).get(
             attachment.id,

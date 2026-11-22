@@ -9,7 +9,6 @@ import { followProjects, knowing, placedIn } from "./projects.js";
 import {
   accountOf,
   completed,
-  defaultBase,
   entryOf,
   firstSync,
   getTask,
@@ -64,7 +63,7 @@ export function connector() {
       held,
       written,
     }) {
-      const base = env.todoist_api_url ?? defaultBase;
+      const base = env.todoist_api_url;
       const keptAccount = state.get("account");
       if (hints !== undefined && typeof keptAccount === "string") {
         // A run for named tasks does not save the sync token: the rest was not
@@ -315,14 +314,10 @@ export function connector() {
       state.set("read_shape", shape);
     },
     onChange(change, context) {
-      return carry(change, context, context.env.todoist_api_url ?? defaultBase);
+      return carry(change, context, context.env.todoist_api_url);
     },
     remake(change, context) {
-      return remake(
-        change,
-        context,
-        context.env.todoist_api_url ?? defaultBase,
-      );
+      return remake(change, context, context.env.todoist_api_url);
     },
   });
 }

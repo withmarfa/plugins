@@ -312,24 +312,21 @@ describe("setup", () => {
   it("keeps write permission for comments when only issues are read only", async () => {
     let manifest: Record<string, unknown> | undefined;
     let visited: Promise<void> | undefined;
-    const finished = await setup(
-      { github_read_only: "issue" },
-      (line) => {
-        const opened = / open (\S+) in a browser/.exec(line)?.[1];
-        if (opened === undefined) return;
-        visited = (async () => {
-          const html = await (await fetch(opened)).text();
-          manifest = JSON.parse(
-            decoded(/name="manifest" value="([^"]+)"/.exec(html)?.[1] ?? ""),
-          ) as Record<string, unknown>;
-          const action = decoded(/action="([^"]+)"/.exec(html)?.[1] ?? "");
-          const state = new URL(action).searchParams.get("state");
-          await fetch(
-            `${String(manifest["redirect_url"])}?code=manifest-code&state=${String(state)}`,
-          );
-        })();
-      },
-    );
+    const finished = await setup({ github_read_only: "issue" }, (line) => {
+      const opened = / open (\S+) in a browser/.exec(line)?.[1];
+      if (opened === undefined) return;
+      visited = (async () => {
+        const html = await (await fetch(opened)).text();
+        manifest = JSON.parse(
+          decoded(/name="manifest" value="([^"]+)"/.exec(html)?.[1] ?? ""),
+        ) as Record<string, unknown>;
+        const action = decoded(/action="([^"]+)"/.exec(html)?.[1] ?? "");
+        const state = new URL(action).searchParams.get("state");
+        await fetch(
+          `${String(manifest["redirect_url"])}?code=manifest-code&state=${String(state)}`,
+        );
+      })();
+    });
     await visited;
     expect(finished.code).toBe(0);
     // issue is read-only but comment is still carried, so issues:write is needed.

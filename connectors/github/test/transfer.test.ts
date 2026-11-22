@@ -72,7 +72,9 @@ function env(): Record<string, unknown> {
 }
 
 async function once(): Promise<string> {
-  const { stderr } = await run("node", [built, "--once"], { env: marfa.processEnv(env()) });
+  const { stderr } = await run("node", [built, "--once"], {
+    env: marfa.processEnv(env()),
+  });
   return stderr;
 }
 

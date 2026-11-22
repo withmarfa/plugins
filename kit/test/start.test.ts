@@ -178,7 +178,10 @@ describe("configuration", () => {
         }
       },
     };
-    harness.server.settings = { test_token: secretToken, test_region: "nowhere" };
+    harness.server.settings = {
+      test_token: secretToken,
+      test_region: "nowhere",
+    };
     for (const argv of [["--once"], ["--every", "1m"]]) {
       expect(await start(connector, harness.runtime(argv))).toBe(4);
     }
@@ -356,7 +359,9 @@ describe("the key check on start", () => {
       const error = harness.lastRun().error ?? "";
       expect(harness.lastRun().outcome).toBe("failed");
       expect(error).toContain("key-1");
-      expect(error).toContain(keySource === "test" ? "claims sources" : "not the connector's");
+      expect(error).toContain(
+        keySource === "test" ? "claims sources" : "not the connector's",
+      );
       expect(harness.server.rows).toEqual([]);
       expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
     }

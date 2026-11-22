@@ -202,6 +202,18 @@ describe("the settings a connector reads", () => {
       readonly test_count: number | undefined;
       readonly test_mode: string;
     }>();
+    const read = readSettings(settings, {
+      plugin: "test",
+      settings: [{ name: "test_token", value: "a-secret-token", set: true }],
+      missing: [],
+    });
+    expect(read.values).toEqual({
+      test_token: "a-secret-token",
+      test_region: undefined,
+      test_on: false,
+      test_count: undefined,
+      test_mode: "a",
+    });
   });
 });
 
@@ -217,9 +229,9 @@ describe("the environment", () => {
   });
 
   it("refuses a key too short to keep out of the logs", () => {
-    expect(() => readEnvironment({ ...required, MARFA_API_KEY: "tiny" })).toThrow(
-      "MARFA_API_KEY is shorter than 8 characters",
-    );
+    expect(() =>
+      readEnvironment({ ...required, MARFA_API_KEY: "tiny" }),
+    ).toThrow("MARFA_API_KEY is shorter than 8 characters");
   });
 });
 

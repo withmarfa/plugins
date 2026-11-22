@@ -68,11 +68,11 @@ export async function proveReadwiseWithReader(
   };
   try {
     let current: ConnectorKey | undefined;
-    const key = async (_label: string): Promise<ConnectorKey> => {
+    const key = async (): Promise<ConnectorKey> => {
       current = await freshConnectorKey(url, "readwise");
       return current;
     };
-    const readerKey = await key("reader-proof");
+    const readerKey = await key();
     const options = (account: string, reader = true) => ({
       readwise_account: account,
       readwise_access_token: "reader-fixture-token",
@@ -383,7 +383,7 @@ export async function proveReadwiseWithReader(
         );
         vendor.documents.delete("doc-1");
         vendor.documents.delete("hi-1");
-        const reconciliationKey = await key("reader-proof-reconciliation");
+        const reconciliationKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -445,7 +445,7 @@ export async function proveReadwiseWithReader(
           parent_id: "solo",
           content: "Reader-only passage",
         });
-        const firstKey = await key("reader-proof-first");
+        const firstKey = await key();
         const first = new ConnectorUnderProof(
           "readwise",
           url,
@@ -506,7 +506,7 @@ export async function proveReadwiseWithReader(
       async () => {
         vendor.sources.length = 0;
         vendor.documents.clear();
-        const createKey = await key("reader-proof-create");
+        const createKey = await key();
         const creating = new ConnectorUnderProof(
           "readwise",
           url,
@@ -571,7 +571,7 @@ export async function proveReadwiseWithReader(
       const runner = new ConnectorUnderProof(
         "readwise",
         url,
-        (await key(`reader-proof-${account}`)).key,
+        (await key()).key,
         { ...options(account), ...extra },
       );
       await once(runner);
@@ -675,7 +675,7 @@ export async function proveReadwiseWithReader(
             category: "article",
             title: "Deletion guard",
           });
-        const initialKey = await key("reader-proof-guard-initial");
+        const initialKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -689,7 +689,7 @@ export async function proveReadwiseWithReader(
         );
         assert.equal(expected.length, 21);
         vendor.documents.clear();
-        const missingKey = await key("reader-proof-guard-missing");
+        const missingKey = await key();
         await once(
           new ConnectorUnderProof(
             "readwise",
@@ -734,7 +734,7 @@ export async function proveReadwiseWithReader(
           content: "Fresh passage",
           updated_at: stamp,
         });
-        const freshKey = await key("reader-proof-fresh");
+        const freshKey = await key();
         const freshExport = new ConnectorUnderProof(
           "readwise",
           url,
@@ -835,7 +835,7 @@ export async function proveReadwiseWithReader(
           content: "Current Reader passage",
           updated_at: stamp,
         });
-        const lifecycleKey = await key("reader-proof-lifecycle");
+        const lifecycleKey = await key();
         const exportOnly = new ConnectorUnderProof(
           "readwise",
           url,

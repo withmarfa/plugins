@@ -60,9 +60,7 @@ afterEach(async () => {
   await github.stop();
 });
 
-function env(
-  extra: Record<string, unknown> = {},
-): Record<string, unknown> {
+function env(extra: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     ...extra,
     PATH: process.env["PATH"],
