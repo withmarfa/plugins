@@ -160,8 +160,8 @@ export async function setSettings(
 /**
  * A key minted as `connectorKey` mints it, for a connector that starts
  * afresh: the source's state, problems and agreements are cleared first, as
- * an owner resetting the connector clears them, so nothing an earlier group
- * or statement left under the source carries over.
+ * an owner resetting the connector clears them. Item rows stay, so groups
+ * sharing a source see the rows an earlier group wrote.
  */
 export async function freshConnectorKey(
   url: string,

@@ -51,7 +51,7 @@ export const pluginFolder = "plugin";
  *  may be, as `marfa plugins check` holds them to. */
 const longest = { description: 300, guidance: 1000 };
 
-type Settings = Readonly<Record<string, string | undefined>>;
+type Settings = Readonly<Record<string, string | number | boolean | undefined>>;
 
 /** A connector's definition: how to build it, and the settings that give it
  *  its widest shape. */
@@ -83,10 +83,12 @@ async function definitionOf(
   if (
     typeof widest !== "object" ||
     widest === null ||
-    !Object.values(widest).every((value) => typeof value === "string")
+    !Object.values(widest).every((value) =>
+      ["string", "number", "boolean"].includes(typeof value),
+    )
   ) {
     throw new Error(
-      `${directory}/src/definition.ts must export \`widest\` as each setting's name with the text that gives the connector its widest shape`,
+      `${directory}/src/definition.ts must export \`widest\` as each setting's name with the value that gives the connector its widest shape`,
     );
   }
   return {
