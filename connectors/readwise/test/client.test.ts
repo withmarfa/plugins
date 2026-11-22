@@ -10,7 +10,7 @@ import {
   endpoint,
   RateLimited,
   InvalidCursor,
-} from "@withmarfa/readwise";
+} from "../src/readwise.js";
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {

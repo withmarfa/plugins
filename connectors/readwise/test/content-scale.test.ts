@@ -13,12 +13,9 @@ import {
   sourceFields,
   type ReaderDocument,
   type ReaderReader,
-} from "@withmarfa/readwise";
-import { sync, type ReadContext, type ReadScope } from "../src/sync.js";
-import {
-  sync as readerSync,
-  type ReaderContext,
-} from "../../readwise-reader/src/sync.js";
+} from "../src/readwise.js";
+import { sync, type ReadContext, type ReadScope } from "../src/export-sync.js";
+import { sync as readerSync, type ReaderContext } from "../src/reader/sync.js";
 afterEach(() => vi.unstubAllGlobals());
 
 function fixture(size: number) {
@@ -133,6 +130,11 @@ function fixture(size: number) {
       readwise_api_url: undefined,
       readwise_content_max_bytes: undefined,
       readwise_reader_api_url: undefined,
+      readwise_reader: undefined,
+      readwise_reader_include_feed: undefined,
+      readwise_reader_pictures: undefined,
+      readwise_reader_inbound_only: undefined,
+      readwise_reader_propagate_purge: undefined,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),
@@ -532,7 +534,7 @@ it("drains a persistent Reader pending list beyond the bounded content queue", a
       "preservation"
     ],
   ).toBe("accounted");
-  expect(contentQueue(f.scope("reader-content-queue").state)).toEqual([]);
+  expect(contentQueue(f.scope("reader-content").state)).toEqual([]);
 });
 
 it.each([false, true])(
@@ -625,7 +627,7 @@ it("checkpoints an accepted Reader refusal before a later refusal fills the queu
     pending: ["0000"],
   });
   await enqueueContent(
-    f.scope("reader-content-queue").state,
+    f.scope("reader-content").state,
     Array.from({ length: 127 }, (_, index) => ({
       id: `deferred-${String(index)}`,
       canonical: `sample:reader-document:deferred-${String(index)}`,
@@ -673,7 +675,7 @@ it("checkpoints an accepted Reader refusal before a later refusal fills the queu
   };
   await f.run();
   expect(f.pending()).toEqual([]);
-  expect(contentQueue(f.scope("reader-content-queue").state)).toHaveLength(128);
+  expect(contentQueue(f.scope("reader-content").state)).toHaveLength(128);
 });
 
 async function queuedFixture(size: number) {

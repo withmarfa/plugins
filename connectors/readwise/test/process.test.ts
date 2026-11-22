@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
-import type { ExportPage } from "@withmarfa/readwise";
+import type { ExportPage } from "../src/readwise.js";
 
 const exec = promisify(execFile);
 const built = resolve(import.meta.dirname, "../dist/main.js");

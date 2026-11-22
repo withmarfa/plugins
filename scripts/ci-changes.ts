@@ -59,7 +59,7 @@ export const proofFilesTestsReach = [
   "github-notifications-stub",
   "github-stub",
   "inbound-wait",
-  "readwise-reader-stub",
+  "readwise-vendor",
   "server",
   "shards",
   "todoist-stub",

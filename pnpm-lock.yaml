@@ -86,18 +86,12 @@ importers:
       '@withmarfa/connector':
         specifier: workspace:*
         version: link:../../kit
-      '@withmarfa/readwise':
-        specifier: workspace:*
-        version: link:../../shared/readwise
-
-  connectors/readwise-reader:
-    dependencies:
-      '@withmarfa/connector':
-        specifier: workspace:*
-        version: link:../../kit
-      '@withmarfa/readwise':
-        specifier: workspace:*
-        version: link:../../shared/readwise
+      marked:
+        specifier: 18.2.0
+        version: 18.2.0
+      parse5:
+        specifier: 8.1.1
+        version: 8.1.1
 
   connectors/rss:
     dependencies:
@@ -177,18 +171,6 @@ importers:
       '@withmarfa/connector':
         specifier: workspace:*
         version: link:../../kit
-
-  shared/readwise:
-    dependencies:
-      '@withmarfa/connector':
-        specifier: workspace:*
-        version: link:../../kit
-      marked:
-        specifier: 18.2.0
-        version: 18.2.0
-      parse5:
-        specifier: 8.1.1
-        version: 8.1.1
 
   template/connector:
     dependencies:

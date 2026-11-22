@@ -7,9 +7,9 @@ import {
   RateLimited,
   type ExportClient,
   type Query,
-} from "@withmarfa/readwise";
-import type { ExportPage } from "@withmarfa/readwise";
-import { sync, type ReadContext, type ReadScope } from "../src/sync.js";
+} from "../src/readwise.js";
+import type { ExportPage } from "../src/readwise.js";
+import { sync, type ReadContext, type ReadScope } from "../src/export-sync.js";
 
 const start = Date.parse("2026-10-14T00:00:00Z");
 const page = (id = 1, cursor: string | null = null): ExportPage => ({
@@ -80,6 +80,11 @@ function fixture() {
       readwise_api_url: undefined,
       readwise_content_max_bytes: undefined,
       readwise_reader_api_url: undefined,
+      readwise_reader: undefined,
+      readwise_reader_include_feed: undefined,
+      readwise_reader_pictures: undefined,
+      readwise_reader_inbound_only: undefined,
+      readwise_reader_propagate_purge: undefined,
     },
     signal: new AbortController().signal,
     waitUntil: () => Promise.resolve(),

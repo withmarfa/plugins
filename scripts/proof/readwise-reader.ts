@@ -14,7 +14,7 @@ import {
   type Item,
 } from "./connector.js";
 import { enrichmentPollMs, type ProofServer } from "./server.js";
-import { readerVendor } from "./readwise-reader-stub.js";
+import { readwiseVendor } from "./readwise-reader-stub.js";
 
 /**
  * The file rows once the server's enrichment sweep has finished with them.
@@ -63,7 +63,7 @@ export async function proveReadwiseReader(
   mint: ProofServer["mintKey"],
   updateKey: ProofServer["updateKey"],
 ): Promise<void> {
-  const vendor = await readerVendor();
+  const vendor = await readwiseVendor();
   const failures: unknown[] = [];
   const verify = async (name: string, observe: () => Promise<string>) => {
     try {
