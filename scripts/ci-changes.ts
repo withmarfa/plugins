@@ -5,9 +5,10 @@
  * it runs for any change; `code` says whether it also builds, typechecks and
  * lints. `tests` says whether the unit tests run, and `scope` which of them.
  * `Proof` runs only when `proof` is true, and `Image`, which builds the
- * template's image and checks the launchd example, only when `image` is true.
- * A skipped job satisfies a required check where a workflow filtered out by
- * `paths` would leave it pending. A pull request is classified by its diff
+ * template's image and checks the launchd example, only when `image` is true,
+ * and `Plugins`, which checks each plugin as installing will, only when
+ * `plugins` is true. A skipped job satisfies a required check where a
+ * workflow filtered out by `paths` would leave it pending. A pull request is classified by its diff
  * against its base, and a push to `main` by its diff against the commit it
  * follows, but only when that commit had a green push run of `ci.yml`:
  * otherwise a commit that touches nothing a job reads would show green on top
@@ -17,10 +18,10 @@
  * scope.
  *
  * A draft pull request runs only the quick checks: `Checks` without its
- * tests, so `tests`, `Proof` and `Image` answer `false` for it. `full` says
- * whether the rest runs, and is `false` only for a draft. Marking the pull
- * request ready for review starts a run that does, and so does every push
- * after.
+ * tests, so `tests`, `Proof`, `Image` and `Plugins` answer `false` for it.
+ * `full` says whether the rest runs, and is `false` only for a draft. Marking
+ * the pull request ready for review starts a run that does, and so does every
+ * push after.
  *
  * A path is matched against `RULES` in order and the first match names the
  * jobs it can affect. A path no rule matches affects every job. A path inside
@@ -33,7 +34,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const JOBS = ["code", "tests", "proof", "image"] as const;
+export const JOBS = ["code", "tests", "proof", "image", "plugins"] as const;
 
 export type Job = (typeof JOBS)[number];
 
@@ -75,6 +76,12 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
 
     // A fixture is test input, and the proof reads the RSS connector's.
     [/(^|\/)(fixtures|__fixtures__|testdata)\//, ALL],
+    // Everything under a plugin's folder is plugin code, Markdown included: a
+    // type's guidance is a file of the plugin, and a change to only that file
+    // is checked and installed like any other. `types/README.md` is
+    // documentation; any other file in `types/` fails the plugin check.
+    [/^types\/(?!README\.md$)/, ["plugins", "proof"]],
+    [/^connectors\/[^/]+\/plugin\/.*\.md$/i, ["plugins", "proof"]],
     // Markdown, the licence, settings and the instructions for agents are read
     // only by Prettier and the personal-detail scan, which `Checks` runs for
     // every change.
@@ -95,6 +102,14 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     // Generated from the connectors' definitions; `Checks` builds them and
     // fails when the file is out of date.
     [/^connectors\.json$/, ["code"]],
+    // The check reads the plugins, and the proof builds and installs them,
+    // through the files they share. The release workflow runs these too, and
+    // the proof's plugins group is the gate it publishes behind.
+    [
+      /^scripts\/(check-plugins\.ts|release\/plugins\.ts)$/,
+      ["code", "tests", "plugins", "proof"],
+    ],
+    [/^scripts\/release\/(only-adds|release)\.ts$/, ["code", "tests", "proof"]],
     // The proof is built and linted like the rest of the code. Its stubs and
     // helpers are also what the unit tests import; its scenarios are not.
     [
@@ -166,7 +181,13 @@ export function classify(paths: readonly string[]): Answer {
 
 /** What a draft pull request still runs, whatever it changes. */
 export function forDraft(answer: Answer): Answer {
-  return { ...answer, tests: false, proof: false, image: false };
+  return {
+    ...answer,
+    tests: false,
+    proof: false,
+    image: false,
+    plugins: false,
+  };
 }
 
 /** What one event changed, and what it takes to trust the diff. */
