@@ -1,0 +1,13 @@
+{
+  "id": "common.ticket.spike",
+  "label": "Spike",
+  "description": "A question to answer before deciding or building, with the answer kept on the ticket.",
+  "version": 0,
+  "parent": "common.ticket",
+  "fields": {},
+  "display_hints": {
+    "title_field": "title",
+    "body_field": "body",
+    "icon": "lucide:flask-conical"
+  }
+}

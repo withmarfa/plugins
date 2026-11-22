@@ -1,6 +1,6 @@
 # plugins
 
-WithMarfa's plugins for [Marfa](https://github.com/withmarfa/marfa). What an owner adds to a Marfa is a plugin: a connector, a family of common types with guidance on using them, or both. This repository holds the connectors, built from source today, and the kit and template they are built from. It will also hold the common type families: the first, Tickets, is on its way, and installing a plugin into a Marfa arrives with it.
+WithMarfa's plugins for [Marfa](https://github.com/withmarfa/marfa). What an owner adds to a Marfa is a plugin: a connector, a family of common types with guidance on using them, or both. This repository holds the connectors, built from source today, and the kit and template they are built from. It also holds the common type families, starting with [Tickets](./types/tickets/README.md).
 
 ## Connectors
 
@@ -8,7 +8,7 @@ A connector is a small process that holds a key to a Marfa instance. It register
 
 ## What is here
 
-- [`types/`](./types/README.md): no family yet. It will hold the common type families, one folder each, starting with Tickets.
+- [`types/`](./types/README.md): the common type families, one folder each, starting with Tickets.
 - [`kit/`](./kit): the package `@withmarfa/connector`, which makes a connector a page of code.
 - [`shared/`](./shared): private packages that related connectors share: Readwise's schemas and mappings, and the Google sign-in in [`shared/google`](./shared/google/README.md). They are never published.
 - [`template/`](./template): what a new connector starts from. Its [README](./template/README.md) is the guide to writing one, minting its key, running it, and deploying it with launchd or Docker.

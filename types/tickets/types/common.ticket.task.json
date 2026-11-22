@@ -1,0 +1,13 @@
+{
+  "id": "common.ticket.task",
+  "label": "Task",
+  "description": "Work that is neither a feature nor a question, such as upkeep, setup or a fix.",
+  "version": 0,
+  "parent": "common.ticket",
+  "fields": {},
+  "display_hints": {
+    "title_field": "title",
+    "body_field": "body",
+    "icon": "lucide:wrench"
+  }
+}

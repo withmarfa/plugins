@@ -1,0 +1,13 @@
+{
+  "id": "common.ticket.epic",
+  "label": "Epic",
+  "description": "An outcome that finishes, made of several tickets: the one kind of ticket that has tickets beneath it.",
+  "version": 0,
+  "parent": "common.ticket",
+  "fields": {},
+  "display_hints": {
+    "title_field": "title",
+    "body_field": "body",
+    "icon": "lucide:flag"
+  }
+}

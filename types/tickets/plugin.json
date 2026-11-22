@@ -1,0 +1,8 @@
+{
+  "name": "tickets",
+  "title": "Tickets",
+  "description": "Track work and questions as tickets, from backlog to done, with epics, features, spikes and tasks.",
+  "mark": "lucide:ticket",
+  "maker": "WithMarfa",
+  "marfa": "0.0.92"
+}
