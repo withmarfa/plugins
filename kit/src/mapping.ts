@@ -703,7 +703,7 @@ export async function planKinds<E extends SettingsDeclaration>(
       if (shaped.omitted.length > 0)
         conditions.set(
           `mapping-fields:${label}`,
-          `the kind ${label} lands on ${target} without ${shaped.omitted.join(", ")}, which its mapping fills no field from`,
+          `the kind ${label} lands on ${target} without ${shaped.omitted.join(", ")}, since its mapping fills no field from them`,
         );
       plans.set(own, {
         ...base,
@@ -768,7 +768,7 @@ export async function planKinds<E extends SettingsDeclaration>(
     if (left.length > 0) {
       conditions.set(
         `mapping-fields:${label}`,
-        `the kind ${label} lands on ${target} without ${left.join(", ")}, which that type does not declare`,
+        `the kind ${label} lands on ${target} without ${left.join(", ")}, ${entry?.fields === undefined ? "which that type does not declare" : "since its mapping fills no field from them, or that type does not declare them"}`,
       );
     }
     plans.set(own, {
