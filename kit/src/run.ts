@@ -65,6 +65,7 @@ import { instant } from "./values.js";
 import type { Narrowed } from "./own-types.js";
 import {
   defaultMapping,
+  namedField,
   narrowedBy,
   planKinds,
   readOnlyTargets,
@@ -2257,7 +2258,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     if (back.length > 0) {
       raised.set(
         `put-back:${id}`,
-        `${back.join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
+        `${back.map(namedField).join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
       );
     }
     const types = connections.typesFrom(kind.type);
@@ -2377,7 +2378,7 @@ export async function runOnce<E extends SettingsDeclaration>(
       `declined:${item.id}`,
       back.length === 0
         ? error.message
-        : `${error.message}; ${back.join(", ")} ${back.length === 1 ? "was" : "were"} put back`,
+        : `${error.message}; ${back.map(namedField).join(", ")} ${back.length === 1 ? "was" : "were"} put back`,
     );
     const agreement = store.get(item.id);
     if (agreement === undefined) return;

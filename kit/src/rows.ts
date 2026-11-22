@@ -12,7 +12,7 @@ import {
   type Agreement,
   type Merged,
 } from "./agreement.js";
-import type { FieldMap } from "./mapping.js";
+import { namedField, type FieldMap } from "./mapping.js";
 import { retryDeadline } from "./outbound.js";
 import type { UpsertAttempt } from "./inbound-retry.js";
 import type { Archiving, Entry, Item, Target } from "./define.js";
@@ -888,7 +888,7 @@ export class Rows {
     if (merged.putBack.length > 0) {
       this.hooks.condition(
         `put-back:${id}`,
-        `${merged.putBack.join(", ")} on ${id} ${merged.putBack.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
+        `${merged.putBack.map(namedField).join(", ")} on ${id} ${merged.putBack.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
       );
     }
   }
@@ -1420,7 +1420,7 @@ export class Rows {
       if (back.length > 0) {
         this.hooks.condition(
           `put-back:${id}`,
-          `${back.join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
+          `${back.map(namedField).join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
         );
       }
       const agreement = this.store.get(id);

@@ -103,6 +103,14 @@ export function isMapping(value: unknown): value is Mapping {
  *  named; it writes the field back as it was read. */
 export const targetPrefix = "@target.";
 
+/** The field a condition names. The view holds one the mapping fills under
+ *  `targetPrefix`. */
+export function namedField(field: string): string {
+  return field.startsWith(targetPrefix)
+    ? field.slice(targetPrefix.length)
+    : field;
+}
+
 type MadeValue = Exclude<FieldSource, { from: string }>;
 
 /** What one write of a kind's entry raises, by condition key. */
