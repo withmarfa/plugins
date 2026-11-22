@@ -163,25 +163,28 @@ export function typeDifferences(
     const here = record(mine[name]);
     if (here["type"] !== "status") continue;
     // The server answers every word the chain gives, the type's own last, so
-    // each word this type declares has to be among them, in its group: one
-    // missing is added, and one in another group is for an operator.
+    // each word this type declares has to be among them, in its group. A
+    // connector cannot write the status without a word it declares, so a
+    // missing one stops the start like one in another group.
     const there = Array.isArray(record(theirs[name])["status_values"])
       ? (record(theirs[name])["status_values"] as unknown[]).map(record)
       : [];
+    const lacking: string[] = [];
     for (const word of Array.isArray(here["status_values"])
       ? (here["status_values"] as unknown[]).map(record)
       : []) {
       const held = there.find((one) => one["value"] === word["value"]);
-      if (held === undefined) {
-        // Words are added the way a field is: a status field gaining a word
-        // leaves the rows it holds as they are.
-        if (!missing.includes(name)) missing.push(name);
-      } else if (held["group"] !== word["group"]) {
+      if (held === undefined) lacking.push(show(word["value"]));
+      else if (held["group"] !== word["group"]) {
         other.push(
           `field "${name}" has the status word ${show(word["value"])} in group ${show(word["group"])} here and ${show(held["group"])} on the server`,
         );
       }
     }
+    if (lacking.length > 0)
+      other.push(
+        `field "${name}" lacks the status ${lacking.length === 1 ? "word" : "words"} ${lacking.join(", ")} on the server`,
+      );
   }
 
   const requiredDeclared = requiredSet(declared);

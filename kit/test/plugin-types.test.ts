@@ -214,6 +214,78 @@ describe("a start on a type narrower than the build", () => {
     expect(text).toContain(update);
   });
 
+  it("stops where the type lacks a status word the build declares, naming it and the update, and writes nothing", async () => {
+    const open = { value: "open", group: "not_started" as const };
+    const words = [open, { value: "closed", group: "completed" as const }];
+    const withStatus = (status_values: (typeof words)[number][]) => ({
+      ...testType,
+      fields: {
+        ...testType.fields,
+        status: { type: "status" as const, status_values },
+      },
+    });
+    const connector = testConnector(vendor([entry]));
+    const worded = {
+      ...connector,
+      types: [
+        {
+          ...connector.types[0],
+          fields: [...testFields, "status"],
+          type: withStatus(words),
+        },
+      ],
+    };
+    harness.server.types.set("test.entry", withStatus([open]));
+    expect(await start(worded, harness.runtime(["--once"]))).toBe(1);
+    const error = harness.lastRun().error ?? "";
+    expect(error).toContain(differ);
+    expect(error).toContain('"closed"');
+    expect(error).toContain(update);
+    expect(error).not.toContain("is missing on the server");
+    expect(harness.server.rows).toEqual([]);
+    expect(registrations()).toEqual([]);
+  });
+
+  it("puts the update command first in a refusal, so the cap on the run's error never cuts it", async () => {
+    const names = Array.from(
+      { length: 120 },
+      (_, index) => `field_${String(index)}`,
+    );
+    const connector = testConnector(vendor([entry]));
+    const wide = {
+      ...connector,
+      types: [
+        {
+          ...connector.types[0],
+          fields: [...testFields, ...names],
+          type: {
+            ...testType,
+            fields: {
+              ...testType.fields,
+              ...Object.fromEntries(
+                names.map((name) => [name, { type: "string" as const }]),
+              ),
+            },
+          },
+        },
+      ],
+    };
+    harness.server.types.set("test.entry", {
+      ...testType,
+      fields: {
+        ...testType.fields,
+        ...Object.fromEntries(
+          names.map((name) => [name, { type: "integer" as const }]),
+        ),
+      },
+    });
+    expect(await start(wide, harness.runtime(["--once"]))).toBe(1);
+    const error = harness.lastRun().error ?? "";
+    expect(error).toHaveLength(2000);
+    expect(error.startsWith(`Update the plugin with \`${update}\``)).toBe(true);
+    expect(error).toContain(differ);
+  });
+
   it("stops where the type lacks the link field or a file field", async () => {
     harness.server.types.set("test.entry", {
       ...linkedType,

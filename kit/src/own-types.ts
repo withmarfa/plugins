@@ -33,7 +33,7 @@ export function updateCommand(plugin: string): string {
 
 /** Why a start stops on a difference the connector cannot write around. */
 export function differenceProblem(plugin: string, what: string): string {
-  return `${differs}, and the connector cannot write without them: ${what}. Update the plugin with \`${updateCommand(plugin)}\`, then start the connector again.`;
+  return `Update the plugin with \`${updateCommand(plugin)}\`, then start the connector again; ${differs}, and the connector cannot write without them: ${what}`;
 }
 
 function omissions(

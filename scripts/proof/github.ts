@@ -173,9 +173,6 @@ export async function proveGitHub(
                 fields: Record<string, unknown>;
               };
               Reflect.deleteProperty(definition.fields, "private");
-              // An older plugin gave the issue no words of its own.
-              if (type === "github.issue")
-                Reflect.deleteProperty(definition.fields, "status");
               await writeFile(path, JSON.stringify(definition));
             }
           },
@@ -217,21 +214,10 @@ export async function proveGitHub(
     );
 
     await check(
-      "github: once the plugin is updated, the next run writes private, and the issue's status words are the plugin's; the repository, the issues and the comment are connected, the comment on its issue through the instance's comments-on",
+      "github: once the plugin is updated, the next run writes private; the repository, the issues and the comment are connected, the comment on its issue through the instance's comments-on",
       async () => {
         await installPlugin(url, "github", undefined);
         await runOnce();
-        const issueType = await marfa.GET("/types/{id}", {
-          params: { path: { id: "github.issue" } },
-        });
-        const words = JSON.stringify(
-          (
-            (issueType.data?.fields ?? {}) as Record<
-              string,
-              { status_values?: { value: string }[] }
-            >
-          )["status"]?.status_values?.map((word) => word.value),
-        );
         const summary = String((await lastRun(manager, key.id)).summary);
         const grown = await Promise.all(
           ["github.issue", "github.comment"].map(async (type) => {
@@ -275,15 +261,14 @@ export async function proveGitHub(
           top.properties["private"] !== true ||
           said.properties["private"] !== true ||
           grown.includes(false) ||
-          !["open", "duplicate"].every((word) => words.includes(`"${word}"`)) ||
           !summary.includes("created 0, updated 4, archived 0, unchanged 1") ||
           JSON.stringify(top.properties["labels"]) !== '["bug"]'
         ) {
           throw new Error(
-            `${summary}; private on the types ${grown.join()}, the issue's status words ${words}; ${parents.join(", ")}; in repository ${inRepo.join()}, sub-issue of ${subOf.join()}, blocked by ${blockedBy.join()}, in thread ${thread.join()}; ${JSON.stringify(top.properties)}`,
+            `${summary}; private on the types ${grown.join()}; ${parents.join(", ")}; in repository ${inRepo.join()}, sub-issue of ${subOf.join()}, blocked by ${blockedBy.join()}, in thread ${thread.join()}; ${JSON.stringify(top.properties)}`,
           );
         }
-        return `private written on both types, and the status words open and duplicate on the issue's: ${words}; ${parents.join(", ")}; every row marked private, four rows updated to carry it and the repository unchanged; ${registered.join(", ")}, and in-thread the instance's own; the child under its parent and blocked by the blocker, the comment in the parent's thread`;
+        return `private written on both types; ${parents.join(", ")}; every row marked private, four rows updated to carry it and the repository unchanged; ${registered.join(", ")}, and in-thread the instance's own; the child under its parent and blocked by the blocker, the comment in the parent's thread`;
       },
     );
 

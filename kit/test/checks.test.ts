@@ -26,7 +26,7 @@ describe("the type check", () => {
     },
   };
 
-  it("adds a status word the server lacks, and asks an operator where it holds the word in another group", () => {
+  it("stops on a status word the server lacks, naming it, and on one it holds in another group", () => {
     const carried = (words: object[]): TypeDefinition => ({
       ...testType,
       fields: {
@@ -43,11 +43,21 @@ describe("the type check", () => {
     });
     const inherited = { value: "completed", group: "completed" };
     const open = { value: "open", group: "not_started" };
-    // The type gains words the server does not hold yet.
-    expect(compare(carried([open]), held([inherited]))).toMatchObject({
-      missing: ["status"],
-      other: [],
+    // A word the server lacks is no optional field: the status field is
+    // there, and writing it without the word would write no status at all.
+    expect(compare(carried([open]), held([inherited]))).toEqual({
+      missing: [],
+      tables: [],
+      other: ['field "status" lacks the status word "open" on the server'],
     });
+    expect(
+      compare(
+        carried([open, { value: "closed", group: "completed" }]),
+        held([inherited]),
+      ).other,
+    ).toEqual([
+      'field "status" lacks the status words "open", "closed" on the server',
+    ]);
     expect(compare(carried([open]), held([inherited, open])).other).toEqual([]);
     expect(
       compare(

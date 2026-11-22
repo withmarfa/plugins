@@ -133,7 +133,7 @@ export async function proveTracker(
       tracker.writes().slice(count);
 
     await check(
-      "tracker: its key is minted with write on its types and connection types, and the metadata to register both",
+      "tracker: its key is minted with write on proof.issue, proof.attachment, proof.sub-issue and attached-to",
       async () => {
         key = await mintWithConnections(viaMarfa, source, source, true);
         runner = new ConnectorUnderProof(source, url, key.key, env, entry);
@@ -142,7 +142,7 @@ export async function proveTracker(
     );
 
     await check(
-      "tracker: the first run writes the issues, the sub-issue connection and the attachment, uploading its bytes once and attaching it, and registers the connection type to orphan",
+      "tracker: the first run writes the issues, the sub-issue connection and the attachment, uploading its bytes once and attaching it, and proof.sub-issue orphans on delete",
       async () => {
         await runOnce();
         const rows = await issues();
