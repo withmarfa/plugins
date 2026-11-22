@@ -6,6 +6,7 @@ import {
   merge,
   occurredKey,
   sideOf,
+  stateKey,
   unchangedAtVendor,
   type Agreement,
   type Merged,
@@ -152,18 +153,6 @@ export function suspended(
   );
 }
 
-/** The row's state, as it stands, is the agreed one. */
-function adopted(agreement: Agreement, state: string): Agreement {
-  const next: Agreement = { ...agreement, state: agreedState(state) };
-  Reflect.deleteProperty(next, "stateBy");
-  Reflect.deleteProperty(next, "stateAt");
-  const waiting = { ...agreement.waiting };
-  Reflect.deleteProperty(waiting, stateKey);
-  Reflect.deleteProperty(next, "waiting");
-  if (Object.keys(waiting).length > 0) next.waiting = waiting;
-  return next;
-}
-
 export function forRow(
   kind: Spec,
   item: Item | undefined,
@@ -219,8 +208,6 @@ export function carriable(
 ): boolean {
   return Object.keys(waiting ?? {}).some((key) => key !== connectKey);
 }
-
-export const stateKey = "@state";
 
 const raced = new Set([
   "version_conflict",
@@ -835,10 +822,8 @@ export class Rows {
       retired: kind.retired,
       preserveFirst: kind.firstAgreement === "preserve",
       firstHold: kind.firstAgreement === "hold",
-      agreement:
-        kind.adopt === true && agreement !== undefined
-          ? adopted(agreement, row.state)
-          : agreement,
+      adopt: kind.adopt === true,
+      agreement,
       row: {
         properties: row.properties,
         occurred_at: row.occurred_at,

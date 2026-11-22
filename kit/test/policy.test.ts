@@ -306,11 +306,11 @@ it("keeps a refused exact write pending on a server without the precondition", a
 });
 
 it.each([
-  [true, []],
-  [false, ["archived"]],
+  [true, [], "Local"],
+  [false, [["archived", ["title"]]], "Vendor"],
 ])(
-  "with adopt %s, carries an archive made in Marfa while another rule held the row: %j",
-  async (adopt, carried) => {
+  "with adopt %s, carries what was done in Marfa while another rule held the row: %j",
+  async (adopt, carried, title) => {
     const changes: Change[] = [];
     // The connector writes the row, but only while it writes it.
     const held = connector({
@@ -319,7 +319,9 @@ it.each([
       policy: (_item, given) => (given === undefined ? { owned: false } : {}),
     });
     expect(await start(held, harness.runtime(["--once"]))).toBe(0);
-    harness.server.transition(harness.server.row("one").id, "archived");
+    const id = harness.server.row("one").id;
+    harness.server.transition(id, "archived");
+    harness.server.edit(id, { title: "Local" });
     expect(await start(held, harness.runtime(["--once"]))).toBe(0);
     const adopting = connector({
       entries: [entry("Vendor")],
@@ -328,7 +330,10 @@ it.each([
     });
     expect(await start(adopting, harness.runtime(["--once"]))).toBe(0);
     expect(await start(adopting, harness.runtime(["--once"]))).toBe(0);
-    expect(changes.map((change) => change.kind)).toEqual(carried);
+    expect(
+      changes.map((change) => [change.kind, [...change.changed].sort()]),
+    ).toEqual(carried);
     expect(harness.server.row("one").state).toBe("archived");
+    expect(harness.server.row("one").properties["title"]).toBe(title);
   },
 );
