@@ -257,10 +257,11 @@ describe("what a change runs beyond formatting and the scan", () => {
         .filter((path) => affected(path).jobs.size > 0),
     ).toEqual([]);
     for (const path of markdown.filter(inPlugin)) {
-      expect([...affected(path).jobs].sort(), path).toEqual([
-        "plugins",
-        "proof",
-      ]);
+      expect([...affected(path).jobs].sort(), path).toEqual(
+        path.startsWith("connectors/")
+          ? ["code", "plugins", "proof"]
+          : ["plugins", "proof"],
+      );
     }
     // The witness: a path no rule names runs everything.
     expect(RULES.some(([pattern]) => pattern.test("tools/new.ts"))).toBe(false);

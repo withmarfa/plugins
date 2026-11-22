@@ -33,7 +33,7 @@ describe("an optional secret", () => {
         ...required,
         TEST_TOKEN: value,
       });
-      expect(result.values["TEST_TOKEN"]).toBeUndefined();
+      expect(result.values["test_token"]).toBeUndefined();
       expect(result.secrets).toEqual([required.MARFA_API_KEY]);
     }
   });
@@ -47,7 +47,7 @@ describe("an optional secret", () => {
         { ...required, TEST_TOKEN: ` ${token} ` },
         setup,
       );
-      expect(result.values["TEST_TOKEN"]).toBe(token);
+      expect(result.values["test_token"]).toBe(token);
       const logger = new Logger(() => undefined, systemClock, result.secrets);
       expect(logger.redact(`${token} ${encodeURIComponent(token)}`)).toBe(
         "[redacted] [redacted]",

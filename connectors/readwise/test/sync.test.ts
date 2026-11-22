@@ -441,9 +441,9 @@ it.each(["refresh", "source", "export"] as const)(
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     const base = `http://127.0.0.1:${String((http.address() as AddressInfo).port)}`;
     Object.assign(f.context.env, {
-      READWISE_API_URL: `${base}/api/v2/`,
-      READWISE_READER_API_URL: `${base}/api/v3/`,
-      READWISE_ACCESS_TOKEN: `failed-wait-${mode}`,
+      readwise_api_url: `${base}/api/v2/`,
+      readwise_reader_api_url: `${base}/api/v3/`,
+      readwise_access_token: `failed-wait-${mode}`,
     });
     f.context.waitUntil = vi.fn(() =>
       Promise.reject(new Error("checkpoint ACK lost")),
