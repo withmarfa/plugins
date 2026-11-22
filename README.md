@@ -4,7 +4,7 @@ WithMarfa's plugins for [Marfa](https://github.com/withmarfa/marfa). What an own
 
 ## Connectors
 
-A connector is a small process that holds a key to a Marfa instance. It registers itself, heartbeats, pulls from a vendor, receives what the vendor posts to its inbound endpoints, writes what it finds, by default into the instance's feed, under its own type, carries changes made in Marfa back to the vendor where it is meant to, and reports each run. A connector never puts what it reads from a vendor into the library on its own. It may name the library tier only for a row that belongs to something already in the library, such as the picture files of an entry the owner has kept; moving a vendor's row to the library is a person's or an app's act.
+A connector is a small process that holds a key to a Marfa instance. It registers itself, heartbeats, pulls from a vendor, receives what the vendor posts to its inbound endpoints, writes what it finds as the owner's mapping of its kinds says, by default into the instance's feed under its own types, carries changes made in Marfa back to the vendor where it is meant to, and reports each run. A connector writes the tier the owner's mapping chose, the feed by default; moving an item between tiers otherwise is a person's or an app's act.
 
 ## What is here
 

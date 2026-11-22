@@ -51,7 +51,7 @@ describe("a row holding null", () => {
 });
 
 describe("new rows", () => {
-  it("go through the bulk door at version 0, not atomic, at the feed tier, under the source", async () => {
+  it("go through the bulk door at version 0, not atomic, naming no tier, under the source", async () => {
     expect(await harness.once(vendor([one, two]))).toBe(0);
     expect(bulks()).toHaveLength(1);
     expect(bulks()[0]?.body).toEqual({
@@ -62,7 +62,6 @@ describe("new rows", () => {
           source_id: "a:1",
           properties: { title: "One", note: "first" },
           occurred_at: "2026-09-01T10:00:00.000Z",
-          tier: "feed",
           version: 0,
         },
         {
@@ -70,7 +69,6 @@ describe("new rows", () => {
           source: "test",
           source_id: "a:2",
           properties: { title: "Two" },
-          tier: "feed",
           version: 0,
         },
       ],

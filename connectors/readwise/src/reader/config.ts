@@ -20,15 +20,13 @@ export interface ReaderConfig {
 /**
  * What the connector does with the pictures a document's HTML draws from
  * other websites: `addresses` keeps only the addresses, in the HTML; `save`
- * saves each document's pictures as files attached to it; `save-in-library`
- * does so only for documents in the library.
+ * saves each document's pictures as files attached to it, at the tier the
+ * owner's mapping chose for them.
  */
 export function picturesSetting(value: string | undefined): PicturesSetting {
   if (value === undefined || value === "addresses") return "addresses";
-  if (value === "save" || value === "save-in-library") return value;
-  throw new Error(
-    "readwise_reader_pictures must be addresses, save or save-in-library",
-  );
+  if (value === "save") return value;
+  throw new Error("readwise_reader_pictures must be addresses or save");
 }
 export function parseConfig(
   values: SettingValues<typeof settings>,

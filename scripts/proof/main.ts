@@ -29,6 +29,7 @@ import { proveReadwise } from "./readwise.js";
 import { proveReadwiseWithReader } from "./readwise-with-reader.js";
 import { proveRss } from "./rss.js";
 import { proveTodoist } from "./todoist.js";
+import { proveTodoistMapping } from "./todoist-mapping.js";
 import { proveTracker } from "./tracker.js";
 import { ProofServer, type Booted } from "./server.js";
 import {
@@ -74,6 +75,7 @@ const runners: Record<GroupName, (c: Context) => Promise<void>> = {
   "retry-archive": (c) => proveRetryArchive(c.marfa, c.url),
   plugins: (c) => provePlugins(c.url, c.mintKey),
   "google-sign-in": (c) => proveGoogleSignIn(c.url, c.armFault),
+  "todoist-mapping": (c) => proveTodoistMapping(c.marfa, c.url, c.manager),
   "readwise-with-reader": (c) =>
     proveReadwiseWithReader(c.marfa, c.url, c.mintKey),
 };

@@ -34,7 +34,6 @@ it.each([
   [undefined, "addresses"],
   ["addresses", "addresses"],
   ["save", "save"],
-  ["save-in-library", "save-in-library"],
 ] as const)("reads readwise_reader_pictures %s", (input, expected) => {
   expect(
     parseConfig({
@@ -43,13 +42,11 @@ it.each([
     }),
   ).toMatchObject({ pictures: expected });
 });
-it.each(["", "true", "Save", "library"])(
+it.each(["", "true", "Save", "library", "save-in-library"])(
   "refuses readwise_reader_pictures %s at start",
   (input) => {
     expect(() =>
       parseConfig({ ...values(), readwise_reader_pictures: input }),
-    ).toThrow(
-      "readwise_reader_pictures must be addresses, save or save-in-library",
-    );
+    ).toThrow("readwise_reader_pictures must be addresses or save");
   },
 );

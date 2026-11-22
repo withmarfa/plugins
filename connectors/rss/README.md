@@ -1,6 +1,6 @@
 # RSS
 
-Reads feeds in Atom, RSS 2.0, RSS 1.0 (RDF) and JSON Feed into `rss.entry` rows at the feed tier, one row for each entry. It only reads: nothing goes back to a feed. By default it keeps only the addresses of an entry's pictures; if you ask it to, it also saves those pictures as files attached to the entry (see [Saving pictures](#saving-pictures)). It never writes an entry into the library, and moving an entry to the library is a person's or an app's act. A picture file reaches the library only as part of an entry that is already there.
+Reads feeds in Atom, RSS 2.0, RSS 1.0 (RDF) and JSON Feed into `rss.entry` rows at the feed tier, one row for each entry. It only reads: nothing goes back to a feed. By default it keeps only the addresses of an entry's pictures; if you ask it to, it also saves those pictures as files attached to the entry (see [Saving pictures](#saving-pictures)). Each kind lands at the tier the owner's mapping chose for it, the feed by default, and moving an item between tiers otherwise is a person's or an app's act.
 
 On every start the connector gives its source `rss` the name RSS and the mark `simple-icons:rss`, so apps show them instead of the code, and sets only what the source does not already have, so a name or mark an owner chose in an app is kept.
 
@@ -34,11 +34,11 @@ You need a Marfa server, the CLI (`marfa`), a credential that can mint keys, and
 
 The connector reads its settings from Marfa at the start of every run. Set them with `marfa plugins settings rss --set <name>=<value>`, and `rss_feeds`, a secret, with `marfa plugins secret rss rss_feeds`, which reads it from standard input.
 
-| Setting             | Required | What it holds                                                                                            |
-| ------------------- | -------- | -------------------------------------------------------------------------------------------------------- |
-| `rss_feeds`         | yes      | The feeds to read, as below. A secret.                                                                   |
-| `rss_private_hosts` | no       | Host names that may resolve to this machine or a private network, set apart by whitespace.               |
-| `rss_pictures`      | no       | What to do with the pictures an entry points to: `addresses` (the default), `save` or `save-in-library`. |
+| Setting             | Required | What it holds                                                                              |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `rss_feeds`         | yes      | The feeds to read, as below. A secret.                                                     |
+| `rss_private_hosts` | no       | Host names that may resolve to this machine or a private network, set apart by whitespace. |
+| `rss_pictures`      | no       | What to do with the pictures an entry points to: `addresses` (the default) or `save`.      |
 
 The environment holds only `MARFA_API_URL`, the address of the Marfa server, and `MARFA_API_KEY`, the key the connector's host minted.
 
@@ -66,8 +66,7 @@ For a picture the leave is narrower. A listed host is allowed for a picture only
 ### `rss_pictures`
 
 - `addresses` (the default): the connector keeps the addresses of an entry's pictures in its text and `image_url`, and fetches nothing from them. The rows, the type and the key are exactly as they are without this setting.
-- `save`: the connector saves the pictures of every entry, whether it is in the feed or in the library, as files attached to the entry. A picture of an entry in the library is written at the library tier, and a picture of an entry in the feed at the feed tier.
-- `save-in-library`: the connector saves the pictures only of entries that are already in the library. An entry in the feed gets none until a person or an app moves it.
+- `save`: the connector saves the pictures of every entry, whether it is in the feed or in the library, as files attached to the entry, at the tier the owner's mapping chose for the `picture` kind.
 
 Any other value stops the run with exit code 4. [Saving pictures](#saving-pictures) says what is saved and how.
 
@@ -96,7 +95,7 @@ Keep `MARFA_API_KEY` in your secret store and start the connector under a tool t
 
 ## What lands in Marfa
 
-Each entry is an `rss.entry` row, a kind of `core.bookmark`, written at the feed tier with the source `rss`. The row's `source_id` is the feed's identity, a hash of its name or, without one, its address, then a colon, then the entry's id.
+Each entry is an `rss.entry` row, a kind of `core.bookmark`, written at the tier the owner's mapping chose for the `entry` kind, the feed by default, with the source `rss`. The row's `source_id` is the feed's identity, a hash of its name or, without one, its address, then a colon, then the entry's id.
 
 | Field          | What it holds                                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -157,7 +156,7 @@ An entry with an image enclosure takes it as `image_url`: an Atom `enclosure` li
 
 A `media:thumbnail` is held to the same rules, with its `url` for the `src`.
 
-Only the declared size is read, and one that is hidden by a style or sized by the stylesheet counts. A picture is fetched only when `rss_pictures` is `save` or `save-in-library`, as [Saving pictures](#saving-pictures) says.
+Only the declared size is read, and one that is hidden by a style or sized by the stylesheet counts. A picture is fetched only when `rss_pictures` is `save`, as [Saving pictures](#saving-pictures) says.
 
 ### Dates
 
@@ -171,7 +170,7 @@ An entry is its feed's identity and its `entry_id`. A change to an entry's title
 
 ## Saving pictures
 
-With `rss_pictures` set to `save` or `save-in-library`, the connector fetches the pictures an entry points to and saves each one as a file in Marfa. The entry's text is not changed: its `body` and `image_url` still hold the addresses the feed gave.
+With `rss_pictures` set to `save`, the connector fetches the pictures an entry points to and saves each one as a file in Marfa. The entry's text is not changed: its `body` and `image_url` still hold the addresses the feed gave.
 
 ### Choices that are easy to miss
 
@@ -238,11 +237,9 @@ An address in `pending` is one the connector has not finished with: it was not r
 
 A run that has pictures to save does them after every feed has been read. To know which pictures it holds and which are attached to their entries, it reads the connector's `rss.picture` rows with their connections in pages of up to 500, so reading them costs about one request for every 500 pictures, and not one for every entry. A failure in the pictures, including a read that Marfa refuses, such as with `rate_limited`, is raised as `pictures:failed` and does not fail the feeds. The first read comes before any picture is fetched or written, so when Marfa refuses it nothing has changed, and the next run reads again. A later read, made after pictures were archived or brought back, can fail after those writes; they stand, and the next run reads again.
 
-### `save` and `save-in-library`
+### Where a picture lands
 
-With `save`, the connector works from every entry of its own. A picture is written at the tier its entry is in when the picture is created: the feed tier for an entry in the feed, and the library tier for an entry in the library. A picture keeps its tier if its entry later moves.
-
-With `save-in-library`, the connector works from the entries of its own that are in the library. It looks for them at the start of each run, so a picture is saved up to one run interval after an entry reaches the library, and not at the moment it does. Its pictures are written at the library tier, since they belong to something already there. An entry in the feed, whether it was never moved or is moved back, gets no new pictures; the pictures it already has stay where they are, at the tier they were saved in.
+With `save`, the connector works from every entry of its own. A picture is written at the tier the owner's mapping chose for the `picture` kind, the feed by default, whatever the tier of its entry. To keep the pictures of kept entries in the library, map the `picture` kind to the library tier (`marfa plugins mapping set rss`). A picture keeps its tier if its entry later moves.
 
 ### When an entry leaves
 

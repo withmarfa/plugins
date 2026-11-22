@@ -54,7 +54,7 @@ export const settings = [
     name: "readwise_reader_pictures",
     label: "Reader pictures",
     kind: "choice",
-    choices: ["addresses", "save", "save-in-library"],
+    choices: ["addresses", "save"],
     default: "addresses",
   },
   {

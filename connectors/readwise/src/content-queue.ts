@@ -222,7 +222,7 @@ export async function heldPictures(
 
 /** How a connector that saves pictures lists those of a document. */
 export interface PictureListing {
-  setting: "save" | "save-in-library";
+  setting: "save";
   /** The reason a picture was given up on, such as `svg` or
    *  `bad_status:404`. */
   refused: (address: string) => string | undefined;
@@ -379,9 +379,7 @@ async function preserve(
     pictures: true,
   });
   const evidence = await fileEvidence(context, whole.files);
-  const fetching =
-    options.pictures !== undefined &&
-    (options.pictures.setting === "save" || parent.tier === "library");
+  const fetching = options.pictures !== undefined;
   // With nothing held and nothing to fetch, the plan is the one made
   // without pictures, so the manifest is as it was before pictures.
   const plan =

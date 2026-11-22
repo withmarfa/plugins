@@ -221,7 +221,8 @@ export class Connections {
       .filter(
         (kind) =>
           kind.from_type_constraints?.includes(type) === true &&
-          !this.isRetired(type, kind.id),
+          !this.isRetired(type, kind.id) &&
+          this.lanes.get(type)?.spec.unfit?.has(kind.id) !== true,
       )
       .map((kind) => kind.id);
   }

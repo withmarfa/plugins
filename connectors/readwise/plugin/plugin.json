@@ -73,7 +73,7 @@
         "kind": "choice",
         "default": "addresses",
         "required": false,
-        "choices": ["addresses", "save", "save-in-library"]
+        "choices": ["addresses", "save"]
       },
       {
         "name": "readwise_reader_inbound_only",

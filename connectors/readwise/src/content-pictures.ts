@@ -36,7 +36,7 @@ import type { ReaderReader } from "./reader-client.js";
 
 /** What the connector does with the pictures a document's HTML draws from
  *  other websites, as `readwise_reader_pictures` names it. */
-export type PicturesSetting = "addresses" | "save" | "save-in-library";
+export type PicturesSetting = "addresses" | "save";
 
 /** At most this many pictures are fetched in one run. */
 export const maxPicturesPerRun = 100;
@@ -159,7 +159,7 @@ function pictureState(state: Pick<CheckpointState, "get">): PictureState {
   if (!isRecord(value)) throw invalid();
   const { setting, queue, refused, backfill } = value;
   if (
-    !["addresses", "save", "save-in-library"].includes(setting as string) ||
+    !["addresses", "save"].includes(setting as string) ||
     !Array.isArray(queue) ||
     queue.length > maxPictureJobs ||
     !isRecord(refused) ||
@@ -428,8 +428,6 @@ async function picturesOf(
     return { job: undefined, read: false, left: 0 };
   if (target.items.length !== 1 || parent === undefined)
     return { job: backedOff(job, options.now), read: false, left: 0 };
-  if (options.setting === "save-in-library" && parent.tier !== "library")
-    return { job: undefined, read: false, left: 0 };
   const row = await document(client, job.id);
   if (row === undefined || ["highlight", "note"].includes(row.category))
     return { job: undefined, read: true, left: 0 };
@@ -486,7 +484,6 @@ async function picturesOf(
         .filter((field) => row.properties[field] !== undefined)
         .map((field) => [field, row.properties[field]]),
     );
-    repair.tier = row.tier ?? "feed";
     await commit(context, repair);
     next.saved = true;
   }
@@ -528,7 +525,6 @@ async function picturesOf(
         content_key: file.key,
         source_url: address,
       });
-      value.tier = parent.tier ?? "feed";
       const { bytes, mime_type } = got;
       value.file = {
         key: file.key,

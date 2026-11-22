@@ -54,7 +54,6 @@ export function intentOf(
     "properties",
     "occurred_at",
     "changed_at",
-    "tier",
     "movedFrom",
     "connections",
     "file",
@@ -73,7 +72,6 @@ export function intentOf(
       ...(entry.changed_at !== undefined && {
         changed_at: instant(entry.changed_at),
       }),
-      ...(entry.tier !== undefined && { tier: entry.tier }),
       ...(entry.movedFrom !== undefined && { movedFrom: entry.movedFrom }),
       ...(entry.connections !== undefined && {
         connections: entry.connections,

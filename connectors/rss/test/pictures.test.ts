@@ -886,22 +886,27 @@ describe("the pictures an entry points to", () => {
     expect(manifest("e2").saved).toEqual([at("/b.png")]);
   });
 
-  it("saves the pictures of an entry in the library, at the library tier, and of one in the feed at the feed tier", async () => {
+  it("names no tier for a picture, which takes the tier the owner's mapping chose for pictures, whatever its entry's", async () => {
     pictures["/a.png"] = { body: png(1) };
-    pictures["/b.png"] = { body: png(2) };
-    documents["/one.json"] = [
-      { id: "e1", title: "One" },
-      { id: "e2", title: "Two" },
-    ];
-    expect((await once()).code).toBe(0);
-    entry("e1").tier = "library";
+    marfa.mapping.kinds["picture"] = {
+      enabled: true,
+      target_type: "rss.picture",
+      tier: "library",
+    };
     documents["/one.json"] = [
       { id: "e1", title: "One", content_html: img(at("/a.png")) },
-      { id: "e2", title: "Two", content_html: img(at("/b.png")) },
     ];
     expect((await once()).code).toBe(0);
+    expect(entry("e1").tier).toBe("feed");
     expect(filesOf("e1").map((row) => row.tier)).toEqual(["library"]);
-    expect(filesOf("e2").map((row) => row.tier)).toEqual(["feed"]);
+    const creates = marfa
+      .requestsTo("POST", "/items/bulk")
+      .flatMap(
+        (request) =>
+          (request.body as { items: Record<string, unknown>[] }).items,
+      );
+    expect(creates.length).toBeGreaterThan(0);
+    expect(creates.some((item) => "tier" in item)).toBe(false);
   });
 
   it("fetches a picture from a private host only when the host is its own feed's", async () => {
@@ -924,77 +929,6 @@ describe("the pictures an entry points to", () => {
       [at("/b.png")]: "private_address",
     });
     expect(asked).toEqual(["/a.png"]);
-  });
-
-  describe("save-in-library", () => {
-    beforeEach(() => {
-      pictures["/a.png"] = { body: png(1) };
-      pictures["/b.png"] = { body: png(2) };
-      documents["/one.json"] = [
-        { id: "e1", title: "One", content_html: img(at("/a.png")) },
-      ];
-    });
-
-    it("saves nothing for an entry in the feed, and saves once for an entry in the library, at the library tier", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(filesOf("e1")).toEqual([]);
-      expect(entry("e1").properties).not.toHaveProperty("rss_pictures");
-
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual(["/a.png"]);
-      expect(filesOf("e1")).toHaveLength(1);
-      expect(filesOf("e1")[0]?.tier).toBe("library");
-      expect(manifest("e1").saved).toEqual([at("/a.png")]);
-
-      asked = [];
-      const uploads = marfa.uploads;
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(marfa.uploads).toBe(uploads);
-      expect(filesOf("e1")).toHaveLength(1);
-    });
-
-    it("keeps the pictures of an entry moved back to the feed, and saves no new ones for it", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(filesOf("e1")).toHaveLength(1);
-
-      entry("e1").tier = "feed";
-      documents["/one.json"] = [
-        {
-          id: "e1",
-          title: "One",
-          content_html: img(at("/a.png")) + img(at("/b.png")),
-        },
-      ];
-      asked = [];
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(asked).toEqual([]);
-      expect(filesOf("e1")).toHaveLength(1);
-      expect(filesOf("e1")[0]?.state).toBe("active");
-      expect(manifest("e1").saved).toEqual([at("/a.png")]);
-    });
-
-    it("saves the pictures an entry in the library gains with its text", async () => {
-      expect((await once("save-in-library")).code).toBe(0);
-      entry("e1").tier = "library";
-      expect((await once("save-in-library")).code).toBe(0);
-      documents["/one.json"] = [
-        {
-          id: "e1",
-          title: "One",
-          content_html: img(at("/a.png")) + img(at("/b.png")),
-        },
-      ];
-      expect((await once("save-in-library")).code).toBe(0);
-      expect(filesOf("e1")).toHaveLength(2);
-      expect(manifest("e1").saved.sort()).toEqual(
-        [at("/a.png"), at("/b.png")].sort(),
-      );
-    });
   });
 });
 

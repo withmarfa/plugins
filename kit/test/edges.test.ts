@@ -104,7 +104,12 @@ describe("a row a person purged", () => {
     const kept = harness.kept();
     expect(kept["state"]).toEqual({ token: "t1" });
     expect(harness.problems()).toEqual({});
-    expect(Object.keys(kept).sort()).toEqual(["cursor", "state"]);
+    expect(Object.keys(kept).sort()).toEqual([
+      "cursor",
+      "mapping",
+      "state",
+      "watched",
+    ]);
   });
 });
 
