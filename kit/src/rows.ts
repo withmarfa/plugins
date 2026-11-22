@@ -140,6 +140,12 @@ export interface Spec {
   readonly revive: boolean;
   readonly archived?: import("./define.js").Kind["archived"];
   readonly connections: ReadonlySet<string>;
+  /** Connections the kind declares that the mapping leaves out, since the
+   *  edge type no longer takes one end: dropped from what the vendor says. */
+  readonly unfit?: ReadonlySet<string>;
+  /** Why the kind brings nothing this run, by the owner's mapping: its rows
+   *  and their agreements are left alone, and nothing is carried. */
+  readonly off?: string;
 }
 
 export function suspended(
@@ -159,6 +165,7 @@ export function forRow(
   entry?: Entry,
   archiving?: Archiving,
 ): Spec {
+  if (kind.off !== undefined) return kind;
   if (suspended(kind, item, entry))
     return { ...kind, owned: false, twoWay: false };
   const policy = kind.policy?.(item, entry, archiving);
@@ -406,9 +413,14 @@ export class Rows {
   }
 
   private narrowed(entry: Entry): Entry {
-    if (!Object.keys(entry.properties).some((f) => this.kind.omitted.has(f))) {
-      return entry;
-    }
+    const unfit = this.kind.unfit ?? new Set<string>();
+    const fields = Object.keys(entry.properties).some((f) =>
+      this.kind.omitted.has(f),
+    );
+    const connections = Object.keys(entry.connections ?? {}).some((type) =>
+      unfit.has(type),
+    );
+    if (!fields && !connections) return entry;
     return {
       ...entry,
       properties: Object.fromEntries(
@@ -416,6 +428,13 @@ export class Rows {
           ([field]) => !this.kind.omitted.has(field),
         ),
       ),
+      ...(entry.connections !== undefined && {
+        connections: Object.fromEntries(
+          Object.entries(entry.connections).filter(
+            ([type]) => !unfit.has(type),
+          ),
+        ),
+      }),
     };
   }
 
@@ -539,7 +558,6 @@ export class Rows {
           source_id: entry.source_id,
           properties,
           ...(occurredAt !== undefined && { occurred_at: occurredAt }),
-          ...(entry.tier !== undefined && { tier: entry.tier }),
         },
       ]);
     }

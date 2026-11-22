@@ -7,6 +7,7 @@ import {
   type operations,
 } from "@withmarfa/client";
 import type { Item, TypeDefinition } from "./define.js";
+import type { Mapping, ResolvedType, Rewrite, TypeMap } from "./mapping.js";
 
 export type BulkResult = components["schemas"]["BulkResultEntry"];
 /** The schema types a delivery's headers as pairs, but the fetch client's
@@ -356,8 +357,6 @@ export interface NewRow {
   source_id: string;
   properties: Record<string, unknown>;
   occurred_at?: string;
-  /** Defaults to the feed tier. */
-  tier?: "feed" | "library";
 }
 
 /** The longest a run's report is given to land, which no fence cuts short. */
@@ -376,8 +375,9 @@ export class Marfa {
       signal?: AbortSignal,
       timing?: Timing,
     ) => MarfaClient,
-    signal?: AbortSignal,
+    private readonly signal?: AbortSignal,
     private readonly root: MarfaClient = clientFor(),
+    private readonly types?: TypeMap,
   ) {
     this.client = signal === undefined ? root : clientFor(signal);
     this.uploads = clientFor(signal, "quiet");
@@ -386,7 +386,151 @@ export class Marfa {
   /** This connection, every call of which but the run's report ends with
    *  `signal`. */
   scoped(signal: AbortSignal): Marfa {
-    return new Marfa(this.clientFor, signal, this.root);
+    return new Marfa(this.clientFor, signal, this.root, this.types);
+  }
+
+  /**
+   * This connection, naming each of the connector's types as the mapping
+   * writes it: a type sent is the kind's target, and an item answered is
+   * named by the kind's own type, so the rest of the kit names rows as the
+   * connector does.
+   */
+  withTypes(types: TypeMap): Marfa {
+    return new Marfa(this.clientFor, this.signal, this.root, types);
+  }
+
+  private out(type: string): string {
+    return this.types?.out(type) ?? type;
+  }
+
+  /** An item answered, named by the connector's own type. */
+  seen<T extends Item>(item: T): T {
+    return this.types?.item(item) ?? item;
+  }
+
+  /** For each target whose rows hold their link only as a property, the
+   *  ids of the connector's rows by link, read once. */
+  private readonly heldLinks = new Map<string, Promise<Map<string, string>>>();
+
+  private linksOf(target: string, field: string): Promise<Map<string, string>> {
+    let held = this.heldLinks.get(target);
+    if (held === undefined) {
+      held = (async () => {
+        const ids = new Map<string, string>();
+        const walk = pages(async (cursor) => {
+          const { data, error, response } = await this.client.GET("/items", {
+            params: {
+              query: {
+                type: target,
+                state: "any",
+                limit: listingPage,
+                ...(cursor !== undefined && { cursor }),
+              },
+            },
+          });
+          if (data === undefined) throw refusal(response, error);
+          return data;
+        });
+        for await (const listed of walk) {
+          const row = "item" in listed ? listed.item : listed;
+          const link = row.properties[field];
+          if (row.type === target && typeof link === "string")
+            ids.set(link, row.id);
+        }
+        return ids;
+      })();
+      held.catch(() => this.heldLinks.delete(target));
+      this.heldLinks.set(target, held);
+    }
+    return held;
+  }
+
+  /** Notes the link a row now holds, where its target's rows hold their
+   *  link only as a property. */
+  private noteLink(item: Item): void {
+    const field = this.types?.heldLink(item.type);
+    const held = this.heldLinks.get(item.type);
+    if (field === undefined || held === undefined) return;
+    const link = item.properties[field];
+    void held.then((ids) => {
+      for (const [value, id] of ids) if (id === item.id) ids.delete(value);
+      if (typeof link === "string") ids.set(link, item.id);
+    });
+  }
+
+  /** The owner's mapping of the connector's kinds, as its own key reads it. */
+  async mapping(plugin: string, signal?: AbortSignal): Promise<Mapping> {
+    const { data, error, response } = await this.client.GET(
+      "/plugins/{name}/connector/mapping",
+      {
+        params: { path: { name: plugin } },
+        ...(signal !== undefined && { signal }),
+      },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data;
+  }
+
+  /** Clears a rewrite the connector carried out, answering those that wait. */
+  async rewriteDone(plugin: string, number: number): Promise<Rewrite[]> {
+    const { data, error, response } = await this.client.POST(
+      "/plugins/{name}/connector/mapping/rewrite/done",
+      { params: { path: { name: plugin } }, body: { number } },
+    );
+    if (data === undefined) throw refusal(response, error);
+    return data.rewrites;
+  }
+
+  /** Moves a row to another type, setting the properties named and clearing
+   *  the ones listed, at the version read. Sends the types as named. */
+  async retype(
+    id: string,
+    version: number,
+    type: string,
+    properties: Record<string, unknown>,
+    clear: readonly string[],
+  ): Promise<Item> {
+    const { data, error, response } = await this.client.PATCH("/items/{id}", {
+      params: { path: { id } },
+      body: {
+        version,
+        type,
+        retype: true,
+        version_match: "exact",
+        properties,
+        ...(clear.length > 0 && { clear_properties: [...clear] }),
+      },
+    });
+    if (data === undefined) throw refusal(response, error);
+    return data.item;
+  }
+
+  /** A registered type with every field it inherits, or `undefined` where
+   *  the instance holds none by that id, or will not show it. */
+  async resolvedType(id: string): Promise<ResolvedType | undefined> {
+    const fields = new Set<string>();
+    const tables = new Set<string>();
+    const above: string[] = [];
+    let link: string | undefined;
+    let next: string | undefined = id;
+    while (next !== undefined) {
+      if (next !== id && (above.includes(next) || above.length > 32)) break;
+      const asked: string = next;
+      const { data, error, response } = await this.client.GET("/types/{id}", {
+        params: { path: { id: asked } },
+      });
+      if (response.status === 404 || response.status === 403) {
+        if (next === id) return undefined;
+        break;
+      }
+      if (data === undefined) throw refusal(response, error);
+      for (const field of Object.keys(data.fields)) fields.add(field);
+      for (const table of Object.keys(data.tables ?? {})) tables.add(table);
+      link ??= data.link_field ?? undefined;
+      if (next !== id) above.push(next);
+      next = data.parent ?? undefined;
+    }
+    return { id, fields, tables, link, above };
   }
 
   async register(
@@ -570,7 +714,7 @@ export class Marfa {
         "/items/lookup",
         {
           body: {
-            type,
+            type: this.out(type),
             ids: ids.slice(at, at + lookupCap),
             include: ["edges"],
           },
@@ -588,7 +732,7 @@ export class Marfa {
               : await this.moreEdges(item.id, edgeType, page.next_cursor)),
           );
         }
-        const row: Item = { ...item };
+        const row: Item = this.seen({ ...item });
         Reflect.deleteProperty(row, "edges");
         found.set(item.id, { item: row, edges });
       }
@@ -784,7 +928,7 @@ export class Marfa {
       const { data, error, response } = await this.client.GET("/items", {
         params: {
           query: {
-            type,
+            type: this.out(type),
             state,
             ...(tier !== "all" && { tier }),
             ...(edges && { include: "edges" }),
@@ -797,7 +941,8 @@ export class Marfa {
       return data;
     });
     // A page asked for without `include` carries bare items.
-    for await (const row of walk) rows.push("item" in row ? row.item : row);
+    for await (const row of walk)
+      rows.push(this.seen("item" in row ? row.item : row));
     return rows;
   }
 
@@ -855,7 +1000,7 @@ export class Marfa {
         const { data, error, response } = await this.client.GET("/items", {
           params: {
             query: {
-              type,
+              type: this.out(type),
               filter: group
                 .map((id) => edgeCondition(inbound, edgeType, id))
                 .join(" OR "),
@@ -869,7 +1014,9 @@ export class Marfa {
         return data;
       });
       for await (const listed of walk) {
-        const row: Item = { ...("item" in listed ? listed.item : listed) };
+        const row: Item = this.seen({
+          ...("item" in listed ? listed.item : listed),
+        });
         const block = row.edges?.[edgeType];
         Reflect.deleteProperty(row, "edges");
         const held =
@@ -896,6 +1043,31 @@ export class Marfa {
       | { source: string; source_ids: readonly string[] }
       | { ids: readonly string[] },
   ): Promise<{ data: Item[]; tombstones: Tombstone[] }> {
+    const sent = this.out(type);
+    const held = this.types?.heldLink(sent);
+    if (held !== undefined && "links" in by) {
+      // The target finds no row by a link it does not name as its own, so
+      // the rows are read by id and kept only where they hold the link now.
+      const ids = await this.linksOf(sent, held);
+      const named = new Set(by.links);
+      const found = await this.lookup(type, {
+        ids: [
+          ...new Set(
+            by.links.flatMap((link) => {
+              const id = ids.get(link);
+              return id === undefined ? [] : [id];
+            }),
+          ),
+        ],
+      });
+      return {
+        data: found.data.filter((row) => {
+          const link = row.properties[held];
+          return typeof link === "string" && named.has(link);
+        }),
+        tombstones: [],
+      };
+    }
     const keys =
       "links" in by ? by.links : "ids" in by ? by.ids : by.source_ids;
     const found: { data: Item[]; tombstones: Tombstone[] } = {
@@ -908,7 +1080,7 @@ export class Marfa {
         "/items/lookup",
         {
           body: {
-            type,
+            type: sent,
             ...("links" in by
               ? { links: page }
               : "ids" in by
@@ -918,7 +1090,7 @@ export class Marfa {
         },
       );
       if (data === undefined) throw refusal(response, error);
-      found.data.push(...data.data);
+      found.data.push(...data.data.map((row) => this.seen(row)));
       found.tombstones.push(...data.tombstones);
     }
     return found;
@@ -931,11 +1103,15 @@ export class Marfa {
       | { source: string; source_ids: readonly string[] },
     at: string,
   ): Promise<void> {
+    const sent = this.out(type);
+    // A link's tombstone names no source, so a target that is not the
+    // connector's own type settles none by link: its natural key settles it.
+    if ("links" in by && sent !== type) return;
     const { data, error, response } = await this.client.POST(
       "/items/tombstones",
       {
         body: {
-          type,
+          type: sent,
           settled_at: at,
           ...("links" in by
             ? { links: [...by.links] }
@@ -962,7 +1138,7 @@ export class Marfa {
       },
     );
     if (data === undefined) throw refusal(response, error);
-    return data.item;
+    return this.seen(data.item);
   }
 
   /** One row as it stands, or `undefined` once purged or in the bin. */
@@ -972,7 +1148,7 @@ export class Marfa {
     });
     if (response.status === 404) return undefined;
     if (data === undefined) throw refusal(response, error);
-    return data.item;
+    return this.seen(data.item);
   }
 
   /** A row's tags, or `undefined` once it is purged or in the bin. */
@@ -1005,7 +1181,8 @@ export class Marfa {
       body: { version, properties, ...(exact && { version_match: "exact" }) },
     });
     if (data === undefined) throw refusal(response, error);
-    return data.item;
+    this.noteLink(data.item);
+    return this.seen(data.item);
   }
 
   /** The log from a cursor, as frames: head, retained events plus
@@ -1018,7 +1195,10 @@ export class Marfa {
   ): Promise<ReadableStream<Uint8Array>> {
     const { data, error, response } = await this.client.GET("/events", {
       params: {
-        query: { type: types.join(","), edges: edges ? "all" : "none" },
+        query: {
+          type: types.map((type) => this.out(type)).join(","),
+          edges: edges ? "all" : "none",
+        },
         ...(cursor !== undefined && { header: { "Last-Event-ID": cursor } }),
       },
       parseAs: "stream",
@@ -1029,7 +1209,9 @@ export class Marfa {
   }
 
   /** Creates rows through the bulk door, each claiming at version 0 that
-   *  no row holds its natural key, and each answered on its own. */
+   *  no row holds its natural key, and each answered on its own. A create
+   *  names no tier: the server gives the tier the owner's mapping chose for
+   *  the kind, the feed by default. */
   async create(
     type: string,
     source: string,
@@ -1038,14 +1220,13 @@ export class Marfa {
     const { data, error, response } = await this.client.POST("/items/bulk", {
       body: {
         items: rows.map((row) => ({
-          type,
+          type: this.out(type),
           source,
           source_id: row.source_id,
           properties: row.properties,
           ...(row.occurred_at !== undefined && {
             occurred_at: row.occurred_at,
           }),
-          tier: row.tier ?? ("feed" as const),
           version: 0,
         })),
         atomic: false,
@@ -1077,7 +1258,8 @@ export class Marfa {
       },
     });
     if (data === undefined) throw refusal(response, error);
-    return data.item;
+    this.noteLink(data.item);
+    return this.seen(data.item);
   }
 
   async endpoints(id: string): Promise<InboundEndpoint[]> {

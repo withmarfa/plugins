@@ -443,6 +443,25 @@ export class ScriptedServer {
   loseStateAnswer = false;
   /** Replace the next applied state write's acknowledgment payload. */
   stateAnswer: { value: unknown } | undefined;
+  /** The owner's mapping as the connector's mapping door answers it: the
+   *  default while a test sets none. A kind it does not name keeps its own
+   *  type, on and at the feed. */
+  mapping: {
+    version: number;
+    kinds: Record<
+      string,
+      { enabled?: boolean; target_type?: string; tier?: "feed" | "library" }
+    >;
+    rewrites: {
+      number: number;
+      version: number;
+      kinds: string[];
+      requested_at: string;
+    }[];
+  } = { version: 0, kinds: {}, rewrites: [] };
+  mappingReads = 0;
+  /** The numbers of the rewrites the connector cleared, in order. */
+  readonly rewritesDone: number[] = [];
   /** The key is refused as a revoked one is: 401 at every door. */
   revoked = false;
   /** The registration is gone: every door under it answers 404 until the
@@ -1455,6 +1474,35 @@ export class ScriptedServer {
       send(200, {
         data: this.registrations === 0 || this.lost ? [] : [this.connector()],
       });
+      return;
+    }
+    if (
+      parts[0] === "plugins" &&
+      parts[2] === "connector" &&
+      parts[3] === "mapping"
+    ) {
+      if (method === "GET" && parts.length === 4) {
+        this.mappingReads += 1;
+        send(200, structuredClone(this.mapping));
+        return;
+      }
+      if (method === "POST" && parts[4] === "rewrite" && parts[5] === "done") {
+        const number = Number(input["number"]);
+        this.rewritesDone.push(number);
+        this.mapping.rewrites = this.mapping.rewrites.filter(
+          (rewrite) => rewrite.number !== number,
+        );
+        send(200, { rewrites: structuredClone(this.mapping.rewrites) });
+        return;
+      }
+    }
+    if (method === "GET" && parts[0] === "types" && parts.length === 2) {
+      const type = this.types.get(decodeURIComponent(parts[1] ?? ""));
+      if (type === undefined) {
+        refuse(404, "type_not_found");
+        return;
+      }
+      send(200, { fields: {}, ...type });
       return;
     }
     if (method === "POST" && url.pathname === "/connectors") {
@@ -2905,6 +2953,12 @@ export class ScriptedServer {
   /** What the key holds on a type, as marfa's `resolveTypePermission`
    *  (packages/shared/src/validation.ts) resolves it. */
   private permission(type: string): string {
+    if (
+      Object.values(this.mapping.kinds).some(
+        (kind) => kind.enabled !== false && kind.target_type === type,
+      )
+    )
+      return "write";
     const level = resolve(
       this.grants.type_permissions ?? this.minted.type_permissions,
       type,
@@ -3030,7 +3084,13 @@ export class ScriptedServer {
         sourceId,
         (entry["properties"] ?? {}) as Record<string, unknown>,
         entry["occurred_at"] as string | undefined,
-        entry["tier"] === "library" ? "library" : "feed",
+        entry["tier"] === "library" || entry["tier"] === "feed"
+          ? entry["tier"]
+          : (Object.values(this.mapping.kinds).find(
+              (kind) =>
+                kind.enabled !== false &&
+                kind.target_type === String(entry["type"]),
+            )?.tier ?? "feed"),
       );
       this.reclaim(row);
       this.rows.push(row);
@@ -3081,6 +3141,27 @@ export class ScriptedServer {
       return;
     }
     const properties = (input["properties"] ?? {}) as Record<string, unknown>;
+    if (input["retype"] === true && typeof input["type"] === "string") {
+      if (this.permission(input["type"]) !== "write") {
+        refuse(403, "type_not_permitted");
+        return;
+      }
+      if (version !== row.version) {
+        refuse(409, "version_conflict");
+        return;
+      }
+      const left = { ...row.properties, ...properties };
+      for (const name of (input["clear_properties"] ?? []) as string[]) {
+        Reflect.deleteProperty(left, name);
+      }
+      row.type = input["type"];
+      this.write(row, left);
+      send(200, {
+        item: { ...this.wire(row), edges: this.hydrated(row.id) },
+        metadata: this.metadata(row),
+      });
+      return;
+    }
     const occurredAt = input["occurred_at"];
     // The link is judged on the properties the write leaves the row with, as
     // the server judges it (`items/link-every-write`): a stale write leaves

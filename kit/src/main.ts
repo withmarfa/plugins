@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
 import { createClient } from "@withmarfa/client";
 import type {
   ConnectionDefinition,
@@ -55,7 +54,6 @@ import {
   type Telemetry,
   type TelemetrySettings,
 } from "./telemetry.js";
-import { readOnlyTypesOf } from "./read-only-types.js";
 import { setUp } from "./setup.js";
 import { edgeTypesOf, shippedConnection, turned } from "./shipped.js";
 import {
@@ -988,6 +986,8 @@ async function serve<E extends SettingsDeclaration>(
     signal: lasting,
     stopping: stopped,
     narrowed: started.narrowed,
+    plugin: started.held?.plugin ?? connector.name,
+    mapped: { version: undefined, plan: undefined },
   };
   const failedOn = (error: unknown): RunResult => ({
     succeeded: false,
@@ -1099,27 +1099,8 @@ async function serve<E extends SettingsDeclaration>(
       end("settings", error);
       return undefined;
     }
-    // Compared with what Marfa holds, which another start or a setup beside
-    // this process may have registered.
-    const wanted = readOnlyTypesOf(specsOf(shaped, values, undefined).values());
-    try {
-      const holds = await marfa.readOnlyTypes(connectorId, lasting);
-      if (!isDeepStrictEqual([...wanted].sort(), [...holds].sort())) {
-        await marfa.register(connector.name, connector.description, wanted);
-      }
-    } catch (error) {
-      if (over()) return undefined;
-      const cause = causeOf(error);
-      if (ends(cause)) {
-        end(cause, error);
-        return undefined;
-      }
-      logger.error(
-        `the types this run carries back could not be registered, so it does not start: ${describe(error)}`,
-      );
-      return failedOn(error);
-    }
     setup.connector = shaped;
+    if (held !== undefined) setup.plugin = held.plugin;
     setup.values = values;
     return undefined;
   };

@@ -7,6 +7,7 @@ import {
 } from "./outbound.js";
 import type { PendingInbound, Item } from "./define.js";
 import type { Marfa } from "./marfa.js";
+import { isMapping, type Mapping } from "./mapping.js";
 
 /** A purge still to carry, with when and why the vendor last refused it, and
  *  how many times it has. */
@@ -62,6 +63,12 @@ export interface Kept {
    *  or that none was, for a row whose create got no link back; `overflowed`
    *  once one was past what is kept. */
   relinked?: Relinked;
+  /** The owner's mapping as the last run read it, which a run applies when
+   *  Marfa does not answer its own read. */
+  mapping?: Mapping;
+  /** The types, as written, whose changes the cursor has followed: a type
+   *  not among them is compared whole once it is followed again. */
+  watched?: string[];
 }
 
 const perRequest = 500;
@@ -84,6 +91,8 @@ function keptOf(value: unknown, problems: unknown): Kept {
       )
     : {};
   const cursor = kept["cursor"];
+  const mapping = kept["mapping"];
+  const watched = kept["watched"];
   const outboundRetryAt = retryDeadline(kept["outboundRetryAt"]);
   const purges = Array.isArray(kept["purges"])
     ? kept["purges"].filter(isRecord).map((purge) => purge as unknown as Purge)
@@ -123,6 +132,9 @@ function keptOf(value: unknown, problems: unknown): Kept {
       inbound: readJournal(kept["inbound"]),
     }),
     ...(typeof cursor === "string" && { cursor }),
+    ...(isMapping(mapping) && { mapping }),
+    ...(Array.isArray(watched) &&
+      watched.every((type) => typeof type === "string") && { watched }),
     ...(purges.length > 0 && { purges }),
     ...((Object.keys(relinked.rows).length > 0 ||
       relinked.overflowed === true) && { relinked }),
@@ -224,6 +236,8 @@ export class Store {
       ...(kept.cursor !== undefined && { cursor: kept.cursor }),
       ...(kept.purges !== undefined && { purges: kept.purges }),
       ...(kept.relinked !== undefined && { relinked: kept.relinked }),
+      ...(kept.mapping !== undefined && { mapping: kept.mapping }),
+      ...(kept.watched !== undefined && { watched: kept.watched }),
     };
     if (
       (kept.inbound !== undefined || kept.outbound !== undefined) &&

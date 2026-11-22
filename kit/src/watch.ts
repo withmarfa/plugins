@@ -165,7 +165,8 @@ export class Watch {
             continue;
           }
           if (!itemEvents.has(frame.event)) continue;
-          const item = parse(frame.data)["item"] as Item | undefined;
+          const read = parse(frame.data)["item"] as Item | undefined;
+          const item = read === undefined ? undefined : this.marfa.seen(read);
           // The filter admits each type's subtree; a row of a subtype is not
           // this connector's.
           if (item === undefined || !this.types.has(item.type)) continue;

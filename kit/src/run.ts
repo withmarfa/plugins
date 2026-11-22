@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   agreedState,
   carried,
@@ -62,6 +63,14 @@ import {
 } from "./rows.js";
 import { instant } from "./values.js";
 import type { Narrowed } from "./own-types.js";
+import {
+  narrowedBy,
+  planKinds,
+  readOnlyTargets,
+  type Mapping,
+  type Plan,
+} from "./mapping.js";
+import { readOnlyTypesOf } from "./read-only-types.js";
 import type { Clock } from "./runtime.js";
 import {
   AgreementBlocked,
@@ -110,6 +119,18 @@ export interface RunSetup<E extends SettingsDeclaration> {
   /** The fields the server's types lack and the key may not add, which
    *  every run writes without. */
   narrowed?: Narrowed | undefined;
+  /** The plugin whose connector this is, whose mapping the run reads. */
+  plugin?: string;
+  /** What every run of the process shares of the mapping. */
+  mapped?: Mapped;
+}
+
+/** What the runs of one process share of the owner's mapping: the version
+ *  the read-only types were last registered at, and the plan the last run
+ *  applied, which the look between runs follows. */
+export interface Mapped {
+  version: number | undefined;
+  plan: Plan | undefined;
 }
 
 export type Trigger = "schedule" | "look";
@@ -253,11 +274,15 @@ export function specsOf<E extends SettingsDeclaration>(
   connector: Connector<E>,
   env: SettingValues<E>,
   narrowed: Narrowed | undefined,
+  plan?: Plan,
 ): Map<string, Spec> {
   const carried = carriedTypes(connector, env);
   return new Map(
     connector.types.map((kind) => {
-      const twoWay = carried.has(kind.type.id);
+      const planned = plan?.kinds.get(kind.type.id);
+      const off = planned?.off;
+      const unfit = planned?.unfit ?? new Set<string>();
+      const twoWay = off === undefined && carried.has(kind.type.id);
       const omitted = new Set(narrowed?.fields.get(kind.type.id) ?? []);
       const kept = (names: readonly string[]): string[] =>
         names.filter((name) => !omitted.has(name));
@@ -282,11 +307,15 @@ export function specsOf<E extends SettingsDeclaration>(
           archived: kind.archived,
           connections: new Set(
             (connector.connections ?? [])
-              .filter((connection) =>
-                connection.from_type_constraints?.includes(kind.type.id),
+              .filter(
+                (connection) =>
+                  connection.from_type_constraints?.includes(kind.type.id) ===
+                    true && !unfit.has(connection.id),
               )
               .map((connection) => connection.id),
           ),
+          ...(unfit.size > 0 && { unfit }),
+          ...(off !== undefined && { off, owned: false }),
         },
       ];
     }),
@@ -410,10 +439,201 @@ function jsonValue(value: unknown, seen = new Set<object>()): unknown {
   }
 }
 
-export async function runOnce<E extends SettingsDeclaration>(
+/** What a run takes from the owner's mapping before it reads or writes. */
+interface Applied {
+  readonly plan: Plan | undefined;
+  /** The mapping applied, kept for a run whose read of it fails. */
+  readonly mapping: Mapping | undefined;
+  readonly conditions: ReadonlyMap<string, string>;
+  /** Why the run cannot start, where the mapping could not be had. */
+  readonly failure: unknown;
+}
+
+function sameTypes(a: readonly string[], b: readonly string[]): boolean {
+  return isDeepStrictEqual([...a].sort(), [...b].sort());
+}
+
+const ending = new Set<Cause>(["key", "registration", "address"]);
+
+/**
+ * Carries out each rewrite the owner asked for: every row a kind wrote on its
+ * own type, under the connector's source and outside the bin, is moved to
+ * the kind's target, its fields the target lacks cleared. A request is
+ * cleared only once each of its kinds is done; one a row refused, or whose
+ * target is gone, waits for the next run, and a condition says why.
+ */
+async function carryOutRewrites<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
+  plugin: string,
+  mapping: Mapping,
+  plan: Plan,
+  conditions: Map<string, string>,
+): Promise<void> {
+  const { connector, marfa, logger } = setup;
+  for (const rewrite of mapping.rewrites) {
+    const unfinished: string[] = [];
+    let moved = 0;
+    for (const name of rewrite.kinds) {
+      const kind = connector.types.find((one) => one.name === name);
+      const planned =
+        kind === undefined ? undefined : plan.kinds.get(kind.type.id);
+      if (planned === undefined) {
+        unfinished.push(`this build has no kind ${name}`);
+        continue;
+      }
+      if (planned.off !== undefined) {
+        // A kind the owner turned off brings nothing, so its rows stay.
+        if (mapping.kinds[name]?.enabled !== false)
+          unfinished.push(planned.off);
+        continue;
+      }
+      if (planned.target === planned.own) continue;
+      const rows = (await marfa.ownRows(planned.own, "any")).filter(
+        (row) =>
+          row.type === planned.own &&
+          row.source === connector.source &&
+          row.state !== "trashed",
+      );
+      for (const row of rows) {
+        if (setup.signal.aborted) throw new Stopped();
+        try {
+          await marfa.retype(
+            row.id,
+            row.version,
+            planned.target,
+            {},
+            Object.keys(row.properties).filter((field) =>
+              planned.omitted.includes(field),
+            ),
+          );
+          moved += 1;
+        } catch (error) {
+          if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
+            throw error;
+          unfinished.push(`${row.id} was not moved: ${describe(error)}`);
+        }
+      }
+    }
+    const key = `rewrite:${String(rewrite.number)}`;
+    if (unfinished.length > 0) {
+      conditions.set(
+        key,
+        `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} is not finished, so it waits for the next run: ${unfinished.slice(0, 3).join("; ")}${unfinished.length > 3 ? `; and ${String(unfinished.length - 3)} more` : ""}`,
+      );
+      continue;
+    }
+    try {
+      await marfa.rewriteDone(plugin, rewrite.number);
+      logger.info(
+        `carried out the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")}, moving ${String(moved)} ${moved === 1 ? "row" : "rows"}`,
+      );
+    } catch (error) {
+      if (ending.has(causeOf(error)) || causeOf(error) === "marfa") throw error;
+      conditions.set(
+        key,
+        `the rewrite ${String(rewrite.number)} was carried out and could not be cleared, so the next run looks at it again: ${describe(error)}`,
+      );
+    }
+  }
+}
+
+/**
+ * Reads the owner's mapping and works out what each kind does this run. Where
+ * Marfa does not answer the read, the run applies the mapping the last run
+ * kept, and says so; with none kept, it does not start, since writing a
+ * kind's own type where the owner chose another would be wrong. Registers
+ * the read-only types again where the mapping's version or the types moved,
+ * and carries out the rewrites the owner asked for.
+ */
+async function applyMapping<E extends SettingsDeclaration>(
+  setup: RunSetup<E>,
+): Promise<Applied> {
+  const { connector, logger, marfa } = setup;
+  const plugin = setup.plugin ?? connector.name;
+  const conditions = new Map<string, string>();
+  const failed = (failure: unknown): Applied => ({
+    plan: undefined,
+    mapping: undefined,
+    conditions,
+    failure,
+  });
+  let mapping: Mapping;
+  let fresh = true;
+  try {
+    mapping = await marfa.mapping(plugin, setup.signal);
+  } catch (error) {
+    if (setup.signal.aborted || ending.has(causeOf(error)))
+      return failed(error);
+    let kept: Mapping | undefined;
+    try {
+      kept = (await new Store(marfa, setup.connectorId, setup.process).load())
+        .mapping;
+    } catch {
+      kept = undefined;
+    }
+    if (kept === undefined) {
+      logger.error(
+        `the connector's mapping could not be read from Marfa, and no run kept one, so this run does not start: ${describe(error)}`,
+      );
+      return failed(error);
+    }
+    mapping = kept;
+    fresh = false;
+    conditions.set(
+      "mapping-unread",
+      `the mapping could not be read from Marfa, so this run applies version ${String(kept.version)}, the last one read, and the next reads it again: ${describe(error)}`,
+    );
+  }
+  let plan: Plan;
+  try {
+    plan = await planKinds(
+      connector,
+      mapping,
+      (type) => marfa.resolvedType(type),
+      () => marfa.edgeTypes(),
+    );
+    for (const [key, message] of plan.conditions) conditions.set(key, message);
+    const shared = setup.mapped;
+    if (shared !== undefined) {
+      const wanted = readOnlyTargets(
+        plan,
+        readOnlyTypesOf(specsOf(connector, setup.values, undefined).values()),
+      );
+      // Compared with what Marfa holds, which another start or a setup
+      // beside this process may have registered.
+      const holds = await marfa.readOnlyTypes(setup.connectorId, setup.signal);
+      if (
+        (shared.version !== undefined && shared.version !== plan.version) ||
+        !sameTypes(wanted, holds)
+      )
+        await marfa.register(connector.name, connector.description, wanted);
+      shared.version = plan.version;
+      shared.plan = plan;
+    }
+    if (fresh) await carryOutRewrites(setup, plugin, mapping, plan, conditions);
+  } catch (error) {
+    if (!setup.signal.aborted && !ending.has(causeOf(error)))
+      logger.error(
+        `the mapping could not be applied, so this run does not start: ${describe(error)}`,
+      );
+    return failed(error);
+  }
+  return { plan, mapping, conditions, failure: undefined };
+}
+
+export async function runOnce<E extends SettingsDeclaration>(
+  given: RunSetup<E>,
   trigger: Trigger,
 ): Promise<RunResult> {
+  const applied = await applyMapping(given);
+  const setup: RunSetup<E> =
+    applied.plan === undefined
+      ? given
+      : {
+          ...given,
+          marfa: given.marfa.withTypes(applied.plan.map),
+          narrowed: narrowedBy(applied.plan, given.narrowed),
+        };
   const { connector, logger, clock } = setup;
   const env = setup.values;
   interface Scope {
@@ -504,9 +724,13 @@ export async function runOnce<E extends SettingsDeclaration>(
     rootTail = next.catch(() => undefined);
     return next;
   };
-  const specs = specsOf(connector, env, setup.narrowed);
+  const specs = specsOf(connector, env, setup.narrowed, applied.plan);
   const twoWay = [...specs.values()].some((spec) => spec.twoWay);
-  const raised = new Map<string, string>();
+  const watching = [...specs.values()]
+    .filter((spec) => spec.off === undefined)
+    .map((spec) => spec.type);
+  const watched = watching.map((type) => applied.plan?.map.out(type) ?? type);
+  const raised = new Map<string, string>(applied.conditions);
   for (const [key, condition] of setup.narrowed?.conditions ?? []) {
     raised.set(key, condition);
   }
@@ -572,15 +796,18 @@ export async function runOnce<E extends SettingsDeclaration>(
     );
   };
   const startedAt = clock.now();
-  let failure: unknown;
-  let loaded;
-  try {
-    loaded = await store.load();
-  } catch (error) {
-    failure = error;
-    loaded = undefined;
+  let failure: unknown = applied.failure;
+  let loaded: Kept | undefined;
+  if (failure === undefined) {
+    try {
+      loaded = await store.load();
+    } catch (error) {
+      failure = error;
+      loaded = undefined;
+    }
   }
   const stored = loaded ?? { state: {}, conditions: {} };
+  const keptMapping = applied.mapping ?? stored.mapping;
   let acknowledged: Kept = structuredClone(stored);
   const draft = structuredClone(stored.state);
   const outbound = new Map(
@@ -914,6 +1141,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     id: string,
   ): { item: Item; spec: Spec; rows: Rows } | undefined => {
     for (const { spec, rows } of lanes.values()) {
+      if (spec.off !== undefined) continue;
       const item = rows.known(id);
       if (item !== undefined) return { item, spec: forRow(spec, item), rows };
     }
@@ -996,9 +1224,13 @@ export async function runOnce<E extends SettingsDeclaration>(
   const secret = (value: string): void => {
     keepSecret(logger, value);
   };
-  const written: RunContext<E>["written"] = (type) => [
-    ...lane(type).spec.fields,
-  ];
+  // A kind that is off writes nothing, so a connector that reads by delta
+  // reads it whole once it is on again.
+  const written: RunContext<E>["written"] = (type) => {
+    const { spec } = lane(type);
+    return spec.off === undefined ? [...spec.fields] : [];
+  };
+  const off = (type: string): boolean => lane(type).spec.off !== undefined;
   const pendingOutbound: RunContext<E>["pendingOutbound"] = () =>
     [...outbound.values()]
       .filter((record) => record.rejected === undefined)
@@ -1045,9 +1277,10 @@ export async function runOnce<E extends SettingsDeclaration>(
     declared: (type) =>
       connector.types.find((kind) => kind.type.id === type)?.type,
     narrowed: (type, table) =>
-      setup.narrowed?.tables.get(type)?.includes(table) === true,
+      off(type) || setup.narrowed?.tables.get(type)?.includes(table) === true,
     find: async (type, key) => {
       const { spec } = lane(type);
+      if (spec.off !== undefined) return undefined;
       const found = await setup.marfa.lookup(
         type,
         spec.link !== undefined
@@ -1132,11 +1365,17 @@ export async function runOnce<E extends SettingsDeclaration>(
             serial(scope, () => checkpoint(scope, key, value)),
         },
         upsert: (type, entries) =>
-          serial(scope, () => lane(type).rows.upsert(entries)),
+          off(type)
+            ? Promise.resolve()
+            : serial(scope, () => lane(type).rows.upsert(entries)),
         archive: (type, keys) =>
-          serial(scope, () => lane(type).rows.archive(keys)),
+          off(type)
+            ? Promise.resolve()
+            : serial(scope, () => lane(type).rows.archive(keys)),
         derive: (type, keys, values) =>
-          serial(scope, () => lane(type).rows.derive(keys, values)),
+          off(type)
+            ? Promise.resolve()
+            : serial(scope, () => lane(type).rows.derive(keys, values)),
         linked: (...args) => serial(scope, () => linked(...args)),
         linkedEach: (...args) => serial(scope, () => linkedEach(...args)),
         known: (type, keys) => serial(scope, () => known(type, keys)),
@@ -1147,10 +1386,18 @@ export async function runOnce<E extends SettingsDeclaration>(
       };
       return scoped;
     },
-    upsert: (type, entries) => unscoped(() => lane(type).rows.upsert(entries)),
-    archive: (type, keys) => unscoped(() => lane(type).rows.archive(keys)),
+    upsert: (type, entries) =>
+      off(type)
+        ? Promise.resolve()
+        : unscoped(() => lane(type).rows.upsert(entries)),
+    archive: (type, keys) =>
+      off(type)
+        ? Promise.resolve()
+        : unscoped(() => lane(type).rows.archive(keys)),
     derive: (type, keys, values) =>
-      unscoped(() => lane(type).rows.derive(keys, values)),
+      off(type)
+        ? Promise.resolve()
+        : unscoped(() => lane(type).rows.derive(keys, values)),
     linked: (...args) => unscoped(() => linked(...args)),
     linkedEach: (...args) => unscoped(() => linkedEach(...args)),
     known: (type, keys) => unscoped(() => known(type, keys)),
@@ -1161,6 +1408,7 @@ export async function runOnce<E extends SettingsDeclaration>(
   };
   const inspect: RunContext<E>["inspect"] = async (type, by) => {
     const { spec } = lane(type);
+    if (spec.off !== undefined) return { items: [], tombstones: [] };
     const found = await setup.marfa.lookup(
       type,
       "links" in by ? by : { source: spec.source, source_ids: by.source_ids },
@@ -1168,7 +1416,8 @@ export async function runOnce<E extends SettingsDeclaration>(
     return structuredClone({ items: found.data, tombstones: found.tombstones });
   };
   const known: RunContext<E>["known"] = async (type, keys) => {
-    const { rows } = lane(type);
+    const { rows, spec } = lane(type);
+    if (spec.off !== undefined) return new Set<string>();
     const found = await rows.named(keys);
     const told = await rows.told([...found.values()]);
     return new Set(
@@ -1186,6 +1435,7 @@ export async function runOnce<E extends SettingsDeclaration>(
       throw new Error(`${type} declares no connection ${connection}`);
     }
     const answer = new Map<string, Item[]>(targets.ids.map((id) => [id, []]));
+    if (off(type) || off(targets.type)) return answer;
     const held = await lane(targets.type).rows.named([...answer.keys()]);
     if (held.size === 0) return answer;
     const keyOf = new Map([...held].map(([key, row]) => [row.id, key]));
@@ -1240,6 +1490,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     ).get(target.id) ?? [];
   const heldRows: RunContext<E>["held"] = async (type, options) => {
     const { rows, spec } = lane(type);
+    if (spec.off !== undefined) return [];
     const state = options?.state ?? "active";
     const found = await setup.marfa.ownRows(
       type,
@@ -1532,6 +1783,10 @@ export async function runOnce<E extends SettingsDeclaration>(
       ].slice(0, keptConditions),
     ),
     ...(acknowledged.cursor !== undefined && { cursor: acknowledged.cursor }),
+    ...(acknowledged.watched !== undefined && {
+      watched: acknowledged.watched,
+    }),
+    ...(keptMapping !== undefined && { mapping: keptMapping }),
     ...((relinked.size > 0 || overflowed) && {
       relinked: {
         rows: Object.fromEntries(relinked),
@@ -2209,6 +2464,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     const declared = specs.get(item.type);
     if (declared === undefined || connector.onChange === undefined)
       return "its kind has no declared write handler";
+    if (declared.off !== undefined) return declared.off;
     if (
       !record.acknowledged &&
       record.operation === "remake" &&
@@ -2792,14 +3048,20 @@ export async function runOnce<E extends SettingsDeclaration>(
       }
     }
     if (!whole && connector.inbound === undefined) hints = new Map();
+    // A type the cursor did not follow, such as a kind just turned on or
+    // moved to another target, is compared whole with what was agreed.
+    const following =
+      stored.watched === undefined ||
+      watched.every((type) => stored.watched?.includes(type) === true);
+    const cursor = following ? stored.cursor : undefined;
     read = await new Watch(
       setup.marfa,
-      [...specs.keys()],
-      stored.cursor,
+      watching,
+      cursor,
       setup.signal,
       endsOf(connector.connections ?? []),
     ).read();
-    if (read.resync && stored.cursor !== undefined) {
+    if (read.resync && cursor !== undefined) {
       raised.set(
         "resync",
         "the log no longer holds the cursor, so every row of the connector's types was compared with what was last agreed",
@@ -2813,7 +3075,7 @@ export async function runOnce<E extends SettingsDeclaration>(
       (read.incomplete !== undefined ||
         (connector.preflight !== undefined &&
           read.resync &&
-          stored.cursor !== undefined))
+          cursor !== undefined))
     )
       throw new Error(
         "outbound mutations are blocked because the complete watch inventory is unavailable",
@@ -3447,7 +3709,9 @@ export async function runOnce<E extends SettingsDeclaration>(
         if (spec !== undefined && !forRow(spec, item).twoWay) {
           raised.set(
             `purge-pending:${item.id}`,
-            `the purge of ${item.id} is retained while its kind has no write authority`,
+            spec.off === undefined
+              ? `the purge of ${item.id} is retained while its kind has no write authority`
+              : `the purge of ${item.id} is retained while ${spec.off}`,
           );
           continue;
         }
@@ -3685,10 +3949,16 @@ export async function runOnce<E extends SettingsDeclaration>(
           ].slice(0, keptConditions),
         ),
         ...(pastLog && read?.cursor !== undefined
-          ? { cursor: read.cursor }
-          : acknowledged.cursor !== undefined && {
-              cursor: acknowledged.cursor,
+          ? { cursor: read.cursor, watched }
+          : {
+              ...(acknowledged.cursor !== undefined && {
+                cursor: acknowledged.cursor,
+              }),
+              ...(acknowledged.watched !== undefined && {
+                watched: acknowledged.watched,
+              }),
             }),
+        ...(keptMapping !== undefined && { mapping: keptMapping }),
         ...(keptPurges.length > 0 && { purges: keptPurges }),
         ...((relinked.size > 0 || overflowed) && {
           relinked: {
@@ -3775,13 +4045,24 @@ export async function runOnce<E extends SettingsDeclaration>(
 }
 
 export async function waitingInMarfa<E extends SettingsDeclaration>(
-  setup: RunSetup<E>,
+  given: RunSetup<E>,
   cursor: string | undefined,
 ): Promise<{ waiting: boolean; cursor: string | undefined }> {
-  const specs = specsOf(setup.connector, setup.values, setup.narrowed);
+  const plan = given.mapped?.plan;
+  const setup: RunSetup<E> =
+    plan === undefined
+      ? given
+      : {
+          ...given,
+          marfa: given.marfa.withTypes(plan.map),
+          narrowed: narrowedBy(plan, given.narrowed),
+        };
+  const specs = specsOf(setup.connector, setup.values, setup.narrowed, plan);
   const read = await new Watch(
     setup.marfa,
-    [...specs.keys()],
+    [...specs.values()]
+      .filter((spec) => spec.off === undefined)
+      .map((spec) => spec.type),
     cursor,
     setup.signal,
     endsOf(setup.connector.connections ?? []),
