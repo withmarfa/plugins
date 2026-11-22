@@ -578,35 +578,15 @@ export interface WatchContext<E extends SettingsDeclaration> {
   readonly setLink: (item: Item, value: string) => Promise<void>;
 }
 
-export interface ListenOptions {
-  /**
-   * Also takes the redirect from an address pasted into the terminal, for a
-   * browser on another machine, whose redirect to this one cannot load.
-   * Answers, from the callback, the address that browser opens to begin,
-   * such as the vendor's consent page, which the log names beside the
-   * instruction to paste. Only for a vendor whose flow can begin away from
-   * the local page; without it, setup reads nothing from the terminal.
-   */
-  readonly paste?: ((callback: string) => string) | undefined;
-}
-
 export interface LocalCallback {
   readonly url: string;
   readonly callback: string;
-  /**
-   * Resolves with the query of the vendor's redirect to `callback`, from the
-   * browser on this machine or, where `listen` was asked to take a paste,
-   * whichever comes first of that and the address the person pastes into
-   * the terminal. A pasted address counts when its path is the callback's;
-   * its host and port are ignored, since the other browser shows them as
-   * they were.
-   */
+  /** Resolves with the query of the vendor's redirect to `callback`, from the browser on this machine. */
   readonly redirected: Promise<URLSearchParams>;
   /**
    * Throws when asked before the redirect arrives. A browser not sent on is
    * told when setup ends that it is done, or that it failed. The callback
-   * answers once. After a redirect that arrived by paste there is no
-   * browser to send on, so the address is logged for the person to open.
+   * answers once.
    */
   readonly onward: (address: string) => void;
 }
@@ -623,7 +603,6 @@ export interface SetupContext<E extends SettingsDeclaration> {
    */
   readonly listen: (
     page?: string | ((callback: string) => string),
-    options?: ListenOptions,
   ) => Promise<LocalCallback>;
   /**
    * Makes an inbound endpoint for the connector: its path in full this once,

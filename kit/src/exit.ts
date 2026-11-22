@@ -10,7 +10,7 @@ export const exitCode = {
   /** Marfa refused the key, or the kit refused it as not the connector's:
    *  mint it once, then stop. */
   key: 3,
-  /** A required setting is missing, or a value is invalid: wait for the
-   *  settings to change. */
+  /** A required setting is missing, a value is invalid, or a run threw
+   *  SettingsRefused: wait for the settings to change. */
   settings: 4,
 } as const;

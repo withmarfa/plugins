@@ -32,7 +32,6 @@ export {
   type RowPolicy,
   type FieldPolicy,
   type Tombstone,
-  type ListenOptions,
   type LocalCallback,
   type Log,
   type RunContext,
