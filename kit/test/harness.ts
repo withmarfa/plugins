@@ -191,6 +191,7 @@ export function testConnector(held: Vendor) {
     source: "test",
     types: [
       {
+        name: "entry",
         type: testType,
         fields: testFields,
         ...(held.archivedWhen !== undefined && { archived: held.archivedWhen }),
@@ -228,6 +229,7 @@ function twoWayConnector(held: Vendor) {
     source: "test",
     types: [
       {
+        name: "entry",
         type: linkedType,
         fields: testFields,
         revive: held.revive === true,

@@ -93,6 +93,17 @@ export class Watch {
   }
 
   async read(): Promise<LogRead> {
+    // With every kind off there is nothing to follow, and the cursor stays.
+    if (this.types.size === 0) {
+      return {
+        rows: new Map(),
+        connected: new Map(),
+        updated: [],
+        cursor: this.cursor,
+        resync: false,
+        incomplete: undefined,
+      };
+    }
     const rows = new Map<string, Seen>();
     const connected = new Map<string, string>();
     const updated: Updated[] = [];
