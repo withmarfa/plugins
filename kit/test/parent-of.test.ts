@@ -305,7 +305,7 @@ describe("a declaration of parent-of", () => {
     expect(harness.lastRun().error).toContain("may not write edge parent-of");
   });
 
-  it("is refused where the key may register edge types, which a shipped one never needs", async () => {
+  it("is refused where the key holds a metadata entry for edge types, which a connector's key never needs", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "parent-of": "write" },

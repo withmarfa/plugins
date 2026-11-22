@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import {
   causeOf,
   faultOf,
@@ -10,7 +10,13 @@ import {
   MarfaUnreachable,
   Refusal,
 } from "../src/marfa.js";
-import { Harness, testConnector, vendor, type Vendor } from "./harness.js";
+import {
+  Harness,
+  testConnector,
+  testType,
+  vendor,
+  type Vendor,
+} from "./harness.js";
 
 let harness: Harness;
 beforeEach(async () => {
@@ -299,7 +305,7 @@ describe("a registration the server lost", () => {
     await harness.clock.wake(minute);
     await until(() => harness.server.registrations === 2);
     await until(() => harness.server.runs.length === 2);
-    expect(said()).toContain("registered again");
+    expect(said()).toContain("registers again and checks its types");
     expect(harness.lastRun().outcome).toBe("succeeded");
     harness.stop();
     expect(await exit).toBe(0);
@@ -337,49 +343,54 @@ describe("a registration the server lost", () => {
 });
 
 describe("a type of the connector's the server lost", () => {
-  it("is registered again, and the connector goes on writing its rows", async () => {
-    harness.server.grants = { metadata_permissions: { types: "write" } };
+  /** The owner installs the plugin again as the connector registers again. */
+  function reinstalledOnRegistering(): void {
+    const answer = harness.server.beforeAnswer;
+    harness.server.beforeAnswer = async (request) => {
+      await answer?.(request);
+      if (request.method === "POST" && request.path === "/connectors") {
+        harness.server.installType({ ...testType });
+      }
+    };
+  }
+
+  it("is checked again when the connector starts again, and it goes on writing its rows once the plugin is installed", async () => {
     const held = vendor([one]);
     const exit = every(held, "15m");
     await harness.clock.sleeping(15 * minute);
-    const registered = () => harness.server.requestsTo("POST", "/types").length;
-    expect(registered()).toBe(1);
     harness.server.types.delete("test.entry");
+    reinstalledOnRegistering();
     held.entries = [one, { source_id: "a:2", properties: { title: "Two" } }];
     await harness.clock.wake(15 * minute);
-    await until(() => registered() === 2);
     await until(() => harness.server.rows.length === 2);
     await until(() => harness.lastRun().outcome === "succeeded");
-    expect(said()).toContain("registered again");
+    expect(said()).toContain("checks its types");
     expect(harness.server.runs.map((run) => run.outcome)).toEqual([
       "succeeded",
       "failed",
       "succeeded",
     ]);
     expect(harness.server.runs[1]?.error).toContain("unknown_type");
+    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
     harness.stop();
     expect(await exit).toBe(0);
   });
 
-  it("stops the connector, saying so plainly, where the key may not register it again", async () => {
-    harness.server.grants = {
-      type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "read" },
-    };
+  it("stops the connector, saying so plainly, where the plugin is not installed again", async () => {
     const held = vendor([one]);
     const exit = every(held, "15m");
     await harness.clock.sleeping(15 * minute);
     harness.server.types.delete("test.entry");
     await harness.clock.wake(15 * minute);
     expect(await exit).toBe(1);
-    expect(harness.lastRun().error).toBe(
-      "the type test.entry was deleted from the instance and this key may not register it again; stop the connector or mint a key with types=write",
-    );
-    expect(harness.server.requestsTo("POST", "/types")).toHaveLength(1);
+    const error = harness.lastRun().error ?? "";
+    expect(error).toContain("the installed plugin's types differ");
+    expect(error).toContain("the type test.entry is not installed");
+    expect(error).toContain("marfa plugins install test");
+    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
   });
 
-  it("deleted while a bulk write is on its way is registered again, not its rows held", async () => {
-    harness.server.grants = { metadata_permissions: { types: "write" } };
+  it("deleted while a bulk write is on its way is checked again, not its rows held", async () => {
     const held = vendor([one]);
     const exit = every(held, "15m");
     await harness.clock.sleeping(15 * minute);
@@ -387,6 +398,7 @@ describe("a type of the connector's the server lost", () => {
       if (request.path === "/items/bulk") {
         harness.server.types.delete("test.entry");
         harness.server.beforeAnswer = undefined;
+        reinstalledOnRegistering();
       }
     };
     held.entries = [one, { source_id: "a:2", properties: { title: "Two" } }];

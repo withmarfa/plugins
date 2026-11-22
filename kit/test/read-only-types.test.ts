@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector, type TypeDefinition } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { readOnlyTypesOf } from "../src/read-only-types.js";
 import type { Spec } from "../src/rows.js";
 import { Harness, testType, vendor } from "./harness.js";

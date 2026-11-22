@@ -4,7 +4,7 @@ import {
   type Socket,
 } from "node:net";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { defineConnector } from "../src/define.js";
 import {
   Harness,

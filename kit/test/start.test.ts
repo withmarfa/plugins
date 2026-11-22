@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import {
   Harness,
   closedUrl,
@@ -238,14 +238,13 @@ describe("the key check on start", () => {
   it("starts on a key holding read and write on its own type and the registration of it", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "write" },
     };
     expect(await harness.once(vendor([entry]))).toBe(0);
     expect(harness.server.requestsTo("GET", "/keys/current")).toHaveLength(1);
     expect(harness.server.rows).toHaveLength(1);
   });
 
-  it("refuses a key wider than its type, naming the key and what is too wide, before it registers the type or writes a row", async () => {
+  it("refuses a key wider than its type, naming the key and what is too wide, before it checks the types or writes a row", async () => {
     harness.server.grants = {
       permissions: ["keys.mint", "items.purge"],
       type_permissions: { "test.entry": "write", "core.note": "read" },
@@ -266,14 +265,13 @@ describe("the key check on start", () => {
     }
     expect(error).not.toContain("type test.entry");
     expect(harness.server.rows).toEqual([]);
-    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
+    expect(harness.server.requestsTo("POST", "/types/normalize")).toEqual([]);
   });
 
   it("sends an owner whose key is too wide to the connector's own README where it names one, and to the template's otherwise", async () => {
     harness.server.grants = {
       permissions: ["keys.mint"],
       type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "write" },
     };
     expect(await harness.once(vendor([entry]))).toBe(1);
     expect(harness.lastRun().error).toContain(
@@ -292,10 +290,9 @@ describe("the key check on start", () => {
     expect(harness.server.rows).toEqual([]);
   });
 
-  it("refuses schema.write, which a connector's key no longer holds, naming it, before it registers the type or writes a row", async () => {
+  it("refuses schema.write, which a connector's key no longer holds, naming it, before it checks the types or writes a row", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "write" },
       permissions: ["schema.write"],
     };
     expect(await harness.once(vendor([entry]))).toBe(1);
@@ -303,7 +300,7 @@ describe("the key check on start", () => {
     expect(error).toContain("key-1");
     expect(error.slice(error.indexOf("is refused:"))).toContain("schema.write");
     expect(harness.server.rows).toEqual([]);
-    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
+    expect(harness.server.requestsTo("POST", "/types/normalize")).toEqual([]);
   });
 
   it("refuses a pattern over every type, management permissions, any extension or profile reach, and an enforcement override, naming each", async () => {
@@ -327,6 +324,13 @@ describe("the key check on start", () => {
         },
         "metadata edge_types=write",
       ],
+      [
+        {
+          type_permissions: { "test.entry": "write" },
+          metadata_permissions: { types: "write" },
+        },
+        "metadata types=write",
+      ],
     ] as const) {
       harness.server.grants = grants;
       expect(await harness.once(vendor([entry]))).toBe(1);
@@ -346,7 +350,7 @@ describe("the key check on start", () => {
     expect(harness.server.rows.map((row) => row.source)).toEqual(["test"]);
   });
 
-  it("refuses a key that claims a source besides the connector's, naming it and how to narrow the key, before it registers the type or writes a row", async () => {
+  it("refuses a key that claims a source besides the connector's, naming it and how to narrow the key, before it checks the types or writes a row", async () => {
     for (const [keySource, sources, narrow] of [
       ["test", ["other.app", "test"], "marfa keys update key-1 --no-claims"],
       [
@@ -420,71 +424,23 @@ describe("the key check on start", () => {
     expect(harness.server.rows).toEqual([]);
   });
 
-  it("does not warn that a key holding types=write could drop it, since the key keeps its types current with it", async () => {
-    harness.server.grants = {
-      type_permissions: { "test.entry": "write" },
-      metadata_permissions: { types: "write" },
-    };
-    for (let start = 0; start < 2; start += 1) {
-      harness.lines.length = 0;
-      expect(await harness.once(vendor([entry]))).toBe(0);
-      const said = harness.lines.join("\n");
-      expect(said).not.toContain("--metadata-permission");
-      expect(said).not.toContain("no longer needs");
-    }
-    expect(harness.server.requestsTo("POST", "/types")).toHaveLength(1);
-  });
-
-  it("warns, on every start, that a key holding edge_types=write can drop it once its connections are registered", async () => {
-    harness.server.grants = {
-      type_permissions: { "test.entry": "write" },
-      edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
-    };
-    const held = vendor([entry]);
-    held.connections = [
-      {
-        id: "test.blocks",
-        cardinality: "many-to-many",
-        from_type_constraints: ["test.entry"],
-        to_type_constraints: ["test.entry"],
-      },
-    ];
-    for (let start = 0; start < 2; start += 1) {
-      harness.lines.length = 0;
-      expect(await harness.once(held)).toBe(0);
-      const said = harness.lines.join("\n");
-      expect(said).toContain("every connection it declares is registered");
-      expect(said).toContain(
-        "marfa keys update key-1 --metadata-permission types=write --metadata-permission edge_types=read",
-      );
-      expect(said).not.toContain("--metadata-permission types=read");
-    }
-
-    harness.lines.length = 0;
-    harness.server.grants = {
-      type_permissions: { "test.entry": "write" },
-      edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "read" },
-    };
-    expect(await harness.once(held)).toBe(0);
-    expect(harness.lines.join("\n")).not.toContain("--metadata-permission");
-  });
-
   it("reads a level of none as holding nothing", async () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write", "core.note": "none" },
+      metadata_permissions: { types: "none" },
     };
     expect(await harness.once(vendor([entry]))).toBe(0);
   });
 });
 
 describe("the type check on start", () => {
-  it("registers the type when the server has none", async () => {
-    expect(await harness.once(vendor([entry]))).toBe(0);
-    const registered = harness.server.requestsTo("POST", "/types");
-    expect(registered).toHaveLength(1);
-    expect(registered[0]?.body).toEqual(testType);
+  it("stops, and registers nothing, when the server has no type", async () => {
+    harness.server.installs = false;
+    expect(await harness.once(vendor([entry]))).toBe(1);
+    expect(harness.lastRun().error).toContain("the type test.entry");
+    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
+    expect(harness.server.types.size).toBe(0);
+    expect(harness.server.rows).toEqual([]);
   });
 
   it("carries on when the server's type has the same shape, whatever its words", async () => {
@@ -532,7 +488,6 @@ describe("the type check on start", () => {
     };
     harness.server.types.set("test.entry", served);
     harness.server.grants = {
-      metadata_permissions: { types: "write" },
       type_permissions: { "test.entry": "write" },
     };
     expect(await harness.once(vendor([entry]))).toBe(1);
@@ -544,7 +499,7 @@ describe("the type check on start", () => {
       '"link"',
       '"title"',
       "parent is",
-      "marfa types replace test.entry --file",
+      "marfa plugins install test",
     ]) {
       expect(run.error).toContain(difference);
     }
@@ -557,56 +512,17 @@ describe("the type check on start", () => {
     expect(harness.server.types.get("test.entry")).toBe(served);
   });
 
-  it("starts on a type that only lacks optional fields, and leaves it as it is without types=write", async () => {
+  it("starts on a type that only lacks optional fields, and leaves it as it is", async () => {
     const served = {
       ...testType,
       fields: { title: { type: "string", required: true } },
     };
     harness.server.types.set("test.entry", served);
     expect(await harness.once(vendor([entry]))).toBe(0);
-    expect(harness.lastRun().summary).toContain(
-      "marfa keys update key-1 --metadata-permission types=write",
-    );
+    expect(harness.lastRun().summary).toContain("marfa plugins install test");
     expect(harness.server.requestsTo("PUT", "/types/test.entry")).toEqual([]);
     expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
     expect(harness.server.types.get("test.entry")).toBe(served);
-  });
-
-  it("stops when the key may not register the type, saying what it lacks", async () => {
-    harness.server.refuseNext(
-      "POST /types",
-      403,
-      "forbidden",
-      "Missing metadata.types:write",
-    );
-    expect(await harness.once(vendor([entry]))).toBe(1);
-    expect(harness.lastRun().outcome).toBe("failed");
-    expect(harness.lastRun().error).toContain("metadata.types:write");
-    expect(harness.server.rows).toEqual([]);
-  });
-
-  it("carries on when another process registered the same type first", async () => {
-    harness.server.beforeAnswer = (request) => {
-      if (request.method === "POST" && request.path === "/types") {
-        harness.server.types.set("test.entry", testType);
-      }
-    };
-    expect(await harness.once(vendor([entry]))).toBe(0);
-    expect(harness.server.rows).toHaveLength(1);
-  });
-
-  it("stops when another process registered a different type first", async () => {
-    harness.server.beforeAnswer = (request) => {
-      if (request.method === "POST" && request.path === "/types") {
-        harness.server.types.set("test.entry", {
-          id: "test.entry",
-          fields: { title: { type: "integer" } },
-        });
-      }
-    };
-    expect(await harness.once(vendor([entry]))).toBe(1);
-    expect(harness.lastRun().error).toContain('field "title" has type');
-    expect(harness.server.rows).toEqual([]);
   });
 
   it("reads a format that is a field type of its own as that type", async () => {

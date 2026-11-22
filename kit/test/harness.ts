@@ -12,7 +12,7 @@ import {
   type Target,
   type TypeDefinition,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Declined, Refused, Unreachable } from "../src/rows.js";
 import { verifyHmac } from "../src/verify.js";
 import type { Clock, Runtime } from "../src/runtime.js";

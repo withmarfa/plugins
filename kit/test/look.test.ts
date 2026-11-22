@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, testConnector, vendor } from "./harness.js";
 
 let harness: Harness;
@@ -38,19 +38,17 @@ describe("the look between runs, for a connector that carries changes back", () 
     expect(await exit).toBe(0);
   });
 
-  it("takes a run when the look finds a type of the connector's gone, so the run registers it again", async () => {
-    harness.server.grants = { metadata_permissions: { types: "write" } };
+  it("takes a run when the look finds a type of the connector's gone, so the connector starts again and stops on the plugin not installed", async () => {
     const held = vendor([one]);
     const exit = harness.twoWayRunning(held, ["--every", "15m"]);
     await harness.clock.sleeping(10_000);
     expect(held.runs).toBe(1);
     harness.server.types.delete("test.entry");
     await harness.clock.wake(10_000);
-    await until(() => harness.server.requestsTo("POST", "/types").length === 2);
-    await until(() => held.runs >= 2);
-    await until(() => harness.lastRun().outcome === "succeeded");
-    harness.stop();
-    expect(await exit).toBe(0);
+    expect(await exit).toBe(1);
+    expect(harness.lastRun().error).toContain("the type test.entry");
+    expect(harness.lastRun().error).toContain("marfa plugins install test");
+    expect(harness.server.requestsTo("POST", "/types")).toEqual([]);
   });
 
   it("starts no run for the connector's own writes", async () => {
@@ -348,6 +346,7 @@ describe("the look, for connections", () => {
 
 describe("--look-every", () => {
   it("is refused for a connector that neither receives webhooks nor carries changes back", async () => {
+    harness.server.installs = false;
     expect(
       await start(
         testConnector(vendor([])),
@@ -358,6 +357,7 @@ describe("--look-every", () => {
       "--look-every is for a connector that receives webhooks or carries changes back",
     );
     expect(harness.server.requests).toEqual([]);
+    harness.server.installs = true;
     const held = vendor([]);
     const exit = harness.twoWayRunning(held, [
       "--every",

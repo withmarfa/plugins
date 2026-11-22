@@ -1302,10 +1302,13 @@ describe("the connector, run as a process", () => {
     expect(state()).toMatchObject({ sync_token: "t1" });
   });
 
-  it("registers its type on an instance that has none", async () => {
+  it("stops, naming the plugin to install, on an instance that holds none, and registers nothing", async () => {
     marfa.types.delete("todoist.task");
-    expect((await once()).code).toBe(0);
-    expect(marfa.requestsTo("POST", "/types")).toHaveLength(1);
+    marfa.installs = false;
+    const stopped = await once();
+    expect(stopped.code).toBe(1);
+    expect(stopped.output).toContain("marfa plugins install todoist");
+    expect(marfa.requestsTo("POST", "/types")).toEqual([]);
   });
 });
 

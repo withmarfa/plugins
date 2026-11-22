@@ -3,7 +3,7 @@ import {
   defineConnector,
   type TypeDefinition,
 } from "../../../kit/src/define.js";
-import { start } from "../../../kit/src/main.js";
+import { start } from "../../../kit/test/installed.js";
 import { Harness } from "../../../kit/test/harness.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import {
@@ -62,7 +62,6 @@ async function fixture(content = png, mime = "image/png") {
       "attached-to": "write",
       "github.in-repository": "write",
     },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
   let response = 200,
     queryCount = 0,

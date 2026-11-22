@@ -5,7 +5,7 @@ import {
   type MarfaClient,
   type operations,
 } from "@withmarfa/client";
-import type { ConnectionDefinition, Item, TypeDefinition } from "./define.js";
+import type { Item, TypeDefinition } from "./define.js";
 
 export type BulkResult = components["schemas"]["BulkResultEntry"];
 /** The schema types a delivery's headers as pairs, but the fetch client's
@@ -478,27 +478,6 @@ export class Marfa {
     return data;
   }
 
-  async registerType(type: TypeDefinition): Promise<void> {
-    const { data, error, response } = await this.client.POST("/types", {
-      body: type,
-    });
-    if (data === undefined) throw refusal(response, error);
-  }
-
-  /** Replaces the whole type, which takes `schema.write` or, for what only adds
-   *  an optional field or changes a free member, `metadata.types:write`; the
-   *  server keeps the version the body names. */
-  async replaceType(
-    id: string,
-    body: components["schemas"]["TypeDefinitionUpdate"],
-  ): Promise<void> {
-    const { data, error, response } = await this.client.PUT("/types/{id}", {
-      params: { path: { id } },
-      body,
-    });
-    if (data === undefined) throw refusal(response, error);
-  }
-
   /** Every row of one of an item's tables, in the table's own order. */
   async tableRows(id: string, table: string): Promise<TableRowRecord[]> {
     const rows: TableRowRecord[] = [];
@@ -549,38 +528,6 @@ export class Marfa {
     const { data, error, response } = await this.client.GET("/edge-types");
     if (data === undefined) throw refusal(response, error);
     return data.data;
-  }
-
-  async registerEdgeType(type: ConnectionDefinition): Promise<void> {
-    const { data, error, response } = await this.client.POST("/edge-types", {
-      body: type,
-    });
-    if (data === undefined) throw refusal(response, error);
-  }
-
-  async widenEdgeType(
-    carried: ConnectionDefinition,
-    held: EdgeType,
-  ): Promise<void> {
-    const body: ConnectionDefinition & { evolve_constraints: true } = {
-      id: held.id,
-      label: held.label,
-      ...(held.description !== undefined && { description: held.description }),
-      cardinality: held.cardinality,
-      from_type_constraints: carried.from_type_constraints ?? [],
-      to_type_constraints: carried.to_type_constraints ?? [],
-      cascade_on_delete: held.cascade_on_delete,
-      property_schema: held.property_schema,
-      ...(held.reverse_name !== undefined && {
-        reverse_name: held.reverse_name,
-      }),
-      written_from: held.written_from,
-      evolve_constraints: true,
-    };
-    const { data, error, response } = await this.client.POST("/edge-types", {
-      body,
-    });
-    if (data === undefined) throw refusal(response, error);
   }
 
   async edgesFrom(

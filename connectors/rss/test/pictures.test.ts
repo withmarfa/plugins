@@ -236,7 +236,7 @@ describe("the pictures an entry points to", () => {
       over?: number;
     };
 
-  it("saves nothing, declares no picture type and fetches nothing while the setting is addresses", async () => {
+  it("saves nothing and fetches nothing while the setting is addresses", async () => {
     // A key for the entry type alone is all this setting needs.
     await marfa.stop();
     marfa = await new ScriptedServer("rss", { types: ["rss.entry"] }).start();
@@ -248,10 +248,6 @@ describe("the pictures an entry points to", () => {
       expect((await once(setting)).code).toBe(0);
     }
     expect(asked).toEqual([]);
-    expect(marfa.types.has("rss.picture")).toBe(false);
-    expect(
-      Object.keys(marfa.types.get("rss.entry")?.["fields"] as object),
-    ).not.toContain("rss_pictures");
     expect(entry("e1").properties).not.toHaveProperty("rss_pictures");
     expect(entry("e1").properties["body"]).toContain(at("/a.png"));
     expect(marfa.rows.filter((row) => row.type === "rss.picture")).toEqual([]);

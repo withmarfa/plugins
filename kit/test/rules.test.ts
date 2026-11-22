@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { ConnectionDefinition, Entry } from "../src/define.js";
 import { defineConnector } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, testFields, testType, vendor } from "./harness.js";
 
 let harness: Harness;
@@ -189,7 +189,6 @@ describe("a run for deliveries", () => {
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     const many: Entry[] = Array.from({ length: 202 }, (_, n) => ({
       source_id: `a:${String(n)}`,

@@ -57,10 +57,10 @@ import {
   usage,
   type Schedule,
 } from "./schedule.js";
-import { constraintWidening, edgeTypeDifferences } from "./type-check.js";
+import { edgeTypeDifferences } from "./type-check.js";
 import {
-  ensureTypes,
-  metadataCommand,
+  checkTypes,
+  differenceProblem,
   type Narrowed,
   type TypeStep,
 } from "./own-types.js";
@@ -144,14 +144,7 @@ function keyWiderThanTypes(
     }
   };
   held("type", key.type_permissions, (name) => types.has(name));
-  held(
-    "metadata",
-    key.metadata_permissions,
-    (name) =>
-      name === "types" ||
-      (name === "edge_types" &&
-        connections.some((kind) => shippedConnection(kind.id) === undefined)),
-  );
+  held("metadata", key.metadata_permissions, () => false);
   held("edge", key.edge_permissions, (name) => edges.has(name));
   held("extension", key.extension_permissions, () => false);
   held("profile", key.profile_permissions, () => false);
@@ -183,87 +176,74 @@ function inboundDifferences(
   return differences;
 }
 
-async function ensureConnections(
+/**
+ * Reads each connection type the connector writes as the instance serves it,
+ * and holds it to what this build carries. Registers nothing: installing the
+ * plugin registered the ones the instance does not ship. A type that is
+ * missing or differs, beyond endpoints the installed type takes wider, stops
+ * the start, since an edge written to it would be refused or wrongly typed.
+ */
+async function checkConnections(
+  plugin: string,
   connections: readonly ConnectionDefinition[],
   marfa: Marfa,
 ): Promise<string | undefined> {
   if (connections.length === 0) return undefined;
-  let served = await marfa.edgeTypes();
+  const served = await marfa.edgeTypes();
+  const problems: string[] = [];
   for (const connection of connections) {
     const shipped = shippedConnection(connection.id);
-    let held = served.find(
+    const held = served.find(
       (type) => type.id === (shipped?.edge ?? connection.id),
     );
-    if (shipped !== undefined) {
-      // A declaration of the reverse name reads from the other end of the
-      // edge, so its cardinality is the server's turned about.
-      const differences =
-        held === undefined
-          ? ["the instance does not hold it"]
-          : [
-              ...edgeTypeDifferences(
-                {
-                  ...connection,
-                  id: held.id,
-                  cardinality: held.cardinality,
-                  from_type_constraints: held.from_type_constraints,
-                  to_type_constraints: held.to_type_constraints,
-                  ...(held.reverse_name !== undefined && {
-                    reverse_name: held.reverse_name,
-                  }),
-                  written_from: held.written_from,
-                },
-                held,
-              ),
-              ...(shipped.inbound
-                ? inboundDifferences(connection, held)
-                : connection.cardinality !== held.cardinality
-                  ? [
-                      `cardinality is ${JSON.stringify(connection.cardinality)} here and ${JSON.stringify(held.cardinality)} on the server`,
-                    ]
-                  : []),
-            ];
-      if (differences.length > 0) {
-        return `the connection type ${connection.id} differs from the instance's own: ${differences.join("; ")}`;
-      }
+    if (held === undefined) {
+      problems.push(
+        shipped === undefined
+          ? `the connection type ${connection.id} is not installed`
+          : `the connection type ${connection.id} differs from the instance's own: the instance does not hold it`,
+      );
       continue;
     }
-    if (held === undefined) {
-      try {
-        await marfa.registerEdgeType(connection);
-        continue;
-      } catch (error) {
-        if (causeOf(error) === "marfa") throw error;
-        // Another process under the key registered it first.
-        if (!(error instanceof Refusal) || error.status !== 409) {
-          return `the connection type ${connection.id} could not be registered: ${describe(error)}`;
-        }
-        served = await marfa.edgeTypes();
-        held = served.find((type) => type.id === connection.id);
-        if (held === undefined) {
-          return `the connection type ${connection.id} could not be registered: ${describe(error)}`;
-        }
-      }
-    }
-    let differences = edgeTypeDifferences(connection, held);
-    if (differences.length > 0 && constraintWidening(connection, held)) {
-      try {
-        await marfa.widenEdgeType(connection, held);
-      } catch (error) {
-        if (causeOf(error) === "marfa") throw error;
-        return `the connection type ${connection.id} could not widen its endpoint constraints: ${describe(error)}`;
-      }
-      served = await marfa.edgeTypes();
-      held = served.find((type) => type.id === connection.id);
-      if (held === undefined)
-        return `the connection type ${connection.id} is missing after its endpoint constraint evolution`;
+    let differences: string[];
+    if (shipped === undefined) {
       differences = edgeTypeDifferences(connection, held);
+    } else {
+      // A declaration of the reverse name reads from the other end of the
+      // edge, so its cardinality is the server's turned about.
+      differences = [
+        ...edgeTypeDifferences(
+          {
+            ...connection,
+            id: held.id,
+            cardinality: held.cardinality,
+            from_type_constraints: held.from_type_constraints,
+            to_type_constraints: held.to_type_constraints,
+            ...(held.reverse_name !== undefined && {
+              reverse_name: held.reverse_name,
+            }),
+            written_from: held.written_from,
+          },
+          held,
+        ),
+        ...(shipped.inbound
+          ? inboundDifferences(connection, held)
+          : connection.cardinality !== held.cardinality
+            ? [
+                `cardinality is ${JSON.stringify(connection.cardinality)} here and ${JSON.stringify(held.cardinality)} on the server`,
+              ]
+            : []),
+      ];
     }
-    if (differences.length > 0) {
-      return `the connection type ${connection.id} on the server differs from the one this connector carries, and is not rewritten: ${differences.join("; ")}`;
-    }
+    if (differences.length === 0) continue;
+    problems.push(
+      shipped === undefined
+        ? `the connection type ${connection.id} differs: ${differences.join("; ")}`
+        : `the connection type ${connection.id} differs from the instance's own: ${differences.join("; ")}`,
+    );
   }
-  return undefined;
+  return problems.length === 0
+    ? undefined
+    : differenceProblem(plugin, problems.join("; "));
 }
 
 /** Every way the key is wrong at once, so one new key mends them all. */
@@ -281,7 +261,7 @@ function keyProblems<E extends SettingsDeclaration>(
     keySourceProblem(key, connector.source, keyGuide(connector)),
     wider.length === 0
       ? undefined
-      : `the key ${key.id} holds more than read and write on ${named} and metadata types=write, and is refused: ${wider.join(", ")}. Revoke it and mint another as ${keyGuide(connector)} says.`,
+      : `the key ${key.id} holds more than read and write on ${named}, and is refused: ${wider.join(", ")}. Revoke it and mint another as ${keyGuide(connector)} says.`,
     narrower.length === 0
       ? undefined
       : `the key ${key.id} may not write ${narrower.join(", ")}, which the connector writes, and is refused. Revoke it and mint another as ${keyGuide(connector)} says.`,
@@ -326,7 +306,6 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   connector: Connector<E>,
   marfa: Marfa,
   environment: Environment,
-  again: boolean,
   logger: Logger,
 ): Promise<Started | Unregistered> {
   const key = await marfa.currentKey();
@@ -346,37 +325,24 @@ async function registerAndCheck<E extends SettingsDeclaration>(
   const problems = keyProblems(connector, key);
   const stopped = (problem: string): Started => ({
     id,
-    spare: undefined,
     narrowed: undefined,
     problem,
   });
   if (problems !== undefined) return stopped(problems);
-  const step = await ensureTypes(
+  const step = await checkTypes(
+    connector.name,
     connector.types.map((kind) => kind.type),
     marfa,
-    key,
-    again,
-    (message) => {
-      logger.info(message);
-    },
   );
   if (step.problem !== undefined) return stopped(step.problem);
-  const problem = await ensureConnections(connector.connections ?? [], marfa);
+  const problem = await checkConnections(
+    connector.name,
+    connector.connections ?? [],
+    marfa,
+  );
   if (problem !== undefined) return stopped(problem);
   await nameSource(connector, marfa, logger);
-  // Registering and widening connections are finished for this binary.
-  // Types stay writable, since that is how the connector keeps its types current.
-  // Read on edge_types gates nothing, and
-  // is the narrowing the binary can name, since it cannot name one map empty.
-  const spare = key.metadata_permissions["edge_types"] === "write";
-  return {
-    id,
-    spare: !spare
-      ? undefined
-      : `every connection it declares is registered, so the key no longer needs metadata edge_types=write: narrow it with \`${metadataCommand(key, { edge_types: "read" })}\``,
-    narrowed: step.narrowed,
-    problem: undefined,
-  };
+  return { id, narrowed: step.narrowed, problem: undefined };
 }
 
 /** A key refused before the connector registered, so there is no
@@ -387,32 +353,8 @@ interface Unregistered {
 
 interface Started {
   readonly id: string;
-  /** Says the key holds a registering lever it no longer uses. */
-  readonly spare: string | undefined;
   readonly narrowed: Narrowed | undefined;
   readonly problem: string | undefined;
-}
-
-/** The key check and the type step again, for a connector running without
- *  fields its key may not add, since the key or the type may have changed
- *  since. */
-async function checkTypesAgain<E extends SettingsDeclaration>(
-  connector: Connector<E>,
-  marfa: Marfa,
-  logger: Logger,
-): Promise<TypeStep | undefined> {
-  const key = await marfa.currentKey();
-  const problem = keyProblems(connector, key);
-  if (problem !== undefined) return { problem, narrowed: undefined };
-  return ensureTypes(
-    connector.types.map((kind) => kind.type),
-    marfa,
-    key,
-    true,
-    (message) => {
-      logger.info(message);
-    },
-  );
 }
 
 function carriesBack<E extends SettingsDeclaration>(
@@ -467,8 +409,8 @@ async function awaitChanges<E extends SettingsDeclaration>(
       unreachable = false;
     } catch (error) {
       if (stopped()) return;
-      // A type or registration the server lost is mended by a run, which
-      // ends the process for it to be registered again.
+      // A type or registration the server lost is found by a run, which ends
+      // the process to register again and check its types.
       if (causeOf(error) === "registration") waiting = true;
       else {
         if (!unreachable) {
@@ -707,20 +649,20 @@ async function started<E extends SettingsDeclaration>(
   };
   let lostAt: number | undefined;
   for (;;) {
-    const ended = await serve(shared, lostAt !== undefined);
+    const ended = await serve(shared);
     if (ended !== "registration") return ended;
     // A server that loses the registration as fast as it is made would
     // have this loop register it for good.
     const now = clock.now().getTime();
     if (lostAt !== undefined && now - lostAt < reregisterAfterMs) {
       logger.error(
-        "the server keeps losing this connector's registration or a type it registered, so the connector stops; check what removes it, then start it again",
+        "the server keeps losing this connector's registration or one of its types, so the connector stops; check what removes it, then start it again",
       );
       return 1;
     }
     lostAt = now;
     logger.warn(
-      "the server no longer holds this connector's registration or a type it registered, so they are registered again",
+      "the server no longer holds this connector's registration or one of its types, so it registers again and checks its types",
     );
   }
 }
@@ -730,7 +672,6 @@ async function started<E extends SettingsDeclaration>(
  *  would mend it. */
 async function serve<E extends SettingsDeclaration>(
   shared: Shared<E>,
-  again: boolean,
 ): Promise<number | "registration"> {
   const {
     connector,
@@ -750,13 +691,7 @@ async function serve<E extends SettingsDeclaration>(
   let started: Started | Unregistered | undefined;
   for (let failures = 1; started === undefined; failures += 1) {
     try {
-      started = await registerAndCheck(
-        connector,
-        marfa,
-        environment,
-        again,
-        logger,
-      );
+      started = await registerAndCheck(connector, marfa, environment, logger);
     } catch (error) {
       if (causeOf(error) === "address" || faultOf(error) !== undefined) {
         cannotStart(logger, addressProblem(error, environment.url));
@@ -786,7 +721,6 @@ async function serve<E extends SettingsDeclaration>(
   }
   const connectorId = started.id;
   logger.info(`registered as ${connectorId}`);
-  if (started.spare !== undefined) logger.warn(started.spare);
 
   // A start that cannot go on is the registration's failed run.
   const refuseStart = async (problem: string): Promise<void> => {
@@ -1008,13 +942,17 @@ async function serve<E extends SettingsDeclaration>(
     const after = Math.round(random() * Math.min(afterAnswerMs, intervalMs));
     if (after > 0) await clock.sleep(after, lasting);
   };
-  // Granting the key metadata types=write, or an operator mending the type, lifts
-  // the narrowing at the next scheduled run, without a restart.
+  // Updating the plugin lifts the narrowing at the next scheduled run, without
+  // a restart.
   const narrowAgain = async (): Promise<string | undefined> => {
     const was = setup.narrowed;
-    let step: TypeStep | undefined;
+    let step: TypeStep;
     try {
-      step = await checkTypesAgain(connector, marfa, logger);
+      step = await checkTypes(
+        connector.name,
+        connector.types.map((kind) => kind.type),
+        marfa,
+      );
     } catch (error) {
       if (over()) return undefined;
       const cause = causeOf(error);
@@ -1027,7 +965,6 @@ async function serve<E extends SettingsDeclaration>(
       );
       return undefined;
     }
-    if (step === undefined) return undefined;
     if (step.problem !== undefined) return step.problem;
     for (const type of was?.fields.keys() ?? []) {
       if (step.narrowed?.fields.has(type) !== true) {
@@ -1125,7 +1062,7 @@ async function serve<E extends SettingsDeclaration>(
   }
   if (schedule.mode === "once") {
     logger.error(
-      "the server no longer holds this connector's registration or a type it registered, so this run stops; start it again to register them anew",
+      "the server no longer holds this connector's registration or one of its types, so this run stops; start it again to register it anew and check its types",
     );
     return 1;
   }

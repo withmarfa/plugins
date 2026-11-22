@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { defineConnector } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, linkedType } from "./harness.js";
 let harness: Harness;
 beforeEach(async () => {
@@ -15,7 +15,6 @@ it.each(["none", "empty", "add", "owned-add", "adopted-add"] as const)(
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     let checkpoint: unknown;
     const definition = defineConnector({
@@ -175,7 +174,6 @@ it.each(["owned", "adopted", "racing"])(
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     let first = true;
     const definition = defineConnector({
@@ -299,7 +297,6 @@ it.each([false, true])(
     harness.server.grants = {
       type_permissions: { "test.entry": "write" },
       edge_permissions: { "test.blocks": "write" },
-      metadata_permissions: { types: "write", edge_types: "write" },
     };
     let connected = true;
     const definition = defineConnector({

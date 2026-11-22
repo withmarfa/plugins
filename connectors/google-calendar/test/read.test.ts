@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { start } from "../../../kit/src/main.js";
+import { start } from "../../../kit/test/installed.js";
 import { Harness } from "../../../kit/test/harness.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
 import {
@@ -33,9 +33,6 @@ beforeEach(async () => {
     types: [calendarType, eventType],
     edges: [inCalendar, "parent-of"],
   }).start();
-  server.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   harness = new Harness(server);
   google = await new GoogleStub().start();
   google.scope = `openid ${eventsScope} ${calendarListScope}`;

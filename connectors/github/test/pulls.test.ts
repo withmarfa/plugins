@@ -38,9 +38,6 @@ const edges = [
 ];
 beforeEach(async () => {
   marfa = await new ScriptedServer("github", { types, edges }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.appPem = key;
 });
@@ -88,8 +85,8 @@ function links(id: string, type: string) {
     .map((target) => marfa.byId(target).properties["github_id"]);
 }
 describe("pull request reading", () => {
-  it("widens the existing repository connection before importing pull requests", async () => {
-    marfa.edgeTypes.set("github.in-repository", {
+  it("stops, naming the update, on an installed repository connection that does not take pull requests, and runs once the plugin is updated", async () => {
+    const connection = {
       id: "github.in-repository",
       label: "In repository",
       cardinality: "many-to-one",
@@ -99,18 +96,24 @@ describe("pull request reading", () => {
       property_schema: {},
       written_from: "from",
       shipped: false,
-    });
+    };
+    marfa.edgeTypes.set(connection.id, connection);
     const repo = github.addRepository("someone/upgraded");
     const pr = github.addPullRequest(repo);
+    const stopped = await once();
+    expect(stopped.code).toBe(1);
+    expect(stopped.output).toContain("marfa plugins install github");
+    expect(stopped.output).toContain("github.in-repository");
+    expect(
+      marfa.requests.filter(
+        (one) => one.method !== "GET" && one.path === "/edge-types",
+      ),
+    ).toEqual([]);
+    marfa.edgeTypes.delete(connection.id);
+    marfa.installFolder(resolve(import.meta.dirname, "../plugin"));
     await ok();
     expect(row(pr.node).type).toBe("github.pull_request");
     expect(links(pr.node, "github.in-repository")).toEqual([repo.node]);
-    expect(
-      marfa.requestsTo("POST", "/edge-types").filter((request) => {
-        const body = request.body as Record<string, unknown>;
-        return body["id"] === "github.in-repository";
-      }),
-    ).toMatchObject([{ body: { evolve_constraints: true } }]);
   });
 
   it("reads tasks, API closing references and the actual closing pull request", async () => {

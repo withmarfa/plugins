@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { defineConnector } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Unreachable } from "../src/rows.js";
 import { Harness, linkedType } from "./harness.js";
 

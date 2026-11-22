@@ -39,9 +39,6 @@ const edges = [
 ];
 beforeEach(async () => {
   marfa = await new ScriptedServer("github", { types, edges }).start();
-  marfa.grants = {
-    metadata_permissions: { types: "write", edge_types: "write" },
-  };
   github = await new GitHubStub().start();
   github.appPem = key;
   github.notifications.token = token;

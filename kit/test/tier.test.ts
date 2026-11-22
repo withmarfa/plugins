@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineConnector, type Entry } from "../src/define.js";
 import { intentOf } from "../src/inbound-retry.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, testFields, testType } from "./harness.js";
 
 let harness: Harness;

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { defineConnector, type Entry, type Item } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, linkedType } from "./harness.js";
 
 let harness: Harness;
@@ -9,7 +9,6 @@ beforeEach(async () => {
   harness.server.grants = {
     type_permissions: { "test.entry": "write" },
     edge_permissions: { "test.blocks": "write" },
-    metadata_permissions: { types: "write", edge_types: "write" },
   };
 });
 afterEach(async () => {

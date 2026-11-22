@@ -4,7 +4,7 @@ import {
   type RunContext,
   type TypeDefinition,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { rowId, type TableReport, type TableRow } from "../src/tables.js";
 import { Harness, testFields, testType } from "./harness.js";
 
@@ -34,7 +34,6 @@ const tabled: TypeDefinition = {
 const entry = { source_id: "a:1", properties: { title: "One" } };
 
 const fixer = {
-  metadata_permissions: { types: "write" },
   type_permissions: { "test.entry": "write" },
 };
 
@@ -80,7 +79,7 @@ const batches = (): number =>
   ).length;
 
 describe("a type that declares tables", () => {
-  it("is registered with them", async () => {
+  it("is installed with them, and a start registers nothing", async () => {
     harness.server.grants = fixer;
     expect(await runOnce(() => Promise.resolve())).toBe(0);
     expect(harness.server.types.get("test.entry")?.["tables"]).toHaveProperty(
@@ -88,20 +87,17 @@ describe("a type that declares tables", () => {
     );
   });
 
-  it("gains a table its stored definition lacks, when the key may write types", async () => {
-    harness.server.grants = fixer;
+  it("skips a table the installed type lacks, and registers nothing", async () => {
     harness.server.types.set("test.entry", { ...testType });
     expect(await runOnce(() => Promise.resolve())).toBe(0);
-    expect(harness.server.requestsTo("PUT", "/types/test.entry")).toHaveLength(
-      1,
-    );
-    expect(harness.server.types.get("test.entry")?.["tables"]).toHaveProperty(
-      "checks",
+    expect(harness.server.requestsTo("PUT", "/types/test.entry")).toEqual([]);
+    expect(harness.server.types.get("test.entry")?.["tables"]).toBeUndefined();
+    expect(harness.problems()["plugin-types"]).toContain(
+      "no rows to the table checks of the type test.entry",
     );
   });
 
-  it("replaces the type to land a changed table or column label and description", async () => {
-    harness.server.grants = fixer;
+  it("counts no label or description of a table or column that differs", async () => {
     harness.server.types.set("test.entry", {
       ...testType,
       tables: tabled.tables,
@@ -126,31 +122,11 @@ describe("a type that declares tables", () => {
       },
     };
     expect(await runOnce(() => Promise.resolve(), relabelled)).toBe(0);
-    expect(harness.server.requestsTo("PUT", "/types/test.entry")).toHaveLength(
-      1,
-    );
-    const stored = harness.server.types.get("test.entry")?.["tables"] as
-      | Record<
-          string,
-          {
-            label?: string;
-            description?: string;
-            columns: Record<string, { label?: string }>;
-          }
-        >
-      | undefined;
-    expect(stored?.["checks"]).toMatchObject({
-      label: "Check runs",
-      description: "What ran on the head commit.",
-    });
-    expect(stored?.["checks"]?.columns["name"]?.label).toBe("Check name");
-    expect(await runOnce(() => Promise.resolve(), relabelled)).toBe(0);
-    expect(harness.server.requestsTo("PUT", "/types/test.entry")).toHaveLength(
-      1,
-    );
+    expect(harness.server.requestsTo("PUT", "/types/test.entry")).toEqual([]);
+    expect(harness.problems()).toEqual({});
   });
 
-  it("leaves a key that may not write types to skip the table, and says so", async () => {
+  it("skips the table the installed type lacks, and says so", async () => {
     harness.server.types.set("test.entry", { ...testType });
     let report: TableReport | undefined;
     await runOnce(async (context, key) => {

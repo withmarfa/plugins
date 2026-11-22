@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { quietRun } from "../../../kit/test/quiet-run.js";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
+import { exampleType } from "./example-type.js";
 
 const run = promisify(execFile);
 const built = resolve(import.meta.dirname, "../dist/main.js");
@@ -17,6 +18,7 @@ quietRun({
     const marfa = await new ScriptedServer("example", {
       types: ["example.item"],
     }).start();
+    marfa.installType(exampleType());
     const items = Array.from({ length: size }, (_, at) => ({
       id: String(at),
       title: `Item ${String(at)}`,

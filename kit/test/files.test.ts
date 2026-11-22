@@ -5,7 +5,7 @@ import {
   type Entry,
   type TypeDefinition,
 } from "../src/define.js";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import { Harness, linkedType, testFields } from "./harness.js";
 
 let harness: Harness;

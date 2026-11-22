@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { start } from "../src/main.js";
+import { start } from "./installed.js";
 import {
   blackHole,
   closedAddress,

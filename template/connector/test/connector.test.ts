@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ScriptedServer } from "../../../kit/test/scripted-server.js";
+import { exampleType } from "./example-type.js";
 
 const run = promisify(execFile);
 const built = resolve(import.meta.dirname, "../dist/main.js");
@@ -50,6 +51,7 @@ beforeEach(async () => {
   marfa = await new ScriptedServer("example", {
     types: ["example.item"],
   }).start();
+  marfa.installType(exampleType());
   items = [];
   writes = [];
   refuseNextWrite = undefined;
@@ -204,7 +206,7 @@ async function once(
 }
 
 describe("the template, run as a process", () => {
-  it("registers its type, writes its rows, and writes nothing on a second run", async () => {
+  it("writes its rows to the installed type, and nothing on a second run", async () => {
     items = [
       {
         id: "1",
