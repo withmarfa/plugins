@@ -487,7 +487,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
-    "It exits 0 once stopped, 1 for a failure a restart may mend, 2 when its definition, its command line or MARFA_API_URL is wrong, 3 when Marfa refuses its key, and 4 when a required setting is missing or a value is invalid.",
+    "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing or a value is invalid.",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
 }

@@ -136,7 +136,7 @@ describe("a call that gets no answer, by what the transport says", () => {
     }
   });
 
-  it("is a fault a start refuses and a running connector waits out, for a host not found, a certificate and a TLS error", async () => {
+  it("names a host not found, a certificate and a TLS error as a fault, and a refused connection as none", async () => {
     for (const code of [
       "ENOTFOUND",
       "DEPTH_ZERO_SELF_SIGNED_CERT",

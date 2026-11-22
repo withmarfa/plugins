@@ -121,10 +121,9 @@ export class MarfaUnreachable extends Error {
   readonly timedOut: boolean;
 
   /** Says what is wrong with the address where the transport names it: a
-   *  host that is not found, or a certificate or TLS handshake refused. A
-   *  mistake in a setting when a connector starts, and what a resolver or a
-   *  proxy can do to one that has run, so a start refuses it and a running
-   *  connector waits it out. */
+   *  host that is not found, or a certificate or TLS handshake refused. It
+   *  may mend, so a start exits 1, or tries again under --every, and a
+   *  running connector waits it out. */
   readonly fault: string | undefined;
 }
 

@@ -82,7 +82,7 @@ export MARFA_API_KEY=<the key its host minted>
 node connectors/rss/dist/main.js --once
 ```
 
-The exit code is `0` for a run that succeeded, `1` for a run that failed or a Marfa that did not answer, `2` when the definition, the command line or `MARFA_API_URL` is wrong, `3` for a key Marfa or the connector refused, and `4` for a missing or malformed setting.
+The exit code is `0` for a run that succeeded, `1` for a run that failed, a Marfa that did not answer, or a host not found or a certificate refused (tried again under `--every`), `2` when the definition, the command line or `MARFA_API_URL` is malformed or redirected, `3` for a key Marfa or the connector refused, and `4` for a missing or malformed setting.
 
 Or leave it running, which checks every feed every 15 minutes:
 

@@ -379,7 +379,7 @@ describe("what Marfa holds", () => {
     );
   });
 
-  it("registers again where the settings door loses a registration it answered for, on an interval shorter than the heartbeat's", async () => {
+  it("registers again where the settings door loses a registration it answered for, before the heartbeat runs", async () => {
     const seen: Seen[] = [];
     harness.server.settings = { test_token: secretToken };
     const exit = start(typed(seen), harness.runtime(["--every", "15m"]));
