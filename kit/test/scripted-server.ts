@@ -450,7 +450,16 @@ export class ScriptedServer {
     version: number;
     kinds: Record<
       string,
-      { enabled?: boolean; target_type?: string; tier?: "feed" | "library" }
+      {
+        enabled?: boolean;
+        target_type?: string;
+        tier?: "feed" | "library";
+        status_overrides?: Record<string, string>;
+        fields?: Record<
+          string,
+          { from: string } | { fixed: unknown } | { template: string }
+        >;
+      }
     >;
     rewrites: {
       number: number;

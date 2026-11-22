@@ -178,6 +178,9 @@ export interface Vendor {
   eachAnswers?: Record<string, string[]>[];
   askHeld?: boolean;
   heldAnswers?: string[][];
+  /** The two-way kind's own type in place of `linkedType`, under its id. */
+  kindType?: TypeDefinition;
+  kindFields?: string[];
 }
 
 export function vendor(entries: Entry[] = []): Vendor {
@@ -230,8 +233,8 @@ function twoWayConnector(held: Vendor) {
     types: [
       {
         name: "entry",
-        type: linkedType,
-        fields: testFields,
+        type: held.kindType ?? linkedType,
+        fields: held.kindFields ?? testFields,
         revive: held.revive === true,
         ...(held.archivedWhen !== undefined && { archived: held.archivedWhen }),
         ...(held.readOnly !== undefined && { readOnly: held.readOnly }),
