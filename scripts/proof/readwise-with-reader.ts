@@ -8,6 +8,7 @@ import {
   type Item,
 } from "./connector.js";
 import { enrichmentPollMs, type ProofServer } from "./server.js";
+import { freshConnectorKey, type ConnectorKey } from "./host.js";
 import { readwiseVendor } from "./readwise-vendor.js";
 
 /**
@@ -66,33 +67,18 @@ export async function proveReadwiseWithReader(
     }
   };
   try {
-    const key = (source: string) =>
-      mint({
-        label: source,
-        source,
-        sources: ["readwise"],
-        default_tier: "feed",
-        type_permissions: {
-          "readwise.source": "write",
-          "readwise.highlight": "write",
-          "readwise.file": "write",
-        },
-        edge_permissions: {
-          "excerpt-of": "write",
-          references: "write",
-          "attached-to": "write",
-        },
-        permissions: [],
-        extension_permissions: {},
-        profile_permissions: {},
-      });
+    let current: ConnectorKey | undefined;
+    const key = async (_label: string): Promise<ConnectorKey> => {
+      current = await freshConnectorKey(url, "readwise");
+      return current;
+    };
     const readerKey = await key("reader-proof");
     const options = (account: string, reader = true) => ({
       readwise_account: account,
       readwise_access_token: "reader-fixture-token",
       readwise_api_url: `${vendor.base}/v2/`,
       readwise_reader_api_url: `${vendor.base}/v3/`,
-      readwise_reader: String(reader),
+      readwise_reader: reader,
     });
     // One registration, run with Reader off and then on.
     const exportOnly = new ConnectorUnderProof(
@@ -112,9 +98,9 @@ export async function proveReadwiseWithReader(
       if (result.code !== 0) {
         const client = createClient({
           baseUrl: url,
-          credential: readerKey.key,
+          credential: current?.key ?? "",
         });
-        const found = await registration(client, readerKey.id);
+        const found = await registration(client, current?.id ?? "");
         const snapshot = await client.GET("/connectors/{id}/state", {
           params: { path: { id: found.id } },
         });
@@ -578,7 +564,7 @@ export async function proveReadwiseWithReader(
     );
     const overtaken = async (
       account: string,
-      extra: Record<string, string>,
+      extra: Record<string, unknown>,
     ) => {
       vendor.sources.length = 0;
       vendor.documents.clear();
@@ -624,7 +610,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a trash over a lost create keeps the document, leaves it out of the import and a restore takes it back",
       async () => {
         const { runner, item, saves, imported } = await overtaken("overtrash", {
-          readwise_reader_propagate_purge: "true",
+          readwise_reader_propagate_purge: true,
         });
         // The first run claims the document, its sync keeps the claim and
         // the second settles the trash; the third finds nothing to do.
@@ -660,7 +646,7 @@ export async function proveReadwiseWithReader(
       "reader fixture: a purge with propagation on over a lost create keeps the document and never imports it",
       async () => {
         const { runner, item, imported } = await overtaken("overpurge", {
-          readwise_reader_propagate_purge: "true",
+          readwise_reader_propagate_purge: true,
         });
         const purged = await admin.POST("/items/{id}/purge", {
           params: { path: { id: item.id } },
@@ -759,7 +745,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           freshKey.key,
-          { ...options("fresh"), readwise_reader_inbound_only: "true" },
+          { ...options("fresh"), readwise_reader_inbound_only: true },
         );
         const freshRows = async () =>
           new Map(
@@ -860,7 +846,7 @@ export async function proveReadwiseWithReader(
           "readwise",
           url,
           lifecycleKey.key,
-          { ...options("lifecycle"), readwise_reader_inbound_only: "true" },
+          { ...options("lifecycle"), readwise_reader_inbound_only: true },
         );
         await once(exportOnly);
         const historical = await row("lifecycle:highlight:102");

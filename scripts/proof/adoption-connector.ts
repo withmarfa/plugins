@@ -26,11 +26,8 @@ export const connector = defineConnector({
       ],
     },
   ],
-  settings: [
-    { name: "proof_mode", label: "Proof mode", kind: "text", required: true },
-  ],
   async run(context) {
-    const mode = context.env.proof_mode;
+    const mode = process.env["PROOF_MODE"];
     if (mode === "type") return;
     if (mode === "fail")
       context.log.condition("vendor:A", "Vendor A is unavailable");

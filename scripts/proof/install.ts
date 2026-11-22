@@ -1,21 +1,52 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { shippedConnection, type Connector } from "@withmarfa/connector";
+import {
+  edgeTypesOf,
+  shippedConnection,
+  type Connector,
+} from "@withmarfa/connector";
 import { marfaRelease } from "../connector-plugins.ts";
 import { runMarfa } from "../release/plugins.ts";
 
 const root = resolve(import.meta.dirname, "../../..");
 
-/** The key that installs, by the address of the server it belongs to: the
- *  proof's working key, which holds `schema.write` and write on every type and
- *  edge type, and which no connector under proof ever runs on. */
+/** The key that installs, by the address of the server it belongs to, which
+ *  holds `schema.write`, `connectors.manage` and write on every type and edge
+ *  type, and which no connector under proof ever runs on. */
 const installers = new Map<string, string>();
 const installed = new Set<string>();
 
 export function rememberInstaller(url: string, key: string): void {
   installers.set(url, key);
+}
+
+/** The `connector` section of a connector of the proof's own that declares
+ *  settings, which only a plugin's connector can be given: Marfa holds them
+ *  and a key its host mints reads them. */
+function connectorSection(connector: Connector): Record<string, unknown> {
+  const edgeTypes = [...edgeTypesOf(connector.connections ?? [])];
+  return {
+    source: connector.source,
+    source_name: connector.sourceName ?? connector.name,
+    kinds: connector.types.map((kind) => ({
+      name: kind.name ?? kind.type.id.split(".").at(-1),
+      type: kind.type.id,
+      direction: kind.direction ?? "in",
+    })),
+    ...(edgeTypes.length > 0 && { edge_types: edgeTypes }),
+    settings: (connector.settings ?? []).map((setting) => ({
+      name: setting.name,
+      label: setting.label,
+      kind: setting.kind,
+      ...(setting.secret === true && { secret: true }),
+      ...(setting.default !== undefined && { default: setting.default }),
+      required: setting.required === true,
+      ...(setting.choices !== undefined && { choices: [...setting.choices] }),
+    })),
+    runs: { on: "host" },
+  };
 }
 
 /** Writes the folder of `connector`'s plugin as the generator writes a
@@ -35,6 +66,9 @@ async function folderOf(connector: Connector, into: string): Promise<string> {
       mark: connector.mark ?? "lucide:box",
       maker: connector.maker ?? "WithMarfa",
       marfa: marfaRelease,
+      ...((connector.settings ?? []).length > 0 && {
+        connector: connectorSection(connector),
+      }),
     }),
   );
   for (const kind of connector.types) {
@@ -58,23 +92,13 @@ async function folderOf(connector: Connector, into: string): Promise<string> {
   return folder;
 }
 
-/** A connector the repository ships: its generated plugin folder, without the
- *  `connector` section. A key made through the API cannot name the source of
- *  an installed plugin's connector (`keys-and-oauth/plugin-source-held`), and
- *  until connectors start from a key their host mints, the proof's own keys
- *  are the API's, so only the types and connection types are installed. */
+/** A connector the repository ships: its generated plugin folder, as a
+ *  release publishes it. */
 async function shippedFolder(name: string, into: string): Promise<string> {
   const folder = join(into, name);
   await cp(join(root, "connectors", name, "plugin"), folder, {
     recursive: true,
   });
-  const path = join(folder, "plugin.json");
-  const manifest = JSON.parse(await readFile(path, "utf8")) as Record<
-    string,
-    unknown
-  >;
-  Reflect.deleteProperty(manifest, "connector");
-  await writeFile(path, JSON.stringify(manifest));
   return folder;
 }
 

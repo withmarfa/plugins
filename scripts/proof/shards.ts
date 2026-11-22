@@ -49,7 +49,7 @@ export const GROUPS = [
   { name: "readwise", instance: "shared", statements: 6, seconds: 2 },
   { name: "todoist", instance: "shared", statements: 31, seconds: 11 },
   { name: "inbound", instance: "shared", statements: 12, seconds: 5 },
-  { name: "keys", instance: "shared", statements: 6, seconds: 1 },
+  { name: "keys", instance: "shared", statements: 7, seconds: 1 },
   { name: "tracker", instance: "shared", statements: 18, seconds: 15 },
   { name: "github", instance: "shared", statements: 19, seconds: 486 },
   { name: "github-coverage", instance: "shared", statements: 5, seconds: 62 },

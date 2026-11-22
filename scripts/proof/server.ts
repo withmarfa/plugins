@@ -1,7 +1,11 @@
 import { type ChildProcess, execFile, spawn } from "node:child_process";
-import { createClient } from "@withmarfa/client";
+import { createClient, type paths } from "@withmarfa/client";
+
+/** A key the control socket minted, with its secret. */
+export type Minted =
+  paths["/keys"]["post"]["responses"]["201"]["content"]["application/json"];
 import { request } from "node:http";
-import type { Minted } from "./connector.js";
+import { rememberManager } from "./host.js";
 import { rememberInstaller } from "./install.js";
 import { existsSync } from "node:fs";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
@@ -111,7 +115,19 @@ export class ProofServer {
       metadata_permissions: { "*": "write" },
       profile_permissions: { "*": "read" },
     });
-    rememberInstaller(url, key.key);
+    // Installing a plugin with a connector takes connectors.manage, which
+    // the working key does not hold, so the reach of its reads stays as it is.
+    const installer = await this.mintKey({
+      label: "connector proof installer",
+      source: "proof-installer",
+      permissions: ["schema.write", "connectors.manage"],
+      type_permissions: { "*": "write" },
+      extension_permissions: {},
+      edge_permissions: { "*": "write" },
+      metadata_permissions: {},
+      profile_permissions: {},
+    });
+    rememberInstaller(url, installer.key);
     const management = await this.mintKey({
       label: "connector proof reports",
       source: "proof-reports",
@@ -122,6 +138,7 @@ export class ProofServer {
       metadata_permissions: {},
       profile_permissions: {},
     });
+    rememberManager(url, management.key);
     const client = createClient({ baseUrl: url, credential: key.key });
     const current = await client.GET("/keys/current");
     if (current.data === undefined)

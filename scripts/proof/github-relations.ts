@@ -1,6 +1,7 @@
 import { createClient } from "@withmarfa/client";
 import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
+import { freshConnectorKey } from "./host.js";
 import { ConnectorUnderProof, item, rowsOf, type Item } from "./connector.js";
 import { appKey, GitHubStub } from "./github-stub.js";
 
@@ -53,23 +54,12 @@ export async function proveGitHubRelations(
       "about",
       "in-collection",
     ];
-    const key = await mintKey({
-      label: "related issue proof",
-      source: "proof-github-relations",
-      sources: ["github"],
-      type_permissions: Object.fromEntries(
-        types.map((type) => [type, "write"]),
-      ),
-      edge_permissions: Object.fromEntries(
-        connections.map((type) => [type, "write"]),
-      ),
-      default_tier: "feed",
-    });
+    const key = await freshConnectorKey(url, "github");
     const marfa = createClient({ baseUrl: url, credential: key.key });
     const run = async () => {
       const runner = new ConnectorUnderProof("github", url, key.key, {
         github_app_id: "12345",
-        github_private_key: github.appPem,
+        github_private_key: github.appPem.trim(),
         github_webhook_secret: "github-relation-proof-secret",
         github_api_url: github.url,
       });

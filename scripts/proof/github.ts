@@ -5,10 +5,12 @@ import { join, resolve } from "node:path";
 import { createClient, type MarfaClient } from "@withmarfa/client";
 import type { ProofServer } from "./server.js";
 import { check } from "./check.js";
+import { freshConnectorKey } from "./host.js";
 import { installPlugin, olderVersion } from "./install.js";
 import {
   ConnectorUnderProof,
   create,
+  hostMintedKey,
   edit,
   item,
   lastRun,
@@ -105,7 +107,7 @@ export async function proveGitHub(
     let key = { id: "", key: "" };
     const env = {
       github_app_id: "12345",
-      github_private_key: github.appPem,
+      github_private_key: github.appPem.trim(),
       github_webhook_secret: "github-proof-webhook-secret",
       github_api_url: github.url,
     };
@@ -138,45 +140,25 @@ export async function proveGitHub(
       return found;
     };
 
-    await check(
-      "github: its key is minted with write on each of its types and connection types, in-thread and in-collection among them, and no metadata entry",
-      async () => {
-        const { data, error } = await marfa.POST("/keys", {
-          body: {
-            label: source,
-            source,
-            type_permissions: Object.fromEntries(
-              types.map((type) => [type, "write" as const]),
-            ),
-            edge_permissions: Object.fromEntries(
-              connections.map((type) => [type, "write" as const]),
-            ),
-            default_tier: "feed",
-          },
-        });
-        if (data === undefined)
-          throw new Error(`the key was refused: ${JSON.stringify(error)}`);
-        key = data;
-        return `a key for ${source} with ${types.join(", ")} and ${connections.join(", ")}`;
+    const older = {
+      version: olderVersion,
+      edit: async (plugin: string) => {
+        for (const type of ["github.issue", "github.comment"]) {
+          const path = join(plugin, "types", `${type}.json`);
+          const definition = JSON.parse(await readFile(path, "utf8")) as {
+            fields: Record<string, unknown>;
+          };
+          Reflect.deleteProperty(definition.fields, "private");
+          await writeFile(path, JSON.stringify(definition));
+        }
       },
-    );
+    };
+    key = await hostMintedKey(url, source, undefined, older);
 
     await check(
       "github: the instance holds the issue and comment types as an older plugin installed them, without private",
       async () => {
-        await installPlugin(url, "github", undefined, {
-          version: olderVersion,
-          edit: async (plugin) => {
-            for (const type of ["github.issue", "github.comment"]) {
-              const path = join(plugin, "types", `${type}.json`);
-              const definition = JSON.parse(await readFile(path, "utf8")) as {
-                fields: Record<string, unknown>;
-              };
-              Reflect.deleteProperty(definition.fields, "private");
-              await writeFile(path, JSON.stringify(definition));
-            }
-          },
-        });
+        await installPlugin(url, "github", undefined, older);
         for (const type of ["github.issue", "github.comment"]) {
           const { data } = await marfa.GET("/types/{id}", {
             params: { path: { id: type } },
@@ -925,27 +907,16 @@ export async function proveGitHubCoverage(
       installation: 2,
       issuesOff: true,
     });
-    const key = await mintKey({
-      label: "github read coverage",
-      source: "proof-github-coverage",
-      sources: [source],
-      type_permissions: Object.fromEntries(
-        types.map((type) => [type, "write" as const]),
-      ),
-      edge_permissions: Object.fromEntries(
-        connections.map((type) => [type, "write" as const]),
-      ),
-      default_tier: "feed",
-    });
+    const key = await freshConnectorKey(url, source);
     const own = createClient({ baseUrl: url, credential: key.key });
     let readOnly = false;
     const runner = () =>
       new ConnectorUnderProof(source, url, key.key, {
         github_app_id: "12345",
-        github_private_key: privateKey,
+        github_private_key: privateKey.trim(),
         github_webhook_secret: "github-coverage-webhook-secret",
         github_api_url: github.url,
-        github_read_only: String(readOnly),
+        github_read_only: readOnly ? "true" : "false",
       });
     const privateKey = appKey();
     github.appPem = privateKey;
@@ -1235,7 +1206,6 @@ export async function proveGitHubCoverage(
         const cleanup = await mintKey({
           label: "github identity proof cleanup",
           source: "proof-github-identity-cleanup",
-          sources: [source],
           permissions: ["items.purge"],
           type_permissions: { "github.issue": "write" },
         });

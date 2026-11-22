@@ -12,7 +12,7 @@ import {
   installedAsKindOf,
   item,
   lastRun,
-  mintWithTheReadmeKeyFlags,
+  hostMintedKey,
   moved,
   deriveAndFind,
   registration,
@@ -121,11 +121,7 @@ export async function proveRss(
 ): Promise<void> {
   const served = await serveFeeds();
   try {
-    const key = await mintWithTheReadmeKeyFlags(marfa, {
-      label: "rss",
-      source: "rss",
-      typePermission: "rss.entry",
-    });
+    const key = await hostMintedKey(url, "rss");
     const runner = new ConnectorUnderProof("rss", url, key.key, {
       rss_feeds: `${served.url}/atom.xml\n${served.url}/rss.xml`,
     });
