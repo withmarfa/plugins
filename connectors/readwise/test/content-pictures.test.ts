@@ -46,22 +46,24 @@ const pictureKey = (id: string, address: string) =>
   `${key(id)}:content:${pictureResourceId(address)}`;
 
 /**
- * One Marfa shared by two connectors. Each has its own agreements, so
- * `known` answers only what that connector wrote, and a connection a run
+ * One Marfa and one connector, run with Reader on (`reader`) or off
+ * (`export`): both share its agreements and state, and a connection a run
  * names lands only when the run ends.
  */
 function marfa(documents: ReaderDocument[], tier: "feed" | "library" = "feed") {
   const rows = new Map<string, Item>();
   const landed = new Map<string, string[]>();
   const named = new Map<string, string[]>();
-  const agreed = { reader: new Set<string>(), highlights: new Set<string>() };
+  const held = new Set<string>();
+  const agreed = { reader: held, export: held };
   const uploads: string[] = [];
   const writes: string[] = [];
   const conditions: string[] = [];
   const manifests = new Map<string, Resource[]>();
+  const kept = new Map<string, unknown>();
   const states = {
-    reader: new Map<string, unknown>(),
-    highlights: new Map<string, unknown>(),
+    reader: kept,
+    export: kept,
   };
   const fetch = vi.fn((address: string) => Promise.resolve(png(address)));
   let clock = 0;
@@ -273,10 +275,10 @@ describe("Reader pictures on other websites", () => {
     expect(witness.fetch).toHaveBeenCalledWith(a, expect.anything());
   });
 
-  it("lists a picture Reader saved as kept when Highlights, with its own agreements, writes the manifest", async () => {
+  it("lists a picture Reader saved as kept when a run with Reader off writes the manifest", async () => {
     const m = marfa([thirdParty]);
     await m.run("reader", [job("one")], { setting: "save" });
-    await m.run("highlights", [job("one", "r2")]);
+    await m.run("export", [job("one", "r2")]);
     expect(m.picture("one", a)).toMatchObject({
       kind: "picture",
       status: "kept",
@@ -284,7 +286,7 @@ describe("Reader pictures on other websites", () => {
     expect(m.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves the manifest stable when the two connectors alternate, fetching nothing again", async () => {
+  it("leaves the manifest stable when runs with Reader on and off alternate, fetching nothing again", async () => {
     const html = [
       '<img src="https://cdn.example.com/a.png?w=1&amp;h=2">',
       '<img src="https://cdn.example.com/gone.png">',
@@ -304,13 +306,13 @@ describe("Reader pictures on other websites", () => {
       await m.run("reader", round === 0 ? [job("one")] : [], {
         setting: "save",
       });
-      await m.run("highlights", [job("one")]);
+      await m.run("export", [job("one")]);
     }
     const manifests = () =>
       m.uploads.filter((one) => one.endsWith(":manifest"));
     const settled = manifests().length;
     await m.run("reader", [job("one")], { setting: "save" });
-    await m.run("highlights", [job("one")]);
+    await m.run("export", [job("one")]);
     expect(manifests()).toHaveLength(settled);
     expect(m.fetch.mock.calls.map(([address]) => address)).toEqual([
       a,

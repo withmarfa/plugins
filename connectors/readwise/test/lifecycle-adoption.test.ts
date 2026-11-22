@@ -87,7 +87,7 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
     let reader = false;
     const connector = () =>
       defineConnector({
-        name: reader ? "readwise-reader" : "readwise",
+        name: "readwise",
         source: "readwise",
         settings: [],
         retired: [{ type: highlightType.id, connection: "references" }],
@@ -143,7 +143,18 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
               highlightType.id,
               source.highlights
                 .filter((h) => !loneHolder || h.id === 41)
-                .map((h) => mapHighlight("sample", 7, h)),
+                .map((h) => {
+                  const entry = mapHighlight("sample", 7, h);
+                  // The lone holder: Reader took this row over earlier.
+                  if (loneHolder)
+                    entry.properties = {
+                      ...entry.properties,
+                      reader_managed: true,
+                      reader_id: "hi",
+                      canonical_key: "sample:reader-highlight:hi",
+                    };
+                  return entry;
+                }),
             );
             return;
           }
@@ -193,24 +204,21 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
     try {
       const first = await start(connector(), harness.runtime(["--once"]));
       expect(first, harness.lines.join("\n")).toBe(0);
-      if (loneHolder) {
-        server.touch("sample:highlight:41", {
-          reader_managed: true,
-          reader_id: "hi",
-          canonical_key: "sample:reader-highlight:hi",
-        });
-        server.row("sample:highlight:41").state = "archived";
-      } else server.touch("sample:highlight:42", { note: "", tags: [] });
+      if (loneHolder) server.row("sample:highlight:41").state = "archived";
+      else server.touch("sample:highlight:42", { note: "", tags: [] });
       const historical = structuredClone(server.row("sample:highlight:41"));
       const active = loneHolder
         ? undefined
         : structuredClone(server.row("sample:highlight:42"));
-      const agreements = structuredClone([...server.agreements]);
+      // A refused highlight leaves every highlight's agreement as it was.
+      const highlightAgreements = () =>
+        [...server.agreements]
+          .filter(([id]) => server.byId(id).type === highlightType.id)
+          .map(([id, value]) => [id, value.waiting, value.record]);
+      const agreements = structuredClone(highlightAgreements());
       const deleted = source.highlights[0];
       if (!deleted) throw new Error("missing historical highlight");
       deleted.is_deleted = true;
-      server.keySource = "readwise-reader";
-      server.grants = { ...server.grants, sources: ["readwise"] };
       reader = true;
       const originalHighlights = structuredClone(
         server.rows.filter((row) => row.type === highlightType.id),
@@ -225,8 +233,7 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
         expect(
           server.rows.filter((row) => row.type === highlightType.id),
         ).toEqual(originalHighlights);
-        server.keySource = "readwise";
-        expect([...server.agreements]).toEqual(agreements);
+        expect(highlightAgreements()).toEqual(agreements);
         return;
       }
       if (scenario === "reactivated") {
@@ -254,8 +261,6 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
             ]),
           ).toEqual(beforeAgreements);
         }
-        server.keySource = "readwise";
-        expect([...server.agreements]).toEqual(agreements);
         return;
       }
       if (loneHolder) {
@@ -264,8 +269,7 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
         expect(server.rows).toHaveLength(2);
         expect(await start(connector(), harness.runtime(["--once"]))).toBe(1);
         expect(server.row("sample:highlight:41")).toEqual(historical);
-        server.keySource = "readwise";
-        expect([...server.agreements]).toEqual(agreements);
+        expect(highlightAgreements()).toEqual(agreements);
         return;
       }
       expect(code, harness.lines.join("\n")).toBe(0);
@@ -289,8 +293,6 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
       const adopted = structuredClone(server.rows);
       expect(await start(connector(), harness.runtime(["--once"]))).toBe(0);
       expect(server.rows).toEqual(adopted);
-      server.keySource = "readwise";
-      expect([...server.agreements]).toEqual(agreements);
     } finally {
       await harness.close();
     }

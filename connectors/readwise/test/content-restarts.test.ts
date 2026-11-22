@@ -14,7 +14,7 @@ import type { ReaderDocument } from "../src/reader.js";
 import { sourceFields, sourceType } from "../src/types.js";
 
 it.each(["same bytes", "changed bytes"])(
-  "keeps shared files stable across independent connector restarts with %s",
+  "keeps preserved files stable across restarts with %s",
   async (change) => {
     const server = await new ScriptedServer("readwise", {
       types: [sourceType.id, readerFileType.id],
@@ -61,8 +61,7 @@ it.each(["same bytes", "changed bytes"])(
         },
       };
     }
-    async function once(source: string) {
-      server.keySource = source;
+    async function once() {
       server.grants = {
         sources: ["readwise"],
         type_permissions: {
@@ -72,7 +71,7 @@ it.each(["same bytes", "changed bytes"])(
         edge_permissions: { "attached-to": "write" },
       };
       const connector = defineConnector({
-        name: source,
+        name: "readwise",
         source: "readwise",
         settings: [],
         types: [
@@ -135,11 +134,11 @@ it.each(["same bytes", "changed bytes"])(
     }
     try {
       incoming = file("2026-01-01T00:00:00Z", "<html>first</html>");
-      await once("readwise-reader");
+      await once();
       const latest =
         change === "same bytes" ? "<html>first</html>" : "<html>second</html>";
       incoming = file("2026-01-02T00:00:00Z", latest);
-      await once("readwise");
+      await once();
       const snapshot = structuredClone(server.row(fileId));
       const edges = structuredClone(server.edges);
       const uploads = server.uploads;
@@ -150,9 +149,9 @@ it.each(["same bytes", "changed bytes"])(
       );
       incoming = undefined;
       for (let pass = 0; pass < 2; pass++) {
-        await once("readwise-reader");
+        await once();
         expect(server.row(fileId)).toEqual(snapshot);
-        await once("readwise");
+        await once();
         expect(server.row(fileId)).toEqual(snapshot);
       }
       expect(server.edges).toEqual(edges);
@@ -166,24 +165,24 @@ it.each(["same bytes", "changed bytes"])(
         content_key: digest(latest),
         blob_ref: `sha256:${digest(latest)}`,
       });
-      // Fresh preservation must still replace a newer value held by its peer.
+      // Fresh preservation still replaces the value held before.
       incoming = file("2026-01-03T00:00:00Z", "<html>third</html>");
-      await once("readwise-reader");
+      await once();
       expect(server.row(fileId).properties).toMatchObject({
         reader_revision: "2026-01-03T00:00:00Z",
         content_key: digest("<html>third</html>"),
         blob_ref: `sha256:${digest("<html>third</html>")}`,
       });
       incoming = undefined;
-      await once("readwise");
+      await once();
       const fresh = structuredClone(server.row(fileId));
-      await once("readwise-reader");
-      await once("readwise");
+      await once();
+      await once();
       expect(server.row(fileId)).toEqual(fresh);
       server.touch(fileId, { title: "Local retained file title" });
       const local = structuredClone(server.row(fileId));
-      await once("readwise-reader");
-      await once("readwise");
+      await once();
+      await once();
       expect(server.row(fileId)).toEqual(local);
     } finally {
       await harness.close();

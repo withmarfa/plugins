@@ -15,7 +15,7 @@ import {
   highlightType,
 } from "../src/types.js";
 
-it("adopts the current Highlights canonical link through verified identity evidence", async () => {
+it("adopts an export row through verified identity evidence when Reader is turned on", async () => {
   const server = await new ScriptedServer("readwise", {
     types: [sourceType.id, highlightType.id],
   }).start();
@@ -39,7 +39,7 @@ it("adopts the current Highlights canonical link through verified identity evide
   let reader = false;
   const connector = () =>
     defineConnector({
-      name: reader ? "readwise-reader" : "readwise",
+      name: "readwise",
       source: "readwise",
       settings: [],
       types: [
@@ -95,12 +95,9 @@ it("adopts the current Highlights canonical link through verified identity evide
     server.touch("sample:source:7", {
       title: "Local title",
       notes: "",
-      tags: [],
+      tags: ["local"],
     });
     const before = structuredClone(server.row("sample:source:7"));
-    const highlightsAgreements = structuredClone([...server.agreements]);
-    server.keySource = "readwise-reader";
-    server.grants = { ...server.grants, sources: ["readwise"] };
     reader = true;
     const result = await start(connector(), harness.runtime(["--once"]));
     expect(result, harness.lines.join("\n")).toBe(0);
@@ -115,14 +112,12 @@ it("adopts the current Highlights canonical link through verified identity evide
         reader_location: "new",
         title: "Local title",
         notes: "",
-        tags: [],
+        tags: ["local"],
       },
     });
     const adopted = structuredClone(server.row("sample:source:7"));
     expect(await start(connector(), harness.runtime(["--once"]))).toBe(0);
     expect(server.row("sample:source:7")).toEqual(adopted);
-    server.keySource = "readwise";
-    expect([...server.agreements]).toEqual(highlightsAgreements);
   } finally {
     await harness.close();
   }

@@ -82,7 +82,7 @@ function setup(
     },
   };
 }
-describe("Highlights coexistence", () => {
+describe("export rows Reader manages", () => {
   it("replays an earlier missing row after a later capacity stop and restart", async () => {
     const items = Array.from({ length: 21 }, (_, index) => {
       const id = String(index).padStart(4, "0");
@@ -319,7 +319,7 @@ describe("Highlights coexistence", () => {
         },
       };
     }
-    // Each run reads the row the last run wrote, as each connector does.
+    // Each run reads the row the last run wrote, as the connector does.
     function runs(exportTitle: string | undefined) {
       const held = managedRow();
       const f = setup([held]);
@@ -366,7 +366,7 @@ describe("Highlights coexistence", () => {
       },
     );
     it.each(["Export Title", undefined])(
-      "settles on Reader's title when the Highlights connector runs first, export title %s",
+      "settles on Reader's title when the export runs first, export title %s",
       async (exportTitle) => {
         const run = runs(exportTitle);
         expect((await run.highlights())["title"]).toBe(

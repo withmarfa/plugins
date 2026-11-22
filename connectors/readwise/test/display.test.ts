@@ -257,7 +257,7 @@ describe("highlight title and body", () => {
       }).entry.properties["body"],
     ).toBe(whole);
   });
-  it("writes the same title from both connectors' mappings", () => {
+  it("writes the same title from the export's and Reader's mappings", () => {
     const text = "**Strategy** is a coherent response\nto a challenge";
     const exported = mapHighlight(
       "one",

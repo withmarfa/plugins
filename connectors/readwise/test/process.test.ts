@@ -209,7 +209,7 @@ function due() {
 }
 
 describe("Readwise process on the kit", () => {
-  it("keeps canonical adoption and local notes when an existing Highlights agreement observes Reader", async () => {
+  it("keeps canonical adoption and local notes when the export's existing agreement observes Reader", async () => {
     expect((await once()).code).toBe(0);
     const original = marfa.row("primary:source:1");
     marfa.touch("primary:source:1", {

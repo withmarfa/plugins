@@ -373,7 +373,7 @@ describe("Readwise export checkpoints", () => {
 });
 
 it.each(["refresh", "source", "export"] as const)(
-  "keeps a rejected durable wait global during Highlights %s",
+  "keeps a rejected durable wait global during the export %s",
   async (mode) => {
     const f = fixture();
     const requests: string[] = [];

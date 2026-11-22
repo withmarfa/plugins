@@ -1,7 +1,7 @@
 {
   "id": "readwise.source",
   "label": "Readwise Source",
-  "description": "A Readwise source shared by independently usable Reader and Highlights connectors.",
+  "description": "A Readwise source from the export and, with Reader on, from Reader, one row for each document.",
   "parent": "core.media",
   "fields": {
     "readwise_id": {
@@ -53,7 +53,7 @@
     },
     "canonical_key": {
       "type": "string",
-      "description": "Account-scoped canonical identity shared by Reader and Highlights."
+      "description": "Account-scoped canonical identity that joins the export and Reader."
     },
     "reader_id": {
       "type": "string",

@@ -99,6 +99,7 @@ async function tree(folder: string): Promise<Map<string, string>> {
 
 function manifest(text: string | undefined): {
   connector: {
+    source: string;
     kinds: { name: string; type: string; direction: string }[];
     edge_types?: string[];
     settings: Record<string, unknown>[];
@@ -461,13 +462,29 @@ describe("the plugins the real connectors are published as", () => {
     );
   });
 
-  it("holds the file type Readwise and Readwise Reader write beside sources and highlights", async () => {
-    for (const name of ["readwise", "readwise-reader"]) {
-      expect((await kindsOf(name)).map((kind) => kind.type)).toEqual([
-        "readwise.source",
-        "readwise.highlight",
-        "readwise.file",
-      ]);
+  it("holds Readwise's sources and highlights in their widest shape, carried back with Reader on, beside its file type", async () => {
+    expect(
+      (await kindsOf("readwise")).map((kind) => [kind.type, kind.direction]),
+    ).toEqual([
+      ["readwise.source", "both"],
+      ["readwise.highlight", "both"],
+      ["readwise.file", "in"],
+    ]);
+  });
+
+  // Marfa gives a source and a type to one installed plugin, so two plugins
+  // that share either cannot both install.
+  it("gives each connector a source and types no other connector names", async () => {
+    const sources = new Map<string, string>();
+    const types = new Map<string, string>();
+    for (const name of await readdir(join(root, "connectors"))) {
+      const { connector } = manifest((await folderOf(name)).get("plugin.json"));
+      expect(sources.get(connector.source), connector.source).toBeUndefined();
+      sources.set(connector.source, name);
+      for (const { type } of connector.kinds) {
+        expect(types.get(type), type).toBeUndefined();
+        types.set(type, name);
+      }
     }
   });
 
@@ -513,7 +530,6 @@ describe("the plugins the real connectors are published as", () => {
     ],
     ["google-calendar", ["google.calendar.in-calendar", "parent-of"]],
     ["readwise", ["excerpt-of", "references", "attached-to"]],
-    ["readwise-reader", ["excerpt-of", "references", "attached-to"]],
     ["rss", ["attached-to"]],
     ["todoist", undefined],
   ])("names the edge types %s writes, and no other", async (name, expected) => {

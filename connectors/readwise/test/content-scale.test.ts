@@ -212,7 +212,7 @@ it("preserves every managed source beyond the queue capacity while Reader is sto
   expect(f.lists()).toBe(60);
 });
 
-it("uses the Highlights download limit and retries pending content after the bound rises", async () => {
+it("uses the export's download limit and retries pending content after the bound rises", async () => {
   const f = fixture(1);
   f.context.env = { ...f.context.env, readwise_content_max_bytes: "8" };
   const page = f.reader.page.bind(f.reader);
