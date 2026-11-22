@@ -30,7 +30,7 @@ A connector's settings and secrets are held in Marfa, set by the owner with `mar
 
 ## Exit codes
 
-A connector's process exits `0` once stopped cleanly, `1` for any other failure, `2` when its definition or command line is wrong or `MARFA_API_URL` is malformed or redirected (a host not found or a certificate refused may mend, so it is `1`, or tried again under `--every`), `3` when Marfa refused its key (`401`, or `403` on the connector's own doors) or the kit refused it, and `4` when a required setting is missing, a value is invalid or a run threw `SettingsRefused`, which a connector does for what only its owner can mend, such as a sign-in its service ended (`kit/src/exit.ts`). The template's README says what mends each.
+A connector's process exits `0` once stopped cleanly, `1` for any other failure, `2` when its definition or command line is wrong or `MARFA_API_URL` is malformed or redirected (a host not found or a certificate refused may mend, so it is `1`, or tried again under `--every`), `3` when Marfa refused its key (`401`, or `403` on the connector's own doors) or the kit refused it, and `4` when a required setting is missing, a value is invalid or a run threw `SettingsRefused`, which a connector does for what only its owner can mend, such as a sign-in its service ended (`kit/src/exit.ts`). The kit's README (`kit/README.md`) says what mends each.
 
 ## Versions
 

@@ -1,6 +1,6 @@
 # A new connector
 
-A connector is a small folder: `src/definition.ts` says what the connector is and what one run reads from its vendor, and `src/main.ts` starts it. The kit, `@withmarfa/connector`, does the rest: it registers the connector, reads its settings from Marfa, writes only what changed, carries changes made in Marfa back to the vendor where you ask it to, and reports each run. The kit's exported types and their comments in `kit/src/define.ts` describe each option.
+A connector is a small folder: `src/definition.ts` says what the connector is and what one run reads from its vendor, and `src/main.ts` starts it. The kit, `@withmarfa/connector`, does the rest: it registers the connector, reads its settings from Marfa, writes only what changed, carries changes made in Marfa back to the vendor where you ask it to, and reports each run. The [kit's README](../kit/README.md) is the reference for what it does: the key, settings, mapping, carrying changes back, webhooks, exit codes and telemetry. The kit's exported types and their comments in `kit/src/define.ts` describe each option.
 
 ## Start one
 
