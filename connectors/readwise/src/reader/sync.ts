@@ -454,7 +454,7 @@ export async function sync(
         )
           context.log.condition(
             `readwise:reader-adoption:${document.id}`,
-            "Reader took over this row, and some of its values differ from Marfa's. A value changed in Marfa before the takeover is kept without being sent to Reader; the others take Reader's.",
+            "Reader took over this row, and some of its values differ from what Marfa held. A difference takes Reader's value, except a value changed in Marfa since it was agreed, which stays and is not sent to Reader.",
           );
         if (document.category === "highlight" && document.parent_id) {
           if (parent === undefined) {

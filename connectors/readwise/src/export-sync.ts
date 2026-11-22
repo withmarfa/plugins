@@ -144,7 +144,7 @@ async function write(
       try {
         return await operation();
       } catch (error) {
-        // The kit names the held row; it is read again next run.
+        // The row is held for an unsettled Reader write, so the export reads it again next run.
         if (error instanceof HeldRow) {
           failures.push(error);
           return undefined;
