@@ -95,7 +95,7 @@ Keep `MARFA_API_KEY` in your secret store and start the connector under a tool t
 
 ## What lands in Marfa
 
-Each entry is an `rss.entry` row, a kind of `core.bookmark`, written at the feed tier with the source `rss`. The row's `source_id` is the feed's identity, a hash of its name or, without one, its address, then a colon, then the entry's id.
+Each entry is an `rss.entry` row, a kind of `core.bookmark`, written at the tier the owner's mapping chose for the `entry` kind, the feed by default, with the source `rss`. The row's `source_id` is the feed's identity, a hash of its name or, without one, its address, then a colon, then the entry's id.
 
 | Field          | What it holds                                                                                                                                                                         |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
