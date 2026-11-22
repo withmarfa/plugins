@@ -873,8 +873,10 @@ export interface PreviewKind {
  * land, in the form a preview's `result` takes, with the conditions the
  * write would raise. It reads nothing from Marfa or the vendor: `own` and
  * `target` are the kind's own type and the target type as Marfa answers
- * them. An item already on the target is read back first, so a template
- * sees only the fields the mapping carries from it.
+ * them. An item already on the target is written back as the mapping read
+ * it, and a fixed or templated field keeps the value the row holds; an item
+ * still on the kind's own type, where that type differs, is rendered as an
+ * entry.
  */
 export async function previewOf(input: {
   readonly kind: PreviewKind;
@@ -908,32 +910,37 @@ export async function previewOf(input: {
     targetStatus: target.status,
     heldLink,
   });
-  if (map.templated) await loadTemplates();
-  let entry: Entry;
-  let kept: Record<string, unknown> = {};
+  let properties: Record<string, unknown>;
+  let conditions: FieldFaults;
   let sourceItem: string | null = null;
-  if ("entry" in input.from) entry = input.from.entry;
-  else {
+  if ("item" in input.from && input.from.item.type === targetType) {
     const { item } = input.from;
     sourceItem = item.id;
-    let properties: Record<string, unknown> = { ...item.properties };
-    if (item.type === targetType && targetType !== own.id) {
-      const view = map.read(item.properties);
-      const made = new Set(map.made);
-      properties = {};
-      for (const [key, value] of Object.entries(view)) {
-        if (key.startsWith(targetPrefix)) {
-          if (!made.has(key)) kept[key] = value;
-        } else if (!key.startsWith("@")) properties[key] = value;
-      }
-    } else kept = {};
-    entry = { source_id: item.source_id ?? item.id, properties };
+    conditions = new Map();
+    properties = map.write(
+      map.read(
+        item.properties,
+        (key, message) => conditions.set(key, message),
+        item.id,
+      ),
+    );
+  } else {
+    if (map.templated) await loadTemplates();
+    let entry: Entry;
+    let id: string | undefined;
+    if ("entry" in input.from) entry = input.from.entry;
+    else {
+      const { item } = input.from;
+      sourceItem = id = item.id;
+      entry = {
+        source_id: item.source_id ?? item.id,
+        properties: { ...item.properties },
+      };
+    }
+    const shaped = map.entry(entry, id);
+    properties = map.write(shaped.entry.properties);
+    conditions = shaped.faults;
   }
-  const shaped = map.entry(
-    entry,
-    "item" in input.from ? input.from.item.id : undefined,
-  );
-  const properties = map.write({ ...kept, ...shaped.entry.properties });
   const titleField = target.titleField;
   const title = titleField === undefined ? undefined : properties[titleField];
   return {
@@ -943,6 +950,6 @@ export async function previewOf(input: {
       ...(typeof title === "string" && { title }),
       source_item: sourceItem,
     },
-    conditions: shaped.faults,
+    conditions,
   };
 }

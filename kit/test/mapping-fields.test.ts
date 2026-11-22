@@ -481,6 +481,116 @@ describe("a preview of a kind's mapping", () => {
     });
   });
 
+  function itemOf(row: ReturnType<typeof harness.server.row>): never {
+    return {
+      id: row.id,
+      type: row.type,
+      source_id: row.source_id,
+      properties: row.properties,
+    } as never;
+  }
+
+  it("writes back a stored item already on the target as the mapping read it, keeping its templated field", async () => {
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    expect(await harness.twoWay(held())).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.type).toBe(target);
+    expect(row.properties["title"]).toBe("One (v1)");
+    const { result, conditions } = await previewOf({
+      kind,
+      mapping,
+      own,
+      target: resolvedTarget,
+      from: { item: itemOf(row) },
+    });
+    expect(result).toEqual({
+      type: target,
+      properties: row.properties,
+      title: "One (v1)",
+      source_item: row.id,
+    });
+    expect(conditions.size).toBe(0);
+  });
+
+  it("names a target word the kind cannot carry back among a stored item's conditions", async () => {
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    expect(await harness.twoWay(held())).toBe(0);
+    const row = harness.server.edit(harness.server.row("a:1").id, {
+      status: "canceled",
+    });
+    const { result, conditions } = await previewOf({
+      kind,
+      mapping,
+      own,
+      target: resolvedTarget,
+      from: { item: itemOf(row) },
+    });
+    expect(result.properties["status"]).toBe("canceled");
+    expect([...conditions.keys()]).toEqual([
+      "mapping-status-back:entry:canceled",
+    ]);
+    expect(conditions.get("mapping-status-back:entry:canceled")).toContain(
+      row.id,
+    );
+  });
+
+  it("writes back a stored item on the kind's own type, when that is the target, without rendering it again", async () => {
+    const fields: Record<string, FieldSource> = {
+      title: { template: "{{ title }} ({{ vendor_id }})" },
+      note: { from: "note" },
+      link: { from: "link" },
+      vendor_id: { from: "vendor_id" },
+      status: { from: "status" },
+    };
+    mapFields(fields, { type: ownType.id });
+    expect(await harness.twoWay(held())).toBe(0);
+    const row = harness.server.row("a:1");
+    expect(row.type).toBe(ownType.id);
+    expect(row.properties["title"]).toBe("One (v1)");
+    const { result, conditions } = await previewOf({
+      kind,
+      mapping: {
+        enabled: true,
+        target_type: ownType.id,
+        tier: "feed",
+        status_overrides: {},
+        fields,
+      },
+      own,
+      target: { ...own, titleField: "title" },
+      from: { item: itemOf(row) },
+    });
+    expect(result).toEqual({
+      type: ownType.id,
+      properties: row.properties,
+      title: "One (v1)",
+      source_item: row.id,
+    });
+    expect(conditions.size).toBe(0);
+  });
+
+  it("answers for a mapped item what the next write of the same entry sends", async () => {
+    mapFields(standard, { overrides: { waiting: "blocked" } });
+    expect(await harness.twoWay(held())).toBe(0);
+    const { result } = await previewOf({
+      kind,
+      mapping,
+      own,
+      target: resolvedTarget,
+      from: { item: itemOf(harness.server.row("a:1")) },
+    });
+    harness.server.edit(harness.server.row("a:1").id, {
+      title: "By a person",
+    });
+    harness.server.requests.length = 0;
+    expect(await harness.twoWay(held()), harness.lines.join("\n")).toBe(0);
+    const id = harness.server.row("a:1").id;
+    const [written] = harness.server
+      .requestsTo("PATCH", `/items/${id}`)
+      .map((request) => request.body as Record<string, unknown>);
+    expect(written?.["properties"]).toEqual(result.properties);
+  });
+
   it("names a template that fails among its conditions, and leaves the field out", async () => {
     const { result, conditions } = await previewOf({
       kind,
