@@ -53,6 +53,8 @@ ${environment}  <key>RunAtLoad</key>
   </dict>
   <key>ProcessType</key>
   <string>Background</string>
+  <key>ExitTimeOut</key>
+  <integer>70</integer>
 </dict>
 </plist>
 `;
@@ -80,17 +82,41 @@ After=network-online.target
 [Service]
 ExecStart=${[...program.args, "run"].map(quoted).join(" ")}
 ${environment}Restart=on-failure
+KillMode=mixed
+TimeoutStopSec=70
 
 [Install]
 WantedBy=default.target
 `;
 }
 
-export type Exec = (file: string, args: string[]) => void;
+/** Runs `file` and answers what it printed; throws when it fails. */
+export type Exec = (file: string, args: string[]) => string;
 
-const exec: Exec = (file, args) => {
-  execFileSync(file, args, { stdio: "ignore" });
-};
+const exec: Exec = (file, args) =>
+  execFileSync(file, args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+
+/** A failure the person mends with the command it names. */
+export class ServiceRefused extends Error {
+  override name = "ServiceRefused";
+}
+
+function pause(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** One argument for a POSIX shell, quoted. */
+function shellQuoted(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** Times `launchctl bootstrap` is tried: launchd can refuse it for a moment
+ *  just after `bootout`, with "Bootstrap failed: 5: Input/output error". */
+const bootstrapTries = 5;
+const bootstrapWaitMs = 1_000;
 
 /** Runs `file`, answering whether it succeeded. */
 function tried(run: Exec, file: string, args: string[]): boolean {
@@ -107,8 +133,17 @@ export interface Service {
   file: string;
   /** Writes the file and (re)starts the service. */
   install(program: Program): string[];
+  /** Stops the service, keeping its file. */
+  stop(): void;
   /** Stops the service and removes its file. */
   remove(): void;
+  /** The process the service runs now, if it runs one. */
+  pid(): number | undefined;
+}
+
+function positive(text: string | undefined): number | undefined {
+  const value = Number(text);
+  return Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 export function serviceFor(
@@ -117,6 +152,7 @@ export function serviceFor(
   userHome: string,
   uid: number,
   run: Exec = exec,
+  wait: (ms: number) => void = pause,
 ): Service | undefined {
   if (platform === "darwin") {
     const file = join(
@@ -126,17 +162,36 @@ export function serviceFor(
       `${launchdLabel}.plist`,
     );
     const domain = `gui/${String(uid)}`;
+    const target = `${domain}/${launchdLabel}`;
     return {
       file,
       install(program) {
         writeWhole(file, launchAgent(program));
-        tried(run, "launchctl", ["bootout", `${domain}/${launchdLabel}`]);
-        run("launchctl", ["bootstrap", domain, file]);
-        return [];
+        tried(run, "launchctl", ["bootout", target]);
+        for (let attempt = 1; ; attempt++) {
+          if (tried(run, "launchctl", ["bootstrap", domain, file])) return [];
+          if (attempt === bootstrapTries)
+            throw new ServiceRefused(
+              `The service is written but launchd did not load it. Run: launchctl bootstrap ${domain} ${shellQuoted(file)}`,
+            );
+          wait(bootstrapWaitMs);
+        }
+      },
+      stop() {
+        tried(run, "launchctl", ["bootout", target]);
       },
       remove() {
-        tried(run, "launchctl", ["bootout", `${domain}/${launchdLabel}`]);
+        tried(run, "launchctl", ["bootout", target]);
         rmSync(file, { force: true });
+      },
+      pid() {
+        try {
+          return positive(
+            /^\s*pid = (\d+)$/m.exec(run("launchctl", ["print", target]))?.[1],
+          );
+        } catch {
+          return undefined;
+        }
       },
     };
   }
@@ -156,10 +211,28 @@ export function serviceFor(
           '  loginctl enable-linger "$USER"',
         ];
       },
+      stop() {
+        tried(run, "systemctl", ["--user", "stop", systemdUnit]);
+      },
       remove() {
         tried(run, "systemctl", ["--user", "disable", "--now", systemdUnit]);
         rmSync(file, { force: true });
         tried(run, "systemctl", ["--user", "daemon-reload"]);
+      },
+      pid() {
+        try {
+          return positive(
+            run("systemctl", [
+              "--user",
+              "show",
+              "--property=MainPID",
+              "--value",
+              systemdUnit,
+            ]).trim(),
+          );
+        } catch {
+          return undefined;
+        }
       },
     };
   }

@@ -1,7 +1,12 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { launchAgent, serviceFor, systemdService } from "../src/service.js";
+import {
+  launchAgent,
+  ServiceRefused,
+  serviceFor,
+  systemdService,
+} from "../src/service.js";
 import { scratch } from "./helpers.js";
 
 const program = {
@@ -37,6 +42,8 @@ describe("the connector host's service", () => {
   </dict>
   <key>ProcessType</key>
   <string>Background</string>
+  <key>ExitTimeOut</key>
+  <integer>70</integer>
 </dict>
 </plist>
 `);
@@ -60,6 +67,8 @@ After=network-online.target
 ExecStart="/opt/Marfa Host/node" "--disable-sigusr1" "/opt/Marfa Host/main.js" "run"
 Environment="MARFA_CONNECTOR_HOST_HOME=/srv/50%%"
 Restart=on-failure
+KillMode=mixed
+TimeoutStopSec=70
 
 [Install]
 WantedBy=default.target
@@ -71,6 +80,7 @@ WantedBy=default.target
     const ran: string[] = [];
     const service = serviceFor("darwin", {}, home, 501, (file, args) => {
       ran.push([file, ...args].join(" "));
+      return "";
     });
     const file = join(
       home,
@@ -94,6 +104,7 @@ WantedBy=default.target
     const ran: string[] = [];
     const service = serviceFor("linux", {}, home, 1000, (file, args) => {
       ran.push([file, ...args].join(" "));
+      return "";
     });
     const file = join(
       home,
@@ -113,5 +124,80 @@ WantedBy=default.target
       "systemctl --user restart marfa-connector-host.service",
     ]);
     expect(serviceFor("win32", {}, home, 0)).toBeUndefined();
+  });
+
+  it("tries launchctl bootstrap again when it fails just after bootout", () => {
+    const home = scratch();
+    const ran: string[] = [];
+    let failures = 2;
+    const waits: number[] = [];
+    const service = serviceFor(
+      "darwin",
+      {},
+      home,
+      501,
+      (file, args) => {
+        ran.push(args[0] ?? "");
+        if (args[0] === "bootstrap" && failures-- > 0)
+          throw new Error("Bootstrap failed: 5: Input/output error");
+        return "";
+      },
+      (ms) => waits.push(ms),
+    );
+    service?.install(program);
+    expect(ran).toEqual(["bootout", "bootstrap", "bootstrap", "bootstrap"]);
+    expect(waits).toHaveLength(2);
+  });
+
+  it("names the command to run in one line when launchctl bootstrap keeps failing", () => {
+    const home = scratch();
+    const file = join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "so.marfa.connector-host.plist",
+    );
+    const service = serviceFor(
+      "darwin",
+      {},
+      home,
+      501,
+      (_file, args) => {
+        if (args[0] === "bootstrap")
+          throw new Error("Bootstrap failed: 5: Input/output error");
+        return "";
+      },
+      () => undefined,
+    );
+    let refusal: unknown;
+    try {
+      service?.install(program);
+    } catch (error) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(ServiceRefused);
+    expect((refusal as Error).message).toBe(
+      `The service is written but launchd did not load it. Run: launchctl bootstrap gui/501 '${file}'`,
+    );
+  });
+
+  it("names the process the service runs, or none", () => {
+    const home = scratch();
+    const answers: Record<string, string> = {
+      launchctl:
+        "gui/501/so.marfa.connector-host = {\n\tactive count = 1\n\tpid = 4242\n\tstate = running\n}\n",
+      systemctl: "4343\n",
+    };
+    const answering = (file: string): string => answers[file] ?? "";
+    expect(serviceFor("darwin", {}, home, 501, answering)?.pid()).toBe(4242);
+    expect(serviceFor("linux", {}, home, 1000, answering)?.pid()).toBe(4343);
+    answers["systemctl"] = "0\n";
+    expect(
+      serviceFor("linux", {}, home, 1000, answering)?.pid(),
+    ).toBeUndefined();
+    const failing = (): string => {
+      throw new Error("Could not find service");
+    };
+    expect(serviceFor("darwin", {}, home, 501, failing)?.pid()).toBeUndefined();
   });
 });
