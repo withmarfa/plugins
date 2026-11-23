@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   installedProgram,
@@ -259,18 +260,36 @@ WantedBy=default.target
   });
 
   it("runs the current link, and a newer release exits non-zero", () => {
-    const program = installedProgram("/data", {});
+    const root = scratch();
+    const file = join(root, "versions", "0.0.3", "lib", "host.mjs");
+    mkdirSync(join(root, "versions", "0.0.3", "lib"), { recursive: true });
+    writeFileSync(file, "export {}\n");
+    const self = pathToFileURL(file).href;
+    const program = installedProgram(root, {}, self);
     expect(program.args).toEqual([
-      join("/data", "current", "bin", "marfa-connector-host"),
+      join(root, "current", "bin", "marfa-connector-host"),
     ]);
     expect(program.args.join(" ")).not.toContain("versions");
     expect(program.home).toBeUndefined();
     expect(
-      installedProgram("/data", { MARFA_CONNECTOR_HOST_HOME: "" }).home,
+      installedProgram(root, { MARFA_CONNECTOR_HOST_HOME: "" }, self).home,
     ).toBe(undefined);
     expect(
-      installedProgram("/data", { MARFA_CONNECTOR_HOST_HOME: "/data" }).home,
-    ).toBe("/data");
+      installedProgram(root, { MARFA_CONNECTOR_HOST_HOME: root }, self).home,
+    ).toBe(root);
     expect(updateExit).not.toBe(0);
+  });
+
+  it("refuses a service for a copy that is not a release installed in the host's folder", () => {
+    const root = scratch();
+    const built = join(scratch(), "dist", "main.js");
+    mkdirSync(join(built, ".."), { recursive: true });
+    writeFileSync(built, "export {}\n");
+    expect(() => installedProgram(root, {}, pathToFileURL(built).href)).toThrow(
+      ServiceRefused,
+    );
+    expect(() => installedProgram(root, {}, pathToFileURL(built).href)).toThrow(
+      /--no-service/,
+    );
   });
 });

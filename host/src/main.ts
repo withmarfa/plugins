@@ -7,6 +7,7 @@ import {
   ownRun,
   Refused,
   run,
+  setUpdates,
   status,
   uninstall,
   uninstallPlan,
@@ -17,8 +18,9 @@ import { LinkRefused } from "./link.js";
 import { RedeemRefused } from "./marfa.js";
 import { installedProgram, serviceFor, ServiceRefused } from "./service.js";
 import {
+  activateRelease,
   hostPlatform,
-  runningVersion,
+  installedVersion,
   updateRelease,
   UpdateRefused,
 } from "./update.js";
@@ -33,6 +35,8 @@ Usage:
   marfa-connector-host logs [<plugin>]
                                    The host's log, or one connector's.
   marfa-connector-host update      Install a newer release beside this one.
+  marfa-connector-host updates on|off
+                                   Turn the daily update check on or off.
   marfa-connector-host uninstall [--yes]
                                    Stop the service and delete the host's files.
   marfa-connector-host run         Run the connectors; what the service runs.
@@ -107,16 +111,23 @@ async function main(args: string[]): Promise<number> {
         io,
         service === undefined
           ? undefined
-          : { service, program: installedProgram(home.root, process.env) },
+          : {
+              service,
+              program: installedProgram(
+                home.root,
+                process.env,
+                import.meta.url,
+              ),
+            },
       );
       return 0;
     }
     case "update": {
       if (!known([], 0)) return 2;
-      const version = runningVersion(import.meta.url);
+      const version = installedVersion(home.root, import.meta.url);
       if (version === undefined) {
         io.err(
-          "This copy was not installed from a release, so it cannot update itself.",
+          `This copy is not a release installed in ${home.root}, so it cannot update itself.`,
         );
         return 1;
       }
@@ -140,6 +151,35 @@ async function main(args: string[]): Promise<number> {
             `Updated to ${outcome.version}. The service starts it when the copy that is running exits.`,
           );
         }
+        return 0;
+      } catch (error) {
+        if (error instanceof UpdateRefused) {
+          io.err(error.message);
+          return 1;
+        }
+        throw error;
+      }
+    }
+    case "updates": {
+      if (!known([], 1)) return 2;
+      const choice = operands[0];
+      if (choice !== "on" && choice !== "off") {
+        io.err(usage);
+        return 2;
+      }
+      setUpdates(home, choice === "on", io);
+      return 0;
+    }
+    case "activate": {
+      // What install-host.sh runs from the copy it staged.
+      if (!known([], 1)) return 2;
+      const version = operands[0];
+      if (version === undefined) {
+        io.err(usage);
+        return 2;
+      }
+      try {
+        await activateRelease(home.root, version, import.meta.url);
         return 0;
       } catch (error) {
         if (error instanceof UpdateRefused) {

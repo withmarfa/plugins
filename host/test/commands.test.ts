@@ -21,6 +21,7 @@ import {
   logs,
   Refused,
   run,
+  setUpdates,
   status,
   uninstall,
   uninstallPlan,
@@ -32,6 +33,7 @@ import { LinkRefused } from "../src/link.js";
 import { takeLock } from "../src/lock.js";
 import { RedeemRefused } from "../src/marfa.js";
 import type { Service } from "../src/service.js";
+import { updatesOff } from "../src/update.js";
 import { assigned, marfaAnswer, scratch, until } from "./helpers.js";
 
 function printed(): Io & { lines: string[] } {
@@ -375,6 +377,35 @@ describe("installing the connector host", () => {
   });
 });
 
+describe("turning the daily update check off and on", () => {
+  it("writes the choice into host.json, which the service reads at each check, keeping the rest", async () => {
+    const home = await linked();
+    const before = JSON.parse(readFileSync(home.hostJson, "utf8")) as object;
+    const io = printed();
+    setUpdates(home, false, io);
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      ...before,
+      updates: false,
+    });
+    expect(updatesOff(home.root)).toBe(true);
+    expect(io.lines.join("\n")).toContain("off");
+    setUpdates(home, true, io);
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      ...before,
+      updates: true,
+    });
+    expect(updatesOff(home.root)).toBe(false);
+  });
+
+  it("refuses on a host that is not linked", () => {
+    const home = freshHome();
+    expect(() => {
+      setUpdates(home, false, printed());
+    }).toThrow("not linked yet");
+    expect(existsSync(home.hostJson)).toBe(false);
+  });
+});
+
 /** A linked host's folder. */
 async function linked(): Promise<Home> {
   const home = freshHome();
@@ -568,6 +599,7 @@ describe("the connector host's status, logs and uninstall", () => {
     expect(io.lines).toEqual([
       'Host "Studio Mac" (host-1) for https://marfa.example.com',
       `Files: ${home.root}`,
+      "Daily update check: on",
       "Not running.",
     ]);
   });
@@ -603,7 +635,8 @@ describe("the connector host's status, logs and uninstall", () => {
     const io = printed();
     status(home, io, undefined);
     if ("lock" in taken) taken.lock.release();
-    expect(io.lines.slice(2)).toEqual([
+    expect(io.lines[2]).toBe("Daily update check: on");
+    expect(io.lines.slice(3)).toEqual([
       `Running as process ${String(process.pid)}.`,
       "Last asked Marfa at 2026-11-23T09:00:00.000Z.",
       "rss 0.0.1: running as process 4242 since 2026-11-23T08:59:00.000Z",

@@ -23,7 +23,7 @@ import {
   dailyUpdate,
   dayMs,
   hostPlatform,
-  runningVersion,
+  installedVersion,
   updatesOff,
   type UpdateOutcome,
 } from "./update.js";
@@ -206,7 +206,9 @@ export interface RunOptions {
   /** The release this process is, when it was installed as one. */
   version?: string;
   /** The daily check. A release uses `dailyUpdate`. */
-  maintain?: (version: string) => Promise<UpdateOutcome>;
+  maintain?: (version: string, signal: AbortSignal) => Promise<UpdateOutcome>;
+  /** How often `maintain` is started; a day unless a test says otherwise. */
+  checkEveryMs?: number;
 }
 
 /**
@@ -265,16 +267,17 @@ export async function run(options: RunOptions): Promise<number> {
   log(
     `running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`,
   );
-  const version = options.version ?? runningVersion(import.meta.url);
-  let nextCheck = 0;
+  const version =
+    options.version ?? installedVersion(home.root, import.meta.url);
   const maintain =
     options.maintain ??
-    ((running: string) => {
+    ((running: string, signal: AbortSignal) => {
       const request = {
         root: home.root,
         version: running,
         platform: hostPlatform() ?? `${process.platform}-${process.arch}`,
         env: options.env,
+        signal,
       };
       return dailyUpdate(
         options.fetch === undefined
@@ -282,29 +285,48 @@ export async function run(options: RunOptions): Promise<number> {
           : { ...request, fetch: options.fetch },
       );
     });
+  // The check runs beside the loop, which keeps supervising while it
+  // downloads; one at a time, stopped when the host stops.
+  const checks = new AbortController();
+  void options.stopped.then(() => {
+    checks.abort();
+  });
+  let checking: Promise<void> | undefined;
+  let updatedTo: string | undefined;
+  let nextCheck = performance.now();
   try {
     while (!asked.stop) {
-      if (version !== undefined && currentPointsElsewhere(home.root, version)) {
-        log("current names another version, so this one is stopping for it");
+      if (
+        version !== undefined &&
+        (updatedTo !== undefined || currentPointsElsewhere(home.root, version))
+      ) {
+        log(
+          `${updatedTo === undefined ? "current names another version" : `updated to ${updatedTo}`}, so this one is stopping for it`,
+        );
         await supervisor.stop();
         return updateExit;
       }
-      if (version !== undefined && Date.now() >= nextCheck) {
-        nextCheck = Date.now() + dayMs;
-        try {
-          const outcome = await maintain(version);
-          if (outcome.kind === "updated") {
-            log(
-              `updated to ${outcome.version}, so this one is stopping for it`,
-            );
-            await supervisor.stop();
-            return updateExit;
-          }
-        } catch (error) {
-          log(
-            `could not check for an update: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
+      if (
+        version !== undefined &&
+        checking === undefined &&
+        performance.now() >= nextCheck
+      ) {
+        nextCheck = performance.now() + (options.checkEveryMs ?? dayMs);
+        checking = maintain(version, checks.signal)
+          .then(
+            (outcome) => {
+              if (outcome.kind === "updated") updatedTo = outcome.version;
+            },
+            (error: unknown) => {
+              if (!checks.signal.aborted)
+                log(
+                  `could not check for an update: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            },
+          )
+          .finally(() => {
+            checking = undefined;
+          });
       }
       if ((await supervisor.step()) === "unlinked") {
         writeStatus();
@@ -321,9 +343,31 @@ export async function run(options: RunOptions): Promise<number> {
     log("stopped");
     return 0;
   } finally {
+    checks.abort();
+    await checking;
     rmSync(home.status, { force: true });
     lock.release();
   }
+}
+
+/**
+ * Turns the daily update check on or off in `host.json`, which `run` reads
+ * at each check, so the service follows it without a restart.
+ */
+export function setUpdates(home: Home, on: boolean, io: Io): void {
+  const text = readIfThere(home.hostJson);
+  if (text === undefined || readHost(home) === undefined)
+    throw new Refused(
+      `This host is not linked yet. Run: marfa-connector-host install '<link>'`,
+    );
+  const record = JSON.parse(text) as Record<string, unknown>;
+  record["updates"] = on;
+  writeWhole(home.hostJson, `${JSON.stringify(record, null, 2)}\n`);
+  io.out(
+    on
+      ? "The daily update check is on."
+      : "The daily update check is off. `marfa-connector-host update` still installs a newer release.",
+  );
 }
 
 function connectorLines(status: HostStatus): string[] {
@@ -347,6 +391,9 @@ export function status(home: Home, io: Io, service: Service | undefined): void {
   }
   io.out(`Host "${host.name}" (${host.id}) for ${host.origin}`);
   io.out(`Files: ${home.root}`);
+  const release = installedVersion(home.root, import.meta.url);
+  if (release !== undefined) io.out(`Release: ${release}`);
+  io.out(`Daily update check: ${updatesOff(home.root) ? "off" : "on"}`);
   if (service !== undefined)
     io.out(
       `Service: ${existsSync(service.file) ? service.file : "not installed"}`,

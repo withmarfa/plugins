@@ -3,9 +3,10 @@
 #
 # The version and the repository are written in when the release is built, so
 # a script fetched from releases/latest never downloads another tag's files.
-# MARFA_CONNECTOR_HOST_RELEASE_BASE replaces the download address. Tests set
-# it. The script still fetches only this release's archive and checksums.txt,
-# and it installs nothing until the checksum matches.
+# MARFA_CONNECTOR_HOST_RELEASE_BASE replaces the download address, for tests
+# only. The archive and checksums.txt then both come from that address, so it
+# chooses which release is trusted; nothing is installed until the archive's
+# SHA-256 is the one in that checksums.txt.
 set -eu
 
 VERSION=@VERSION@
@@ -51,7 +52,8 @@ else
 fi
 
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
+stage=
+trap 'rm -rf "$work" ${stage:+"$stage"}' EXIT
 
 if ! curl -fsSL "$BASE/$archive" -o "$work/$archive"; then
   fail "Could not download ${archive}. Nothing was installed."
@@ -75,21 +77,21 @@ if [ "$found" != "$wanted" ]; then
   fail "The checksum of ${archive} does not match. Nothing was installed."
 fi
 
-dest="$root/versions/$VERSION"
-stage="$root/versions/${VERSION}.partial"
-rm -rf "$stage"
-mkdir -p "$stage"
+# The copy is unpacked into a folder of its own, and the host it holds puts
+# itself in place under the update lock, so this never meets another update.
+mkdir -p "$root/versions"
+stage=$(mktemp -d "$root/versions/.stage-$$-XXXXXX")
 if ! tar -xzf "$work/$archive" -C "$stage" --strip-components=1; then
-  rm -rf "$stage"
   fail "Could not unpack ${archive}. Nothing was installed."
 fi
-rm -rf "$dest"
-mv "$stage" "$dest"
-
-# `ln -sfn` replaces a symlink. `mv` onto `current` would follow it when it
-# already points at a directory, and the new link would land inside the old
-# version.
-ln -sfn "versions/$VERSION" "$root/current"
+for part in bin/marfa-connector-host lib/node lib/host.mjs; do
+  if [ ! -f "$stage/$part" ]; then
+    fail "${archive} has no ${part}. Nothing was installed."
+  fi
+done
+if ! "$stage/bin/marfa-connector-host" activate "$VERSION"; then
+  fail "Could not put ${VERSION} in place."
+fi
 mkdir -p "$HOME/.local/bin"
 ln -sfn "$root/current/bin/marfa-connector-host" "$HOME/.local/bin/marfa-connector-host"
 

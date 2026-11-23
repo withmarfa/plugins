@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { writeWhole } from "./files.js";
+import { installedVersion } from "./update.js";
 
 export const launchdLabel = "so.marfa.connector-host";
 export const systemdUnit = "marfa-connector-host.service";
@@ -33,12 +34,18 @@ export const updateExit = 75;
  * The program the service runs: the `current` link, never one version's
  * path, so an update does not rewrite the service file. The link's target
  * is a shell script. It starts the Node beside it, and `run` listens for
- * `SIGUSR1` itself.
+ * `SIGUSR1` itself. Refused for a copy that is not a release installed in
+ * the host's folder, since `current` would name nothing that starts.
  */
 export function installedProgram(
   root: string,
   env: NodeJS.ProcessEnv,
+  moduleUrl: string,
 ): Program {
+  if (installedVersion(root, moduleUrl) === undefined)
+    throw new ServiceRefused(
+      `This copy is not a release installed in ${root}, so a service could not start it. Install with --no-service and run \`marfa-connector-host run\` under your own supervisor, or install a release with install-host.sh.`,
+    );
   const chosen = env["MARFA_CONNECTOR_HOST_HOME"];
   return {
     args: [join(root, "current", "bin", "marfa-connector-host")],

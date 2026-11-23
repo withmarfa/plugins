@@ -10,19 +10,25 @@ import {
   readFileSync,
   readlinkSync,
   readdirSync,
+  rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run } from "../src/commands.js";
 import { writeSecret } from "../src/files.js";
 import { Home } from "../src/home.js";
+import { takeLock } from "../src/lock.js";
 import { updateExit } from "../src/service.js";
 import {
+  activateRelease,
   dailyUpdate,
   dayMs,
   hostArchiveName,
+  installedVersion,
+  updateLockName,
   UpdateRefused,
   updateRelease,
   type UpdateRequest,
@@ -41,6 +47,7 @@ function sha256(bytes: Buffer): string {
 }
 
 interface Route {
+  /** 0 never answers. */
   status: number;
   body?: Buffer;
   location?: string;
@@ -64,6 +71,7 @@ function listen(): Promise<{
         response.end();
         return;
       }
+      if (route.status === 0) return;
       if (route.location !== undefined) {
         response.writeHead(route.status, { Location: route.location });
         response.end();
@@ -91,6 +99,7 @@ function listen(): Promise<{
               if (error) reject(error);
               else closed();
             });
+            server.closeAllConnections();
           }),
       });
     });
@@ -164,6 +173,17 @@ function linked(): Home {
   return home;
 }
 
+/** Staging folders, set-aside copies and new links an update left behind. */
+function leftovers(root: string): string[] {
+  const dir = join(root, "versions");
+  return [
+    ...(existsSync(dir) ? readdirSync(dir) : []).filter((name) =>
+      name.startsWith("."),
+    ),
+    ...readdirSync(root).filter((name) => name.startsWith(".current-")),
+  ];
+}
+
 describe("updating the connector host", () => {
   it("switches current only after the checksum matches, and drops older copies", async () => {
     const platform = "darwin-arm64";
@@ -206,10 +226,7 @@ describe("updating the connector host", () => {
       expect(outcome).toEqual({ kind: "updated", version: newest });
       expect(readlinkSync(join(root, "current"))).toBe(`versions/${newest}`);
       expect(versionsOf(root)).toEqual(["0.0.1", "0.0.2", "0.0.4"]);
-      expect(existsSync(join(root, "current.next"))).toBe(false);
-      expect(existsSync(join(root, "versions", `${newest}.partial`))).toBe(
-        false,
-      );
+      expect(leftovers(root)).toEqual([]);
       expect(
         readFileSync(join(root, "versions", newest, "lib", "host.mjs"), "utf8"),
       ).toBe("export {}\n");
@@ -263,9 +280,7 @@ describe("updating the connector host", () => {
       );
       expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
       expect(existsSync(join(root, "versions", newest))).toBe(false);
-      expect(existsSync(join(root, "versions", `${newest}.partial`))).toBe(
-        false,
-      );
+      expect(leftovers(root)).toEqual([]);
     } finally {
       await server.close();
     }
@@ -457,7 +472,8 @@ describe("run and a newer release", () => {
       maintain: () => Promise.resolve({ kind: "updated", version: "0.0.2" }),
     });
     expect(exit).toBe(updateExit);
-    expect(asked).toBe(0);
+    // The check runs beside the loop, so one step may ask Marfa first.
+    expect(asked).toBeLessThanOrEqual(1);
   });
 
   it("exits when current already names another release, without asking", async () => {
@@ -498,5 +514,336 @@ describe("run and a newer release", () => {
     expect(readFileSync(home.hostLog, "utf8")).toContain(
       "could not check for an update",
     );
+  });
+});
+
+type Server = Awaited<ReturnType<typeof listen>>;
+
+/** Serves `version` as the latest release, with its archive and checksums. */
+function serveRelease(server: Server, version: string, platform: string): void {
+  const packed = archiveFor(version, platform);
+  const prefix = `/${repo}`;
+  server.routes.set(`${prefix}/releases/latest`, {
+    status: 302,
+    location: `${prefix}/releases/tag/v${version}`,
+  });
+  server.routes.set(`${prefix}/releases/tag/v${version}`, {
+    status: 200,
+    body: Buffer.from("release"),
+  });
+  server.routes.set(`${prefix}/releases/download/v${version}/${packed.name}`, {
+    status: 200,
+    body: packed.bytes,
+  });
+  server.routes.set(`${prefix}/releases/download/v${version}/checksums.txt`, {
+    status: 200,
+    body: packed.checksums,
+  });
+}
+
+/** A release's own files, as `install-host.sh` stages them. */
+function stageRelease(root: string, name: string, marker: string): string {
+  const stage = join(root, "versions", name);
+  mkdirSync(join(stage, "bin"), { recursive: true });
+  mkdirSync(join(stage, "lib"));
+  writeFileSync(join(stage, "bin", "marfa-connector-host"), "#!/bin/sh\n");
+  writeFileSync(join(stage, "lib", "node"), "node\n");
+  writeFileSync(join(stage, "lib", "host.mjs"), marker);
+  return stage;
+}
+
+describe("one update at a time", () => {
+  it("gives up on a release server that does not answer, within its deadline", async () => {
+    const server = await listen();
+    try {
+      server.routes.set(`/${repo}/releases/latest`, { status: 0 });
+      const root = scratch();
+      plant(root, ["0.0.1"], "0.0.1");
+      await expect(
+        updateRelease({
+          root,
+          version: "0.0.1",
+          platform: "darwin-arm64",
+          repository: repo,
+          origin: server.origin,
+          deadlines: { firstByteMs: 100 },
+        }),
+      ).rejects.toThrow(/did not answer.*Nothing was changed\.$/);
+      expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("stops a download that runs past its whole deadline, and when asked to stop", async () => {
+    const platform = "darwin-arm64";
+    const server = await listen();
+    try {
+      serveRelease(server, "0.0.4", platform);
+      server.routes.set(
+        `/${repo}/releases/download/v0.0.4/${hostArchiveName("0.0.4", platform)}`,
+        { status: 0 },
+      );
+      const root = scratch();
+      plant(root, ["0.0.1"], "0.0.1");
+      const request: UpdateRequest = {
+        root,
+        version: "0.0.1",
+        platform,
+        repository: repo,
+        origin: server.origin,
+        deadlines: { archiveTotalMs: 150 },
+      };
+      await expect(updateRelease(request)).rejects.toThrow(
+        /took longer than.*Nothing was changed\.$/,
+      );
+      const stop = new AbortController();
+      const asked = updateRelease({
+        ...request,
+        deadlines: {},
+        signal: stop.signal,
+      });
+      setTimeout(() => {
+        stop.abort();
+      }, 100);
+      await expect(asked).rejects.toThrow(/stopped.*Nothing was changed\.$/);
+      expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
+      expect(readdirSync(join(root, "versions"))).toEqual(["0.0.1"]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("leaves a folder another updater is staging into alone", async () => {
+    const platform = "darwin-arm64";
+    const server = await listen();
+    try {
+      serveRelease(server, "0.0.4", platform);
+      const root = scratch();
+      plant(root, ["0.0.1"], "0.0.1");
+      for (const other of [
+        "0.0.4.partial",
+        `.stage-${String(process.pid)}-a`,
+      ]) {
+        mkdirSync(join(root, "versions", other));
+        writeFileSync(join(root, "versions", other, "marker"), "another's");
+      }
+      await updateRelease({
+        root,
+        version: "0.0.1",
+        platform,
+        repository: repo,
+        origin: server.origin,
+      });
+      expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.4");
+      expect(existsSync(join(root, "versions", "0.0.4", "marker"))).toBe(false);
+      for (const other of ["0.0.4.partial", `.stage-${String(process.pid)}-a`])
+        expect(
+          readFileSync(join(root, "versions", other, "marker"), "utf8"),
+        ).toBe("another's");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("changes nothing while another process holds the update lock", async () => {
+    const platform = "darwin-arm64";
+    const server = await listen();
+    try {
+      serveRelease(server, "0.0.4", platform);
+      const root = scratch();
+      plant(root, ["0.0.1"], "0.0.1");
+      const held = takeLock(join(root, updateLockName));
+      if (!("lock" in held))
+        throw new Error("the test could not take the lock");
+      try {
+        await expect(
+          updateRelease({
+            root,
+            version: "0.0.1",
+            platform,
+            repository: repo,
+            origin: server.origin,
+            lockWaitMs: 100,
+          }),
+        ).rejects.toThrow(/Another update.*Nothing was changed\.$/);
+      } finally {
+        held.lock.release();
+      }
+      expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
+      expect(readdirSync(join(root, "versions"))).toEqual(["0.0.1"]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("installs one copy when two updates run at once", async () => {
+    const platform = "linux-x64";
+    const server = await listen();
+    try {
+      serveRelease(server, "0.0.4", platform);
+      const root = scratch();
+      plant(root, ["0.0.1"], "0.0.1");
+      const request = {
+        root,
+        version: "0.0.1",
+        platform,
+        repository: repo,
+        origin: server.origin,
+      };
+      const outcomes = await Promise.all([
+        updateRelease(request),
+        updateRelease(request),
+      ]);
+      expect(outcomes).toEqual([
+        { kind: "updated", version: "0.0.4" },
+        { kind: "updated", version: "0.0.4" },
+      ]);
+      expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.4");
+      expect(readdirSync(join(root, "versions")).sort()).toEqual([
+        "0.0.1",
+        "0.0.4",
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("replaces an installed copy of the same version, and puts it back when switching fails", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1", "0.0.5"], "0.0.1");
+    const first = stageRelease(root, ".stage-1-a", "new");
+    await activateRelease(
+      root,
+      "0.0.5",
+      pathToFileURL(join(first, "lib", "host.mjs")).href,
+    );
+    expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.5");
+    expect(
+      readFileSync(join(root, "versions", "0.0.5", "lib", "host.mjs"), "utf8"),
+    ).toBe("new");
+    expect(readdirSync(join(root, "versions")).sort()).toEqual([
+      "0.0.1",
+      "0.0.5",
+    ]);
+    rmSync(join(root, "current"));
+    mkdirSync(join(root, "current", "in-the-way"), { recursive: true });
+    const second = stageRelease(root, ".stage-1-b", "newer");
+    await expect(
+      activateRelease(
+        root,
+        "0.0.5",
+        pathToFileURL(join(second, "lib", "host.mjs")).href,
+      ),
+    ).rejects.toThrow(/Nothing was changed\.$/);
+    expect(
+      readFileSync(join(root, "versions", "0.0.5", "lib", "host.mjs"), "utf8"),
+    ).toBe("new");
+    expect(readdirSync(join(root, "versions")).sort()).toEqual([
+      "0.0.1",
+      "0.0.5",
+    ]);
+  });
+
+  it("puts in place only a copy staged in this host's own versions folder", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    const elsewhere = stageRelease(scratch(), ".stage-1-a", "new");
+    await expect(
+      activateRelease(
+        root,
+        "0.0.5",
+        pathToFileURL(join(elsewhere, "lib", "host.mjs")).href,
+      ),
+    ).rejects.toThrow(UpdateRefused);
+    expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
+  });
+});
+
+describe("the release this process is", () => {
+  it("is the folder of this host's versions that holds the running file, whatever the path above it", () => {
+    const outer = join(scratch(), "versions", "1.2.3");
+    const root = join(outer, "Connector Host");
+    const file = join(root, "versions", "0.0.3", "lib", "host.mjs");
+    mkdirSync(join(root, "versions", "0.0.3", "lib"), { recursive: true });
+    writeFileSync(file, "export {}\n");
+    mkdirSync(join(outer, "dist"), { recursive: true });
+    writeFileSync(join(outer, "dist", "main.js"), "export {}\n");
+    expect(installedVersion(root, pathToFileURL(file).href)).toBe("0.0.3");
+    expect(
+      installedVersion(
+        root,
+        pathToFileURL(join(outer, "dist", "main.js")).href,
+      ),
+    ).toBeUndefined();
+    expect(
+      installedVersion(join(outer, "other"), pathToFileURL(file).href),
+    ).toBeUndefined();
+  });
+});
+
+describe("the daily check in run", () => {
+  it("keeps supervising while the check waits, and stops the check when run ends", async () => {
+    const home = linked();
+    let signal: AbortSignal | undefined;
+    const exit = await run({
+      home,
+      env: {},
+      execPath: process.execPath,
+      stopped: new Promise(() => undefined),
+      version: "0.0.1",
+      tickMs: 10,
+      maintain: (_version, given) => {
+        signal = given;
+        return new Promise((_done, fail) => {
+          given.addEventListener("abort", () => {
+            fail(new Error("stopped"));
+          });
+        });
+      },
+      send: () => Promise.resolve(marfaAnswer(401, { code: "unauthorized" })),
+    });
+    expect(exit).toBe(0);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("starts one check at a time, and stops it when the host is asked to stop", async () => {
+    const home = linked();
+    let stop = (): void => undefined;
+    let started = 0;
+    let signal: AbortSignal | undefined;
+    const running = run({
+      home,
+      env: {},
+      execPath: process.execPath,
+      stopped: new Promise((done) => {
+        stop = done;
+      }),
+      version: "0.0.1",
+      tickMs: 10,
+      checkEveryMs: 0,
+      maintain: (_version, given) => {
+        started += 1;
+        signal = given;
+        return new Promise((_done, fail) => {
+          given.addEventListener("abort", () => {
+            fail(new Error("stopped"));
+          });
+        });
+      },
+      send: () =>
+        Promise.resolve(
+          marfaAnswer(200, {
+            id: "host-1",
+            name: "Studio Mac",
+            connectors: [],
+          }),
+        ),
+    });
+    await new Promise((done) => setTimeout(done, 200));
+    expect(started).toBe(1);
+    stop();
+    await expect(running).resolves.toBe(0);
+    expect(signal?.aborted).toBe(true);
   });
 });

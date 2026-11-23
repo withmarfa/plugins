@@ -3,14 +3,18 @@
  * points `current` at it. A failed download or checksum changes nothing.
  * `run` asks once a day; `update` asks when someone runs it, and still asks
  * when the daily check is off.
+ *
+ * Every installer stages into a folder of its own in `versions/`, and only
+ * the holder of `update.lock` moves a staged copy into place, switches
+ * `current` and prunes.
  */
-import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
-  readlinkSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -18,12 +22,22 @@ import {
 } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { readIfThere, writeWhole } from "./files.js";
+import { alive, holder, takeLock, type Lock } from "./lock.js";
 
-/** The repository a released host updates from. The release build names the same one. */
-export const pluginsRepository = "withmarfa/plugins";
+/** Written in by the release build: the repository the release came from. */
+declare const MARFA_PLUGINS_REPOSITORY: string | undefined;
+
+/** The repository a released host updates from, or none for a copy built
+ *  outside a release. */
+export function pluginsRepository(): string | undefined {
+  return typeof MARFA_PLUGINS_REPOSITORY === "string"
+    ? MARFA_PLUGINS_REPOSITORY
+    : undefined;
+}
 
 export const hostPlatforms = [
   "darwin-arm64",
@@ -36,9 +50,13 @@ export type HostPlatform = (typeof hostPlatforms)[number];
 
 export const dayMs = 24 * 60 * 60 * 1000;
 
+export const updateLockName = "update.lock";
+
 const checkedName = "update-checked";
 
 const unchanged = "Nothing was changed.";
+
+const semver = /^\d+\.\d+\.\d+$/;
 
 export class UpdateRefused extends Error {
   override name = "UpdateRefused";
@@ -46,6 +64,22 @@ export class UpdateRefused extends Error {
 
 export type UpdateOutcome =
   { kind: "stay" } | { kind: "updated"; version: string };
+
+/** How long each fetch may take: to its answer's first byte, and whole. */
+export interface Deadlines {
+  firstByteMs: number;
+  totalMs: number;
+  archiveTotalMs: number;
+}
+
+export const deadlines: Deadlines = {
+  firstByteMs: 30_000,
+  totalMs: 60_000,
+  archiveTotalMs: 10 * 60_000,
+};
+
+/** How long an installer waits for another to finish moving its copy in. */
+const lockWaitMs = 60_000;
 
 export function hostPlatform(
   platform = process.platform,
@@ -67,14 +101,36 @@ export function hostArchiveName(version: string, platform: string): string {
   return `marfa-connector-host-${version}-${platform}.tar.gz`;
 }
 
-/** The release this file was installed as, from a `versions/<version>/` path. */
-export function runningVersion(moduleUrl: string): string | undefined {
+function real(path: string): string | undefined {
   try {
-    const path = realpathSync(fileURLToPath(moduleUrl));
-    return /\/versions\/(\d+\.\d+\.\d+)(?:\/|$)/.exec(path)?.[1];
+    return realpathSync(path);
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The release this file is, when it is `<root>/versions/<version>/lib/host.mjs`
+ * of this host's own folder; otherwise none.
+ */
+export function installedVersion(
+  root: string,
+  moduleUrl: string,
+): string | undefined {
+  const file = real(fileURLToPath(moduleUrl));
+  const versions = real(join(root, "versions"));
+  if (file === undefined || versions === undefined) return undefined;
+  const lib = dirname(file);
+  const folder = dirname(lib);
+  const version = basename(folder);
+  if (
+    basename(file) !== "host.mjs" ||
+    basename(lib) !== "lib" ||
+    dirname(folder) !== versions ||
+    !semver.test(version)
+  )
+    return undefined;
+  return version;
 }
 
 export function compareVersions(left: string, right: string): number {
@@ -118,49 +174,63 @@ export function updatesOff(root: string): boolean {
 }
 
 /**
- * Points `current` at `versions/<version>`. A rename replaces the old
- * symlink. `mv` on macOS follows a symlink to a directory and would put the
- * new link inside the old version.
+ * Points `current` at `versions/<version>`: a new link renamed over the old
+ * one. `rename` replaces a link and never follows it, where `mv` onto a link
+ * to a folder moves into that folder.
  */
-export function switchCurrent(root: string, version: string): void {
-  const next = join(root, "current.next");
-  rmSync(next, { force: true });
+function switchCurrent(root: string, version: string): void {
+  const next = join(root, `.current-${randomBytes(6).toString("hex")}`);
   symlinkSync(join("versions", version), next);
-  renameSync(next, join(root, "current"));
+  try {
+    renameSync(next, join(root, "current"));
+  } catch (error) {
+    rmSync(next, { force: true });
+    throw error;
+  }
+}
+
+/** `.<version>.aside`: an installed copy moved aside while it is replaced. */
+const asideName = /^\.(\d+\.\d+\.\d+)\.aside$/;
+/** `.stage-<pid>-<random>`: the folder one installer stages into. */
+const stageName = /^\.stage-(\d+)-/;
+
+/**
+ * What a stopped installer left, cleared under the update lock: a copy set
+ * aside goes back where it was when nothing took its place, and a staging
+ * folder goes once the process that made it is gone.
+ */
+function recover(dir: string): void {
+  for (const name of readdirSync(dir)) {
+    const aside = asideName.exec(name);
+    if (aside?.[1] !== undefined) {
+      const dest = join(dir, aside[1]);
+      if (existsSync(dest))
+        rmSync(join(dir, name), { recursive: true, force: true });
+      else renameSync(join(dir, name), dest);
+      continue;
+    }
+    const pid = Number(stageName.exec(name)?.[1]);
+    if (pid > 0 && pid !== process.pid && !alive(pid))
+      rmSync(join(dir, name), { recursive: true, force: true });
+  }
 }
 
 /**
  * Deletes every installed release but the two newest, the one that is
- * running and the one `current` names. The process is still executing its
- * own copy, so that copy stays even when it is older than those two.
+ * running and the one `current` names. Only finished copies are named
+ * `<version>`, so a folder another installer stages into is never touched.
  */
-export function pruneVersions(root: string, running: string): void {
-  const dir = join(root, "versions");
-  if (!existsSync(dir)) return;
-  const names = readdirSync(dir).filter((name) => /^\d+\.\d+\.\d+$/.test(name));
-  const keep = new Set(
-    [...names].sort((left, right) => compareVersions(right, left)).slice(0, 2),
-  );
-  keep.add(running);
-  const current = currentVersion(root);
-  if (current !== undefined) keep.add(current);
-  for (const name of names) {
-    if (!keep.has(name))
+function pruneVersions(dir: string, keep: (string | undefined)[]): void {
+  const names = readdirSync(dir).filter((name) => semver.test(name));
+  const kept = new Set<string | undefined>([
+    ...[...names]
+      .sort((left, right) => compareVersions(right, left))
+      .slice(0, 2),
+    ...keep,
+  ]);
+  for (const name of names)
+    if (!kept.has(name))
       rmSync(join(dir, name), { recursive: true, force: true });
-  }
-  for (const name of readdirSync(dir)) {
-    if (name.endsWith(".partial") || name.endsWith(".previous")) {
-      rmSync(join(dir, name), { recursive: true, force: true });
-    }
-  }
-}
-
-export function listedChecksum(text: string, name: string): string | undefined {
-  for (const line of text.split("\n")) {
-    const match = /^([0-9a-f]{64}) {2}(\S+)$/.exec(line);
-    if (match?.[2] === name) return match[1];
-  }
-  return undefined;
 }
 
 function refuse(message: string): UpdateRefused {
@@ -169,26 +239,202 @@ function refuse(message: string): UpdateRefused {
   );
 }
 
-async function take(url: string, get: typeof fetch): Promise<Buffer> {
-  const response = await get(url);
-  if (!response.ok) {
-    throw refuse(`${url} answered ${String(response.status)}.`);
+function said(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** Takes `update.lock`, waiting on the monotonic clock while another holds it. */
+async function updateLock(
+  root: string,
+  waitMs: number,
+  signal: AbortSignal | undefined,
+): Promise<Lock> {
+  const path = join(root, updateLockName);
+  const until = performance.now() + waitMs;
+  for (;;) {
+    if (signal?.aborted === true) throw refuse("The update was stopped.");
+    const taken = takeLock(path);
+    if ("lock" in taken) return taken.lock;
+    if (performance.now() > until) {
+      const pid = taken.holder ?? holder(path);
+      throw refuse(
+        `Another update${pid === undefined ? "" : `, process ${String(pid)},`} is putting a release in place in ${root}.`,
+      );
+    }
+    await new Promise((done) => setTimeout(done, 100));
   }
-  return Buffer.from(await response.arrayBuffer());
+}
+
+interface Placing {
+  root: string;
+  version: string;
+  stage: string;
+  /** Keeps this release, which the process runs. */
+  running?: string | undefined;
+  /** Leaves `current` alone when it already names this release or a later one. */
+  onlyNewer?: boolean;
+  lockWaitMs?: number;
+  signal?: AbortSignal | undefined;
+}
+
+/**
+ * Moves a finished staged copy to `versions/<version>` and points `current`
+ * at it, under the update lock. A copy already there is moved aside first
+ * and put back if anything after fails. Answers the release `current`
+ * names afterwards.
+ */
+async function placeRelease(placing: Placing): Promise<string> {
+  const { root, version, stage } = placing;
+  const dir = join(root, "versions");
+  const lock = await updateLock(
+    root,
+    placing.lockWaitMs ?? lockWaitMs,
+    placing.signal,
+  );
+  try {
+    recover(dir);
+    const current = currentVersion(root);
+    if (
+      placing.onlyNewer === true &&
+      current !== undefined &&
+      existsSync(join(dir, current)) &&
+      compareVersions(current, version) >= 0
+    ) {
+      rmSync(stage, { recursive: true, force: true });
+      return current;
+    }
+    const dest = join(dir, version);
+    const aside = join(dir, `.${version}.aside`);
+    const had = existsSync(dest);
+    if (had) renameSync(dest, aside);
+    try {
+      renameSync(stage, dest);
+    } catch (error) {
+      if (had) renameSync(aside, dest);
+      throw refuse(`Could not put ${version} in place: ${said(error)}.`);
+    }
+    try {
+      switchCurrent(root, version);
+    } catch (error) {
+      rmSync(dest, { recursive: true, force: true });
+      if (had) renameSync(aside, dest);
+      throw refuse(`Could not switch to ${version}: ${said(error)}.`);
+    }
+    if (had) rmSync(aside, { recursive: true, force: true });
+    pruneVersions(dir, [placing.running, version]);
+    return version;
+  } finally {
+    lock.release();
+  }
+}
+
+/** The parts of a release a staged copy must hold. */
+const releaseFiles = ["bin/marfa-connector-host", "lib/node", "lib/host.mjs"];
+
+function assertWhole(stage: string, what: string): void {
+  for (const relative of releaseFiles)
+    if (!existsSync(join(stage, relative)))
+      throw refuse(`${what} has no ${relative}.`);
+}
+
+/**
+ * What `install-host.sh` runs from the copy it staged: puts that copy in
+ * place as `version` and points `current` at it. The copy must be staged in
+ * this host's own `versions/` folder.
+ */
+export async function activateRelease(
+  root: string,
+  version: string,
+  moduleUrl: string,
+  wait: number = lockWaitMs,
+): Promise<void> {
+  if (!semver.test(version)) throw refuse(`${version} is not a version.`);
+  const file = real(fileURLToPath(moduleUrl));
+  const versions = real(join(root, "versions"));
+  const stage = file === undefined ? undefined : dirname(dirname(file));
+  if (
+    stage === undefined ||
+    versions === undefined ||
+    dirname(stage) !== versions ||
+    !stageName.test(basename(stage))
+  )
+    throw refuse(
+      `This copy is not staged in ${join(root, "versions")}, so it cannot put itself in place.`,
+    );
+  assertWhole(stage, "The staged copy");
+  await placeRelease({ root, version, stage, lockWaitMs: wait });
+}
+
+/** `url` fetched within its deadlines, or a refusal saying why not. */
+async function fetchWithin(
+  url: string,
+  get: typeof fetch,
+  signal: AbortSignal,
+  firstByteMs: number,
+  totalMs: number,
+): Promise<{ url: string; bytes?: Buffer }> {
+  const first = new AbortController();
+  const total = AbortSignal.timeout(totalMs);
+  const timer = setTimeout(() => {
+    first.abort();
+  }, firstByteMs);
+  const all = AbortSignal.any([signal, total, first.signal]);
+  try {
+    const response = await get(url, { signal: all });
+    clearTimeout(timer);
+    if (!response.ok) {
+      await response.body?.cancel();
+      throw refuse(`${url} answered ${String(response.status)}.`);
+    }
+    return {
+      url: response.url,
+      bytes: Buffer.from(await response.arrayBuffer()),
+    };
+  } catch (error) {
+    if (error instanceof UpdateRefused) throw error;
+    if (signal.aborted) throw refuse("The update was stopped.");
+    if (first.signal.aborted)
+      throw refuse(
+        `${url} did not answer within ${String(firstByteMs / 1000)} seconds.`,
+      );
+    if (total.aborted)
+      throw refuse(
+        `${url} took longer than ${String(totalMs / 1000)} seconds.`,
+      );
+    throw refuse(said(error));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function untar(
+  archive: string,
+  into: string,
+  signal: AbortSignal,
+): Promise<void> {
+  await promisify(execFile)(
+    "tar",
+    ["-xzf", archive, "-C", into, "--strip-components=1"],
+    { signal },
+  );
 }
 
 export interface UpdateRequest {
   root: string;
   version: string;
   platform: string;
-  repository?: string;
+  repository?: string | undefined;
   origin?: string;
   fetch?: typeof fetch;
+  /** Stops every fetch and the unpacking, changing nothing. */
+  signal?: AbortSignal;
+  deadlines?: Partial<Deadlines>;
+  lockWaitMs?: number;
 }
 
 /**
  * Downloads the newest release when it is newer than `version`, checks it,
- * unpacks it beside the one that is running and points `current` at it.
+ * stages it in a folder of its own and puts it in place.
  */
 export async function updateRelease(
   request: UpdateRequest,
@@ -198,93 +444,99 @@ export async function updateRelease(
       `This system (${request.platform}) has no connector host build.`,
     );
   }
-  const repo = request.repository ?? pluginsRepository;
+  const repo = request.repository ?? pluginsRepository();
+  if (repo === undefined)
+    throw refuse("This copy was not built by a release, so it cannot update.");
   const origin = request.origin ?? "https://github.com";
   const get = request.fetch ?? fetch;
+  const signal = request.signal ?? new AbortController().signal;
+  const limits = { ...deadlines, ...request.deadlines };
+  const latest = await fetchWithin(
+    `${origin}/${repo}/releases/latest`,
+    get,
+    signal,
+    limits.firstByteMs,
+    limits.totalMs,
+  );
   let newest: string;
   try {
-    const latest = await get(`${origin}/${repo}/releases/latest`);
-    if (!latest.ok) {
-      throw refuse(
-        `${origin}/${repo}/releases/latest answered ${String(latest.status)}.`,
-      );
-    }
-    const found = /\/releases\/tag\/v(\d+\.\d+\.\d+)\/?$/.exec(
+    const named = /\/releases\/tag\/v(\d+\.\d+\.\d+)\/?$/.exec(
       new URL(latest.url).pathname,
-    );
-    const named = found?.[1];
-    if (named === undefined) {
-      throw refuse(
-        `The latest release did not name a version (${latest.url}).`,
-      );
-    }
+    )?.[1];
+    if (named === undefined) throw new Error("no version");
     newest = named;
-  } catch (error) {
-    if (error instanceof UpdateRefused) throw error;
-    throw refuse(error instanceof Error ? error.message : String(error));
+  } catch {
+    throw refuse(`The latest release did not name a version (${latest.url}).`);
   }
   if (compareVersions(newest, request.version) <= 0) return { kind: "stay" };
   const name = hostArchiveName(newest, request.platform);
   const base = `${origin}/${repo}/releases/download/v${newest}`;
+  const archive = await fetchWithin(
+    `${base}/${name}`,
+    get,
+    signal,
+    limits.firstByteMs,
+    limits.archiveTotalMs,
+  );
+  const checksums = await fetchWithin(
+    `${base}/checksums.txt`,
+    get,
+    signal,
+    limits.firstByteMs,
+    limits.totalMs,
+  );
+  const wanted = listedChecksum(checksums.bytes?.toString("utf8") ?? "", name);
+  const bytes = archive.bytes ?? Buffer.alloc(0);
+  if (
+    wanted === undefined ||
+    createHash("sha256").update(bytes).digest("hex") !== wanted
+  ) {
+    throw refuse(`The checksum of ${name} does not match.`);
+  }
+  const dir = join(request.root, "versions");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const scratch = await mkdtemp(join(tmpdir(), "host-update-"));
-  const partial = join(request.root, "versions", `${newest}.partial`);
+  const stage = await mkdtemp(join(dir, `.stage-${String(process.pid)}-`));
   try {
-    const archive = await take(`${base}/${name}`, get);
-    const checksums = await take(`${base}/checksums.txt`, get);
-    const wanted = listedChecksum(checksums.toString("utf8"), name);
-    const digest = createHash("sha256").update(archive).digest("hex");
-    if (wanted === undefined || digest !== wanted) {
-      throw refuse(`The checksum of ${name} does not match.`);
-    }
     const archivePath = join(scratch, name);
-    await writeFile(archivePath, archive);
-    rmSync(partial, { recursive: true, force: true });
-    mkdirSync(partial, { recursive: true });
+    await writeFile(archivePath, bytes);
     try {
-      execFileSync(
-        "tar",
-        ["-xzf", archivePath, "-C", partial, "--strip-components=1"],
-        { stdio: ["ignore", "ignore", "pipe"] },
-      );
+      await untar(archivePath, stage, signal);
     } catch (error) {
-      throw refuse(
-        `Could not unpack ${name}: ${error instanceof Error ? error.message : String(error)}.`,
-      );
+      if (signal.aborted) throw refuse("The update was stopped.");
+      throw refuse(`Could not unpack ${name}: ${said(error)}.`);
     }
-    for (const relative of [
-      "bin/marfa-connector-host",
-      "lib/node",
-      "lib/host.mjs",
-    ]) {
-      if (!existsSync(join(partial, relative))) {
-        throw refuse(`The archive has no ${relative}.`);
-      }
-    }
-    const dest = join(request.root, "versions", newest);
-    const backup = `${dest}.previous`;
-    rmSync(backup, { recursive: true, force: true });
-    if (existsSync(dest)) renameSync(dest, backup);
-    renameSync(partial, dest);
-    try {
-      switchCurrent(request.root, newest);
-    } catch (error) {
-      rmSync(dest, { recursive: true, force: true });
-      if (existsSync(backup)) renameSync(backup, dest);
-      throw refuse(
-        `Could not switch to ${newest}: ${error instanceof Error ? error.message : String(error)}.`,
-      );
-    }
-    rmSync(backup, { recursive: true, force: true });
+    assertWhole(stage, "The archive");
+    if (signal.aborted) throw refuse("The update was stopped.");
+    const current = await placeRelease({
+      root: request.root,
+      version: newest,
+      stage,
+      running: request.version,
+      onlyNewer: true,
+      signal,
+      ...(request.lockWaitMs === undefined
+        ? {}
+        : { lockWaitMs: request.lockWaitMs }),
+    });
+    return current === request.version
+      ? { kind: "stay" }
+      : { kind: "updated", version: current };
   } catch (error) {
-    rmSync(partial, { recursive: true, force: true });
-    rmSync(join(request.root, "current.next"), { force: true });
     if (error instanceof UpdateRefused) throw error;
-    throw refuse(error instanceof Error ? error.message : String(error));
+    throw refuse(said(error));
   } finally {
+    rmSync(stage, { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });
   }
-  pruneVersions(request.root, request.version);
-  return { kind: "updated", version: newest };
+}
+
+export function listedChecksum(text: string, name: string): string | undefined {
+  for (const line of text.split("\n")) {
+    const match = /^([0-9a-f]{64}) {2}(\S+)$/.exec(line);
+    if (match?.[2] === name) return match[1];
+  }
+  return undefined;
 }
 
 export interface DailyRequest extends UpdateRequest {
