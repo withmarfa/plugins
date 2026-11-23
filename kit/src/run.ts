@@ -208,7 +208,6 @@ const journalFull = "retry-journal-full:";
 /** The most conditions kept in the source's explicit problem snapshot. */
 const keptConditions = 200;
 
-/** The conditions that fit in a report beside counts of this length. */
 /** The standing conditions as the summary names them: each message once,
  *  without its closing full stop, with the keys of every condition that
  *  says it. */
@@ -227,6 +226,7 @@ function line(text: string, keys: readonly string[]): string {
   return keys.length > 1 ? `${text} (${String(keys.length)} conditions)` : text;
 }
 
+/** The conditions that fit in a report beside counts of this length. */
 function fitting(
   counts: string,
   standing: ReadonlyMap<string, string>,
