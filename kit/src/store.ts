@@ -7,7 +7,7 @@ import {
 } from "./outbound.js";
 import type { PendingInbound, Item } from "./define.js";
 import type { Marfa } from "./marfa.js";
-import { isMapping, type Mapping } from "./mapping.js";
+import { isMapping, type KindMapping, type Mapping } from "./mapping.js";
 
 /** A purge still to carry, with when and why the vendor last refused it, and
  *  how many times it has. */
@@ -73,6 +73,10 @@ export interface Kept {
    *  landed its rows on: a rewrite moves no row from a type another kind's
    *  rows may be on, since Marfa does not say which kind wrote it. */
   landed?: Record<string, string[]>;
+  /** For each kind's own type, the mapping of the kind under which the kit
+   *  last wrote its rows on each other type, by which a rewrite reads a row
+   *  there before it moves it back. */
+  landedUnder?: Record<string, Record<string, KindMapping>>;
 }
 
 const perRequest = 500;
@@ -105,6 +109,27 @@ function keptOf(value: unknown, problems: unknown): Kept {
             types.every((type) => typeof type === "string")
               ? [[own, types]]
               : [],
+        ),
+      )
+    : {};
+  const landedUnder = isRecord(kept["landedUnder"])
+    ? Object.fromEntries(
+        Object.entries(kept["landedUnder"]).flatMap(
+          ([own, types]): [string, Record<string, KindMapping>][] => {
+            if (!isRecord(types)) return [];
+            const entries = Object.entries(types).filter(
+              ([type, entry]) =>
+                isRecord(entry) && entry["target_type"] === type,
+            );
+            return entries.length > 0
+              ? [
+                  [
+                    own,
+                    Object.fromEntries(entries) as Record<string, KindMapping>,
+                  ],
+                ]
+              : [];
+          },
         ),
       )
     : {};
@@ -151,6 +176,7 @@ function keptOf(value: unknown, problems: unknown): Kept {
     ...(Array.isArray(watched) &&
       watched.every((type) => typeof type === "string") && { watched }),
     ...(Object.keys(landed).length > 0 && { landed }),
+    ...(Object.keys(landedUnder).length > 0 && { landedUnder }),
     ...(purges.length > 0 && { purges }),
     ...((Object.keys(relinked.rows).length > 0 ||
       relinked.overflowed === true) && { relinked }),
@@ -255,6 +281,9 @@ export class Store {
       ...(kept.mapping !== undefined && { mapping: kept.mapping }),
       ...(kept.watched !== undefined && { watched: kept.watched }),
       ...(kept.landed !== undefined && { landed: kept.landed }),
+      ...(kept.landedUnder !== undefined && {
+        landedUnder: kept.landedUnder,
+      }),
     };
     if (
       (kept.inbound !== undefined || kept.outbound !== undefined) &&

@@ -378,8 +378,9 @@ describe("a rewrite back onto the kind's own type", () => {
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(given.changes).toEqual([]);
   });
-  it("keeps a change carried to the vendor while the row was on the target, and names a field it cannot take back", async () => {
-    const given = held();
+  /** Lands the row on the target with its title carried, and returns its
+   *  id. */
+  async function landed(given: Vendor): Promise<string> {
     expect(await harness.twoWay(given)).toBe(0);
     const id = harness.server.row("a:1").id;
     mapFields({ ...standard, title: { from: "title" } });
@@ -392,16 +393,11 @@ describe("a rewrite back onto the kind's own type", () => {
       },
     ];
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
-    harness.server.edit(id, { title: "One, edited", status: "backlog" });
-    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
-    expect(
-      given.changes.map((change) => [
-        change.item.properties["title"],
-        change.item.properties["status"],
-      ]),
-    ).toEqual([["One, edited", "open"]]);
-    // The vendor holds the change now, and sends nothing it did not change.
-    given.entries = [];
+    expect(harness.server.byId(id).type).toBe(target);
+    return id;
+  }
+
+  function mapBack(): void {
     harness.server.mapping.version = 2;
     harness.server.mapping.kinds["entry"] = {
       enabled: true,
@@ -415,6 +411,30 @@ describe("a rewrite back onto the kind's own type", () => {
         requested_at: "2026-11-22T01:00:00.000Z",
       },
     ];
+  }
+
+  function carried(given: Vendor): unknown[][] {
+    return given.changes.map((change) => [
+      change.item.properties["title"],
+      change.item.properties["status"],
+    ]);
+  }
+
+  /** Lands the row on the target and carries an edit of its title and
+   *  status to the vendor, which then sends nothing it did not change. */
+  async function carriedOnTarget(given: Vendor): Promise<string> {
+    const id = await landed(given);
+    harness.server.edit(id, { title: "One, edited", status: "backlog" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(carried(given)).toEqual([["One, edited", "open"]]);
+    given.entries = [];
+    return id;
+  }
+
+  it("keeps a change carried to the vendor while the row was on the target, reading its status word back", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    mapBack();
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(harness.server.rewritesDone).toEqual([1, 2]);
     const after = harness.server.byId(id);
@@ -422,10 +442,154 @@ describe("a rewrite back onto the kind's own type", () => {
     expect(after.properties).toEqual({
       ...one.properties,
       title: "One, edited",
+      status: "open",
     });
-    expect(harness.problems()["rewrite:2:older"]).toContain("status on 1 row");
+    expect(harness.problems()).not.toHaveProperty("rewrite:2:older");
     expect(given.changes).toEqual([]);
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("keeps an edit made on the target and not yet carried, and carries it once", async () => {
+    const given = held();
+    const id = await landed(given);
+    harness.server.edit(id, { title: "One, edited" });
+    given.entries = [];
+    mapBack();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties["title"]).toBe("One, edited");
+    expect(carried(given)).toEqual([["One, edited", "waiting"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+    expect(harness.server.byId(id).properties["title"]).toBe("One, edited");
+  });
+
+  it("keeps an edit made on the target after one that was carried, and carries it once", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    harness.server.edit(id, { title: "One, edited twice" });
+    mapBack();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties["title"]).toBe("One, edited twice");
+    expect(after.properties["status"]).toBe("open");
+    expect(carried(given)).toEqual([["One, edited twice", "open"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("keeps the request open where the move fails, and the next run carries out the move and only the edit not yet carried", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    harness.server.edit(id, { title: "One, edited twice" });
+    mapBack();
+    harness.server.refuseNext("PATCH /items/" + id, 503, "unavailable");
+    expect(await quiet(given)).not.toBe(0);
+    expect(harness.server.byId(id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties["title"]).toBe("One, edited twice");
+    expect(carried(given)).toEqual([["One, edited twice", "open"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("keeps the request open where Marfa refuses the move, and the next run, under the new mapping, still keeps the edit not yet carried", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    harness.server.edit(id, { title: "One, edited twice" });
+    mapBack();
+    harness.server.refuseNext("PATCH /items/" + id, 409, "version_conflict");
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    expect(harness.problems()["rewrite:2"]).toContain(`${id} was not moved`);
+    expect(harness.server.connectorState?.["mapping"]).toMatchObject({
+      version: 2,
+    });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties["title"]).toBe("One, edited twice");
+    expect(carried(given)).toEqual([["One, edited twice", "open"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("judges a move tried again as the first try did, so a status word the target holds in another word is not carried", async () => {
+    const given = held();
+    const id = await landed(given);
+    harness.server.edit(id, { title: "One, edited" });
+    given.entries = [];
+    mapBack();
+    harness.server.refuseNext("PATCH /items/" + id, 409, "version_conflict");
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).type).toBe(target);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.properties["title"]).toBe("One, edited");
+    expect(after.properties["status"]).toBe("waiting");
+    expect(carried(given)).toEqual([["One, edited", "waiting"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("moves the row with the values the vendor agreed in one write, so a failed write after it leaves nothing stale to carry", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    mapBack();
+    // Any write to the row besides the move itself fails.
+    harness.server.refuseWhere(
+      "PATCH /items/" + id,
+      (request) => (request.body as { retype?: boolean }).retype !== true,
+      503,
+      "unavailable",
+    );
+    await quiet(given);
+    harness.server.stopRefusing();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties["title"]).toBe("One, edited");
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("names a field no stored value matches what the vendor agreed, where the kit no longer knows the mapping the row was written under, and takes the vendor's value when it next sends the row", async () => {
+    const given = held();
+    const id = await carriedOnTarget(given);
+    const kept = harness.server.connectorState ?? {};
+    expect(kept["landedUnder"]).toEqual({
+      [ownType.id]: { [target]: harness.server.mapping.kinds["entry"] },
+    });
+    Reflect.deleteProperty(kept, "landedUnder");
+    Reflect.deleteProperty(kept, "mapping");
+    mapBack();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.properties["title"]).toBe("One, edited");
+    expect(after.properties["status"]).toBe("waiting");
+    expect(harness.problems()["rewrite:2:older"]).toContain("status on 1 row");
+    expect(given.changes).toEqual([]);
+    given.entries = [
+      { ...one, properties: { ...one.properties, status: "open" } },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).properties["status"]).toBe("open");
     expect(given.changes).toEqual([]);
   });
 });
