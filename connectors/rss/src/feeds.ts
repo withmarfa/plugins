@@ -4,6 +4,7 @@ import {
   htmlToMarkdown,
   isHtml,
   NotConvertible,
+  withinLimits,
 } from "@withmarfa/connector/markdown";
 import { privateHostSet } from "@withmarfa/connector/network";
 import { parseFeed, parseJsonFeed } from "feedsmith";
@@ -43,16 +44,28 @@ export class TooManyAttributes extends Error {
 /**
  * A cheap refusal before the parse: counts each `<` that opens an element or a
  * `<!` declaration, and as entries those whose local name is `item` or
- * `entry` in any case, and each quoted attribute value as an attribute.
- * Comments, CDATA, the doctype, processing instructions and end tags are
- * passed over.
+ * `entry` in any case, and as attributes each run of space in a tag that is
+ * followed by something other than its end, quoted or not, with a value or
+ * without, so a name beside `=` counts once more than it is: the count only
+ * has to be no lower than what the parser builds. Comments, CDATA, the
+ * doctype, processing instructions and end tags are passed over.
  */
 function countTags(text: string): void {
   const name = /[^\s/>]*/y;
   const tagEnd = /["'>]/g;
+  const attribute = /\s+(?=[^\s/>])/g;
   let elements = 0;
   let entries = 0;
   let attributes = 0;
+  const counted = (from: number, to: number): void => {
+    if (to <= from) return;
+    const tag = text.slice(from, to);
+    attribute.lastIndex = 0;
+    while (attribute.exec(tag) !== null) {
+      attributes += 1;
+      if (attributes > maxFeedAttributes) throw new TooManyAttributes();
+    }
+  };
   for (let at = text.indexOf("<"); at !== -1; at = text.indexOf("<", at)) {
     const skipTo = text.startsWith("<!--", at)
       ? "-->"
@@ -80,18 +93,19 @@ function countTags(text: string): void {
       if (entries > maxFeedEntries) throw new TooManyEntries();
     }
     tagEnd.lastIndex = name.lastIndex;
+    let from = name.lastIndex;
     for (;;) {
       const mark = tagEnd.exec(text);
       if (mark === null) return;
+      counted(from, mark.index);
       if (mark[0] === ">") {
         at = mark.index + 1;
         break;
       }
       const close = text.indexOf(mark[0], mark.index + 1);
       if (close === -1) return;
-      attributes += 1;
-      if (attributes > maxFeedAttributes) throw new TooManyAttributes();
       tagEnd.lastIndex = close + 1;
+      from = close + 1;
     }
   }
 }
@@ -436,6 +450,11 @@ const wrappers = new Set(["br", "div", "p", "span", "wbr"]);
 
 function readingOf(markup: string | undefined): Reading | undefined {
   if (markup === undefined) return undefined;
+  // Markup the converter refuses is not parsed either: it would build a tree
+  // as large as the feed allows, and its text is left out as its Markdown is.
+  if (!withinLimits(markup)) {
+    return { plain: undefined, marked: true, empty: false, pictures: [] };
+  }
   const { children } = parseDocument(markup, { recognizeCDATA: true });
   const plain = textOf(readText(children).replace(/\s+/g, " "));
   const pictures = DomUtils.getElementsByTagName("img", children);

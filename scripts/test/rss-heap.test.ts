@@ -41,6 +41,28 @@ describe("the heap cap of a bundle", () => {
     }, 90_000);
   }
 
+  for (const [kind, what] of [
+    ["bare", "millions of attributes with no value"],
+    ["unquoted", "millions of attributes with an unquoted value"],
+  ] as const) {
+    it(`never meets a feed of ${what}, which the attribute count refuses`, async () => {
+      const { outcome, heapMiB } = await measured(kind, maxHeapMb);
+      expect(outcome).toBe("TooManyAttributes");
+      expect(heapMiB).toBeLessThan(maxHeapMb / 2);
+    }, 90_000);
+  }
+
+  for (const [kind, what] of [
+    ["many", "millions of elements"],
+    ["nested", "millions of levels of them"],
+  ] as const) {
+    it(`reads an entry whose markup holds ${what} without parsing it, and leaves its text out`, async () => {
+      const { outcome, heapMiB } = await measured(kind, maxHeapMb);
+      expect(outcome).toBe("read 1");
+      expect(heapMiB).toBeLessThan(maxHeapMb / 2);
+    }, 90_000);
+  }
+
   it("is what ends a read that needs more, which the same feed shows under a smaller one", async () => {
     await expect(measured("attributes", 24)).rejects.toThrow(
       /heap out of memory/i,

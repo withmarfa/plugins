@@ -9,7 +9,7 @@ The package is private to the workspace and ships its built `dist/` only. It has
 | Import                          | Holds                                                                                                                                                                                                                                 |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@withmarfa/connector`          | `defineConnector`, `main`, `exitCode`, the errors `Unreachable`, `Refused`, `Declined`, `LinkTaken` and `SettingsRefused`, `verifyHmac`, `rowId`, `carriedTypes`, `edgeTypesOf`, `shippedConnection` and the types of the definition. |
-| `@withmarfa/connector/markdown` | `htmlToMarkdown`, `markdownToHtml`, `NotConvertible`.                                                                                                                                                                                 |
+| `@withmarfa/connector/markdown` | `htmlToMarkdown`, `markdownToHtml`, `NotConvertible`, `withinLimits`.                                                                                                                                                                 |
 | `@withmarfa/connector/pictures` | `fetchPicture`.                                                                                                                                                                                                                       |
 | `@withmarfa/connector/network`  | `privateHostSet` and the address guard `fetchPicture` uses.                                                                                                                                                                           |
 
@@ -501,7 +501,7 @@ A connector runs under the connector host.
 
 ## Converting content
 
-- **`htmlToMarkdown(html)`** from `@withmarfa/connector/markdown` converts the HTML a vendor sends for a `body_field`. Text without HTML passes through unchanged. It throws `NotConvertible` for markup past the kit's limits: 600,000 characters, 25,000 elements and nesting 200 deep.
+- **`htmlToMarkdown(html)`** from `@withmarfa/connector/markdown` converts the HTML a vendor sends for a `body_field`. Text without HTML passes through unchanged. It throws `NotConvertible` for markup past the kit's limits: 600,000 characters, 25,000 elements and nesting 200 deep. `withinLimits(markup)` from the same module says whether markup is within the first two, for a connector that parses markup with a parser of its own and must not build a tree as large as a vendor can write.
 - **`markdownToHtml(markdown)`** converts a body for a vendor that takes HTML. It throws `NotConvertible` for Markdown past 100,000 characters, nested deeper than the converter reads, or costly to convert.
 - **`NotConvertible.reason`** is `length`, `elements`, `depth`, `complexity` or `unreadable`. The connector handles it by leaving the field out when reading, and by refusing the write when sending.
 

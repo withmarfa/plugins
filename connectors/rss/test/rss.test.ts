@@ -1807,6 +1807,16 @@ describe("fetching a feed", () => {
         rss(`<x a='1' b="2" c="3" d="4"/>`.repeat(maxFeedAttributes / 4 + 1)),
       ),
     ).toThrow(TooManyAttributes);
+    // A name with no value, or a value with no quotes, is one all the same.
+    const bare = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}`).join(" ")}/>`;
+    const unquoted = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}=1`).join(" ")}/>`;
+    expect(read(rss(bare(maxFeedAttributes + 1)))).toThrow(TooManyAttributes);
+    expect(read(rss(unquoted(maxFeedAttributes + 1)))).toThrow(
+      TooManyAttributes,
+    );
+    expect(read(rss(bare(maxFeedAttributes - 1)))).not.toThrow();
     // The witness: the same document at the cap reads, the feed's own `version` among the count.
     expect(read(rss(attributes(maxFeedAttributes - 1)))).not.toThrow();
   });
