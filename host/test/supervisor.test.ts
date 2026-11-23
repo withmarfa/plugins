@@ -236,6 +236,31 @@ describe("the connector host's supervisor", () => {
     expect(supervisor.status().connectors[0]?.state).toBe("running");
   });
 
+  it("does not start a connector that exits 0 by itself again until a look shows it not paused", async () => {
+    const { api, server, step, poll, starts, clock, supervisor } = supervised();
+    // What a connector does when its run start reads a pause the host has
+    // not seen yet.
+    const code = server.serve("rss-1", connectorCode({ exit: 0 }));
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    // Well past the wait after an ordinary exit, still before the next look.
+    clock.advance(30_000);
+    await step();
+    expect(starts("rss")).toHaveLength(1);
+    api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
+    await poll();
+    expect(starts("rss")).toHaveLength(1);
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await poll();
+    await until(() => starts("rss").length === 2);
+    // A look that shows it not paused starts it at once, too.
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    await poll();
+    await until(() => starts("rss").length === 3);
+  });
+
   it("starts a connector at once after it stopped for a pause even when it crashed before", async () => {
     const { api, server, step, poll, starts, clock, supervisor } = supervised();
     const crash = server.serve("rss-1", connectorCode({ exit: 1 }));

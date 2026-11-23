@@ -132,6 +132,10 @@ interface Slot {
   running?: Running | undefined;
   hold?: Hold | undefined;
   restartAt?: number | undefined;
+  /** It exited 0 by itself, as a connector that read a pause does, on the
+   *  look answered at this time: it starts again only once a later look shows
+   *  it not paused. */
+  pausedOn?: number | undefined;
   crashes: number;
   /** The wall clock at the last exit, for `status`. */
   lastExit?: (Exit & { on: number }) | undefined;
@@ -432,6 +436,10 @@ export class Supervisor {
       await this.pause(slot, entry, code, now);
       return;
     }
+    if (slot.pausedOn !== undefined) {
+      if (slot.seenAt <= slot.pausedOn) return;
+      slot.pausedOn = undefined;
+    }
     if (slot.running !== undefined) slot.running.pauseWoken = false;
     const request = entry.run_requested_at;
     const asked = request !== null && request !== slot.actedRequest;
@@ -490,9 +498,11 @@ export class Supervisor {
   ): Promise<void> {
     const running = slot.running;
     if (running === undefined) {
-      // Resuming starts it at the next look, whatever it waited on before.
+      // The restart wait from before the pause is dropped, so a resume starts
+      // it at the next look. A hold is left as it was.
       slot.crashes = 0;
       slot.restartAt = undefined;
+      slot.pausedOn = undefined;
       return;
     }
     if (running.stopping) return;
@@ -678,6 +688,16 @@ export class Supervisor {
       slot.restartAt = undefined;
       this.log(
         `${said} while paused, as it stops itself; it starts again when the owner resumes it`,
+      );
+    } else if (exit.code === 0) {
+      // Unasked, a connector exits 0 only when its run start read a pause
+      // this host has not seen yet. Started again before a look shows the
+      // pause, it would register again and exit before its run.
+      slot.crashes = 0;
+      slot.restartAt = undefined;
+      slot.pausedOn = slot.seenAt;
+      this.log(
+        `${said} by itself, as a paused connector does; it starts again once Marfa says it is not paused`,
       );
     } else if (exit.code === 2) {
       slot.hold = {
