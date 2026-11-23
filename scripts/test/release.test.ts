@@ -307,6 +307,7 @@ describe("the release workflow", () => {
     "runs-on": string;
     permissions?: Record<string, string>;
     steps: {
+      id?: string;
       name?: string;
       uses?: string;
       run?: string;
@@ -357,6 +358,20 @@ describe("the release workflow", () => {
     );
     expect(attest).toBeGreaterThan(-1);
     expect(create).toBeGreaterThan(attest);
+  });
+
+  it("builds on the Node the connector host carries, read from the pin and not written here", () => {
+    const steps = workflow.jobs["build"]?.steps ?? [];
+    const read = steps.findIndex((step) => step.id === "node");
+    const setup = steps.findIndex((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
+    );
+    expect(steps[read]?.run).toContain("host/node.json");
+    expect(read).toBeGreaterThan(-1);
+    expect(setup).toBeGreaterThan(read);
+    expect(steps[setup]?.with?.["node-version"]).toBe(
+      "${{ steps.node.outputs.version }}",
+    );
   });
 
   it("runs on standard hosted Linux", () => {

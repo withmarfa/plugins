@@ -9,7 +9,26 @@ import {
   maxHtmlLength,
   maxMarkdownLength,
   NotConvertible,
+  withinLimits,
 } from "../src/markdown.js";
+
+describe("withinLimits", () => {
+  it("answers whether htmlToMarkdown would read the text, without converting it", () => {
+    expect(withinLimits("plain text")).toBe(true);
+    expect(withinLimits("<span>a</span>".repeat(maxHtmlElements - 10))).toBe(
+      true,
+    );
+    expect(withinLimits("<span>a</span>".repeat(maxHtmlElements + 1))).toBe(
+      false,
+    );
+    // Depth is no limit, though the converter refuses it.
+    const nested = "<div>".repeat(maxHtmlDepth + 1);
+    expect(withinLimits(nested)).toBe(true);
+    expect(() => htmlToMarkdown(nested)).toThrow(NotConvertible);
+    expect(withinLimits("<div>".repeat(maxHtmlElements + 1))).toBe(false);
+    expect(withinLimits("<p>x</p>".repeat(maxHtmlLength))).toBe(false);
+  });
+});
 
 describe("htmlToMarkdown", () => {
   it("passes plain text through unchanged, without escaping it", () => {

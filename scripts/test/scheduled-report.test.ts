@@ -65,6 +65,7 @@ describe("the job that reports a failed scheduled run", () => {
   it("covers every scheduled workflow but CodeQL's, and finds them rather than passing over none", () => {
     expect(scheduled.map(({ file }) => file).sort()).toEqual([
       "audit.yml",
+      "follow-node.yml",
       "follow-releases.yml",
     ]);
     // The witness: CodeQL is scheduled too, and is left out on purpose.

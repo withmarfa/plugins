@@ -4,6 +4,7 @@ import {
   htmlToMarkdown,
   isHtml,
   NotConvertible,
+  withinLimits,
 } from "@withmarfa/connector/markdown";
 import { privateHostSet } from "@withmarfa/connector/network";
 import { parseFeed, parseJsonFeed } from "feedsmith";
@@ -18,6 +19,16 @@ export const maxFeedEntries = 5000;
  *  200,000. */
 export const maxFeedElements = 300_000;
 
+/** Parsing holds an object per attribute as well, and a feed of few elements
+ *  can carry millions of them, so their count is bounded too; the largest real
+ *  feeds hold well under a third of it. */
+export const maxFeedAttributes = 1_000_000;
+
+/** What a read may hand back, serialized: about three times the largest real
+ *  feed checked. A value every entry repeats, such as the feed's title,
+ *  counts once per entry, as it is written once per row. */
+export const maxResultChars = 32 * 1024 * 1024;
+
 export class TooManyEntries extends Error {
   override name = "TooManyEntries";
 }
@@ -26,18 +37,43 @@ export class TooManyElements extends Error {
   override name = "TooManyElements";
 }
 
+export class TooManyAttributes extends Error {
+  override name = "TooManyAttributes";
+}
+
 /**
- * A cheap refusal before the parse, which runs bounded in a worker either
- * way: counts each `<` that opens an element or a `<!` declaration, and as
- * entries those whose local name is `item` or `entry` in any case. Comments,
- * CDATA, the doctype, processing instructions, end tags and quoted attribute
- * values are passed over.
+ * A cheap refusal before the parse: counts each `<` that opens an element or a
+ * `<!` declaration, and as entries those whose local name is `item` or
+ * `entry` in any case, and as the attributes of a tag the more of its quoted
+ * values and its runs of space followed by something other than its end, so
+ * that a name with no value, one with no quotes and values with no space
+ * between them each count: the count only has to be no lower than what the
+ * parser builds. Comments, CDATA, the doctype, processing instructions and
+ * end tags are passed over.
  */
 function countTags(text: string): void {
   const name = /[^\s/>]*/y;
   const tagEnd = /["'>]/g;
+  const attribute = /\s+(?=[^\s/>])/g;
   let elements = 0;
   let entries = 0;
+  let attributes = 0;
+  let spaced = 0;
+  let quoted = 0;
+  const over = (): void => {
+    if (attributes + Math.max(spaced, quoted) > maxFeedAttributes) {
+      throw new TooManyAttributes();
+    }
+  };
+  const counted = (from: number, to: number): void => {
+    if (to <= from) return;
+    const tag = text.slice(from, to);
+    attribute.lastIndex = 0;
+    while (attribute.exec(tag) !== null) {
+      spaced += 1;
+      over();
+    }
+  };
   for (let at = text.indexOf("<"); at !== -1; at = text.indexOf("<", at)) {
     const skipTo = text.startsWith("<!--", at)
       ? "-->"
@@ -65,16 +101,24 @@ function countTags(text: string): void {
       if (entries > maxFeedEntries) throw new TooManyEntries();
     }
     tagEnd.lastIndex = name.lastIndex;
+    spaced = 0;
+    quoted = 0;
+    let from = name.lastIndex;
     for (;;) {
       const mark = tagEnd.exec(text);
       if (mark === null) return;
+      counted(from, mark.index);
       if (mark[0] === ">") {
+        attributes += Math.max(spaced, quoted);
         at = mark.index + 1;
         break;
       }
       const close = text.indexOf(mark[0], mark.index + 1);
       if (close === -1) return;
+      quoted += 1;
+      over();
       tagEnd.lastIndex = close + 1;
+      from = close + 1;
     }
   }
 }
@@ -419,6 +463,11 @@ const wrappers = new Set(["br", "div", "p", "span", "wbr"]);
 
 function readingOf(markup: string | undefined): Reading | undefined {
   if (markup === undefined) return undefined;
+  // Markup the converter refuses is not parsed either: it would build a tree
+  // as large as the feed allows, and its text is left out as its Markdown is.
+  if (!withinLimits(markup)) {
+    return { plain: undefined, marked: true, empty: false, pictures: [] };
+  }
   const { children } = parseDocument(markup, { recognizeCDATA: true });
   const plain = textOf(readText(children).replace(/\s+/g, " "));
   const pictures = DomUtils.getElementsByTagName("img", children);

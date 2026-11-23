@@ -1,12 +1,13 @@
 import { execFile, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   createClient,
   type components,
   type MarfaClient,
 } from "@withmarfa/client";
+import { bundleIn, permissionFlags } from "../permission-flags.js";
 import { check } from "./check.js";
 import { freshConnectorKey, setSettings, type ConnectorKey } from "./host.js";
 import {
@@ -17,6 +18,26 @@ import {
 
 const run = promisify(execFile);
 const root = resolve(import.meta.dirname, "../../..");
+
+/**
+ * The arguments `node` is started with for the connector built at `entry`.
+ * The connector runs from its `dist/` as built; when `PROOF_BUNDLES` names a
+ * folder of bundles (`scripts/bundle-connectors.ts`), a connector of the
+ * repository runs from its bundle instead, under the permission flags its
+ * host gives it, so the proof shows the same behavior from the bundle. A
+ * connector of the proof's own always runs as built.
+ */
+export function startOf(entry: string, args: readonly string[]): string[] {
+  const bundles = process.env["PROOF_BUNDLES"];
+  const own = /^([a-z0-9-]+)\/dist\/main\.js$/.exec(
+    relative(join(root, "connectors"), entry),
+  );
+  if (bundles === undefined || own?.[1] === undefined) {
+    return [entry, ...args];
+  }
+  const bundle = bundleIn(bundles, own[1]);
+  return [...permissionFlags(bundle), bundle, ...args];
+}
 
 export type Item = components["schemas"]["Item"];
 
@@ -98,7 +119,7 @@ export class ConnectorUnderProof {
     until: () => Promise<void>,
   ): Promise<{ code: number | null; output: string }> {
     await this.prepare(this.given);
-    const child = spawn("node", [this.entry, ...args], {
+    const child = spawn("node", startOf(this.entry, args), {
       env: this.environment(this.given),
       stdio: ["ignore", "ignore", "pipe"],
     });
@@ -127,7 +148,7 @@ export class ConnectorUnderProof {
     const given = { ...this.given, ...more };
     await this.prepare(given);
     try {
-      const { stdout, stderr } = await run("node", [this.entry, ...args], {
+      const { stdout, stderr } = await run("node", startOf(this.entry, args), {
         env: this.environment(given),
       });
       return { code: 0, output: stderr, printed: stdout };

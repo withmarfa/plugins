@@ -4,10 +4,12 @@
  * `Checks` always formats every file and reads it for personal details, so
  * it runs for any change; `code` says whether it also builds, typechecks and
  * lints. `tests` says whether the unit tests run, and `scope` which of them.
- * `Proof` runs only when `proof` is true, and `Plugins`, which checks each
- * plugin as installing will, only when `plugins` is true. A skipped job
- * satisfies a required check where a workflow filtered out by `paths` would
- * leave it pending. A pull request is classified by its diff
+ * `Proof` runs only when `proof` is true, `Plugins`, which checks each plugin
+ * as installing will, only when `plugins` is true, and `Bundles`, which
+ * bundles each connector and runs the bundles on the pinned Node under the
+ * permission flags, only when `bundles` is true. A skipped job satisfies a
+ * required check where a workflow filtered out by `paths` would leave it
+ * pending. A pull request is classified by its diff
  * against its base, and a push to `main` by its diff against the commit it
  * follows, but only when that commit had a green push run of `ci.yml`:
  * otherwise a commit that touches nothing a job reads would show green on top
@@ -17,7 +19,7 @@
  * scope.
  *
  * A draft pull request runs only the quick checks: `Checks` without its
- * tests, so `tests`, `Proof` and `Plugins` answer `false` for it.
+ * tests, so `tests`, `Proof`, `Plugins` and `Bundles` answer `false` for it.
  * `full` says whether the rest runs, and is `false` only for a draft. Marking
  * the pull request ready for review starts a run that does, and so does every
  * push after.
@@ -33,7 +35,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const JOBS = ["code", "tests", "proof", "plugins"] as const;
+export const JOBS = ["code", "tests", "proof", "plugins", "bundles"] as const;
 
 export type Job = (typeof JOBS)[number];
 
@@ -76,6 +78,10 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     [/^\.github\/workflows\//, ALL],
     [/^\.github\//, []],
 
+    // The Node the host carries is read by the tests, which run on it too,
+    // and by the bundles, which are built for it and run on it.
+    [/^host\/node\.json$/, ["tests", "bundles"]],
+
     // A fixture is test input, and the proof reads the RSS connector's.
     [/(^|\/)(fixtures|__fixtures__|testdata)\//, ALL],
     // Everything under a plugin's folder is plugin code, Markdown included: a
@@ -95,6 +101,13 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
       [],
     ],
 
+    // The scripts that make a bundle and say how it is run, and the one that
+    // runs each bundle's `--help`. The unit tests import them, and so does the
+    // proof, which starts a connector from its bundle only when asked to.
+    [
+      /^scripts\/(bundle-connectors|check-bundles|node-pin|permission-flags)\.ts$/,
+      ["code", "tests", "bundles"],
+    ],
     // The proof runs every connector from what `pnpm build` makes, and the
     // build leaves tests out. A test of one connector runs that connector's.
     [/^connectors\/([a-z0-9-]+)\/test\//, ["code", "tests"], connectorOf],
@@ -112,11 +125,14 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     ],
     [/^scripts\/release\/(only-adds|release)\.ts$/, ["code", "tests", "proof"]],
     // The proof is built and linted like the rest of the code. Its stubs and
-    // helpers are also what the unit tests import; its scenarios are not.
+    // helpers are also what the unit tests import; its scenarios are not. The
+    // `Bundles` job runs the RSS group through the same helpers.
     [
       new RegExp(`^scripts/proof/(${proofFilesTestsReach.join("|")})\\.ts$`),
-      ["code", "tests", "proof"],
+      ["code", "tests", "proof", "bundles"],
     ],
+    // The RSS group and the proof's entry, which the `Bundles` job runs.
+    [/^scripts\/proof\/(rss|main)\.ts$/, ["code", "proof", "bundles"]],
     [/^scripts\/proof\//, ["code", "proof"]],
     [
       /^(eslint\.config\.js|vitest\.config\.ts|tsconfig\.check\.json)$/,
@@ -180,6 +196,7 @@ export function forDraft(answer: Answer): Answer {
     tests: false,
     proof: false,
     plugins: false,
+    bundles: false,
   };
 }
 

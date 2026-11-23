@@ -14,19 +14,21 @@ import {
   feedKey,
   feedList,
   privateHosts,
+  maxFeedAttributes,
   maxFeedElements,
   maxFeedEntries,
   maxFieldLength,
   readFeed,
   renderVersion,
+  TooManyAttributes,
   TooManyElements,
   TooManyEntries,
 } from "../src/feeds.js";
 import { isPrivate } from "@withmarfa/connector/network";
 import { getFeed, maxFeedBytes, TooLarge } from "../src/fetch.js";
 
-/** Few elements, each with thousands of attributes: under every count, and
- *  far over what any real feed takes to parse. */
+/** Few elements, each with thousands of attributes: under the element and
+ *  entry counts, and over the attribute count. */
 function heavyFeed(bytes: number): string {
   const attributes = Array.from(
     { length: 4000 },
@@ -1175,8 +1177,8 @@ describe("an entry's content and image", () => {
       expect(read.unconverted).toBe(1);
     });
 
-    it("reads the same feeds in the worker that bounds a read, within its time and memory", async () => {
-      const { readBounded } = (await import(
+    it("reads the same feeds together through the read the connector makes", async () => {
+      const { readDocument } = (await import(
         resolve(import.meta.dirname, "../dist/parse.js")
       )) as typeof import("../src/parse.js");
       const document = rss(
@@ -1190,7 +1192,7 @@ describe("an entry's content and image", () => {
             .join("") +
           item("after", good),
       );
-      const read = await readBounded(
+      const read = readDocument(
         {
           feed: at("https://example.org/rss.xml"),
           bytes: new TextEncoder().encode(document),
@@ -1790,6 +1792,40 @@ describe("fetching a feed", () => {
     );
   });
 
+  it("counts every attribute, so few elements cannot carry a feed's weight in them", () => {
+    const rss = (items: string): string =>
+      `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>${items}</channel></rss>`;
+    const read = (text: string) => () =>
+      readFeed(at("https://example.org/rss.xml"), text);
+    const attributes = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}="v"`).join(" ")}/>`;
+    expect(read(rss(attributes(maxFeedAttributes + 1)))).toThrow(
+      TooManyAttributes,
+    );
+    expect(
+      read(
+        rss(`<x a='1' b="2" c="3" d="4"/>`.repeat(maxFeedAttributes / 4 + 1)),
+      ),
+    ).toThrow(TooManyAttributes);
+    // A name with no value, a value with no quotes and values with no space
+    // between them are attributes all the same.
+    const joined = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}="1"`).join("")}/>`;
+    expect(read(rss(joined(maxFeedAttributes + 1)))).toThrow(TooManyAttributes);
+    expect(read(rss(joined(maxFeedAttributes - 1)))).not.toThrow();
+    const bare = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}`).join(" ")}/>`;
+    const unquoted = (count: number): string =>
+      `<x ${Array.from({ length: count }, (_, at) => `a${String(at)}=1`).join(" ")}/>`;
+    expect(read(rss(bare(maxFeedAttributes + 1)))).toThrow(TooManyAttributes);
+    expect(read(rss(unquoted(maxFeedAttributes + 1)))).toThrow(
+      TooManyAttributes,
+    );
+    expect(read(rss(bare(maxFeedAttributes - 1)))).not.toThrow();
+    // The witness: the same document at the cap reads, the feed's own `version` among the count.
+    expect(read(rss(attributes(maxFeedAttributes - 1)))).not.toThrow();
+  });
+
   it("counts every element and every entry the parser would build, whatever their names' case, prefix or alphabet", () => {
     const rss = (items: string): string =>
       `<?xml version="1.0"?><rss version="2.0"><channel><title>T</title>${items}</channel></rss>`;
@@ -1900,9 +1936,9 @@ describe("fetching a feed", () => {
     };
   }
 
-  it("reads a feed in a worker whose heap limit, not the feed, bounds the memory it takes", async () => {
+  it("refuses a feed of few elements and millions of attributes before it builds any of them", async () => {
     const { outcome, rssMiB } = await measured("heavy");
-    expect(outcome).toBe("TooHeavy");
+    expect(outcome).toBe("TooManyAttributes");
     expect(rssMiB).toBeLessThan(450);
   }, 90_000);
 
@@ -1913,32 +1949,14 @@ describe("fetching a feed", () => {
     expect(rssMiB).toBeLessThan(450);
   }, 90_000);
 
-  it("gives up on a read that runs past its time limit", async () => {
-    const { readBounded, TooSlow } = (await import(
-      resolve(import.meta.dirname, "../dist/parse.js")
-    )) as typeof import("../src/parse.js");
-    await expect(
-      readBounded(
-        {
-          feed: at("https://example.org/rss.xml"),
-          bytes: new TextEncoder().encode(fixture("rss.xml")),
-          contentType: null,
-          documentUrl: "https://example.org/rss.xml",
-        },
-        AbortSignal.timeout(60_000),
-        { timeoutMs: 1 },
-      ),
-    ).rejects.toBeInstanceOf(TooSlow);
-  });
-
   it("reads nothing once the run is stopped, even when it stopped before the read began", async () => {
-    const { readBounded } = (await import(
+    const { readDocument } = (await import(
       resolve(import.meta.dirname, "../dist/parse.js")
     )) as typeof import("../src/parse.js");
     const stopped = new AbortController();
     stopped.abort(new Error("stopped"));
-    await expect(
-      readBounded(
+    expect(() =>
+      readDocument(
         {
           feed: at("https://example.org/rss.xml"),
           bytes: new TextEncoder().encode(fixture("rss.xml")),
@@ -1947,7 +1965,7 @@ describe("fetching a feed", () => {
         },
         stopped.signal,
       ),
-    ).rejects.toThrow("stopped");
+    ).toThrow("stopped");
   });
 
   it("leaves out a field longer than Marfa takes, and keeps the rest of the entry", () => {
@@ -2635,7 +2653,7 @@ describe("the connector, run as a process", () => {
     );
   });
 
-  it("reads every kind of real-world feed in one run, through the worker that bounds each parse", async () => {
+  it("reads every kind of real-world feed in one run, in one run", async () => {
     const wild = [
       ["xkcd-style-atom.xml", "application/atom+xml"],
       ["blog-atom.xml", "application/atom+xml; charset=utf-8"],
@@ -3177,12 +3195,12 @@ describe("the connector, run as a process", () => {
     ).toHaveLength(1);
   });
 
-  it("skips a feed that needs more memory to read than the cap, naming it, and reads the others", async () => {
+  it("skips a feed that holds more attributes than the cap, naming it, and reads the others", async () => {
     served["/heavy.xml"] = { body: heavyFeed(20 * 1024 * 1024) };
     expect((await once(["/heavy.xml", "/rss.xml"])).code).toBe(0);
     expect(marfa.rows).toHaveLength(2);
     expect(marfa.runs.at(-1)?.summary).toContain(
-      `feed 1 in rss_feeds (${base}) needs more than 192 MB to read, so it is skipped`,
+      `feed 1 in rss_feeds (${base}) holds more than ${String(maxFeedAttributes)} attributes, so it is skipped`,
     );
   }, 30_000);
 

@@ -5,6 +5,9 @@ packages:
   - "scripts"
   - "shared/*"
 
+allowBuilds:
+  esbuild: false
+
 # GHSA-g3hv-75wg-m249 is fixed from minimatch 11.0.1, and eslint and
 # typescript-estree still ask for ^10. Remove once they take 11.
 overrides:

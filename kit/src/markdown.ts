@@ -111,7 +111,7 @@ const chunk = 32_768;
  * that cannot be converted, so a hostile input costs no more than a small
  * part of its length.
  */
-function scan(text: string): Scan {
+function scan(text: string, { deep = false } = {}): Scan {
   let html = false as boolean;
   let refused = undefined as Scan["refused"];
   let depth = 0;
@@ -123,7 +123,7 @@ function scan(text: string): Scan {
         depth += 1;
         if (blocks.has(name)) html = true;
         if (count > maxHtmlElements) refused = "elements";
-        else if (depth > maxHtmlDepth) refused = "depth";
+        else if (!deep && depth > maxHtmlDepth) refused = "depth";
         else if (html && text.length > maxHtmlLength) refused = "length";
         if (refused !== undefined) parser.pause();
       },
@@ -155,6 +155,15 @@ const voids = new Set(
  *  `a<b and c>d`. */
 export function isHtml(text: string): boolean {
   return scan(text).html;
+}
+
+/** Whether the text holds no more than `maxHtmlElements` elements and, where it
+ *  is HTML, is no longer than `maxHtmlLength`: what a caller that reads markup
+ *  with a parser of its own, one that walks it without recursion, asks first,
+ *  so that its tree is never as large as a feed can write. Nesting is no
+ *  limit here; `htmlToMarkdown` refuses it past `maxHtmlDepth`. */
+export function withinLimits(text: string): boolean {
+  return scan(text, { deep: true }).refused === undefined;
 }
 
 function isPixel(width: string | null, height: string | null): boolean {
