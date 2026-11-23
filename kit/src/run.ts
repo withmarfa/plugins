@@ -3,11 +3,14 @@ import {
   agreedState,
   carried,
   changedInMarfa,
+  held,
   laterThan,
   mark,
   noteWaiting,
+  occurredKey,
   sideOf,
   stateKey,
+  unreadKey,
   type Agreement,
 } from "./agreement.js";
 import type {
@@ -42,10 +45,8 @@ import {
   causeOf,
   retryAfterOf,
   conflictedCopyTag,
-  typeLevel,
   type Cause,
   type Edge,
-  type Key,
   type Marfa,
 } from "./marfa.js";
 import {
@@ -71,6 +72,7 @@ import {
   narrowedBy,
   planKinds,
   readOnlyTargets,
+  type KindMapping,
   type KindPlan,
   type Mapping,
   type Plan,
@@ -488,27 +490,49 @@ function sameTypes(a: readonly string[], b: readonly string[]): boolean {
 
 const ending = new Set<Cause>(["key", "registration", "address"]);
 
-/** What a rewrite sends to move a row from the kind's own type to its
- *  target: its fields as the mapping lands them, and those to clear. */
+interface Landing {
+  readonly properties: Record<string, unknown>;
+  readonly clear: readonly string[];
+  readonly faults: ReadonlyMap<string, string>;
+}
+
+/** The row's properties once the move lands it. */
+function landedOn(row: Item, landing: Landing): Record<string, unknown> {
+  const properties: Record<string, unknown> = { ...row.properties };
+  for (const field of landing.clear) Reflect.deleteProperty(properties, field);
+  return { ...properties, ...landing.properties };
+}
+
+/** What a rewrite sends to move a row to the kind's target: the kind's own
+ *  fields, from the row or from `own` where it is on another type, as the
+ *  mapping lands them, and the row's fields to clear. */
 function movedProperties(
   planned: KindPlan,
   row: Item,
-): {
-  properties: Record<string, unknown>;
-  clear: string[];
-  faults: Map<string, string>;
-} {
+  own: Readonly<Record<string, unknown>> = row.properties,
+): Landing {
   const fields = planned.fields;
-  if (fields === undefined)
+  if (fields === undefined) {
+    const properties =
+      own === row.properties
+        ? {}
+        : Object.fromEntries(
+            Object.entries(own).filter(
+              ([field]) => !planned.omitted.includes(field),
+            ),
+          );
     return {
-      properties: {},
+      properties,
       clear: Object.keys(row.properties).filter((field) =>
-        planned.omitted.includes(field),
+        own === row.properties
+          ? planned.omitted.includes(field)
+          : !Object.hasOwn(properties, field),
       ),
       faults: new Map(),
     };
+  }
   const shaped = fields.entry(
-    { source_id: row.source_id ?? row.id, properties: row.properties },
+    { source_id: row.source_id ?? row.id, properties: own },
     row.id,
   );
   const properties = fields.write(shaped.entry.properties);
@@ -521,6 +545,204 @@ function movedProperties(
   };
 }
 
+/** The row's versions on the kind's own type, newest first, or none
+ *  where it was never there. */
+async function ownVersions(
+  marfa: Marfa,
+  id: string,
+  own: string,
+): Promise<Record<string, unknown>[]> {
+  return [...(await marfa.versions(id))]
+    .filter((version) => version.type === own)
+    .sort((a, b) => b.version - a.version)
+    .map((version) => version.properties);
+}
+
+/** How the kit read a kind's rows on a type it mapped them onto before: the
+ *  view of a row there, the kind's fields the view holds, and the view of
+ *  the kind's own fields as that mapping lands them. */
+interface Former {
+  readonly read: (
+    properties: Readonly<Record<string, unknown>>,
+  ) => Record<string, unknown>;
+  readonly landed: (
+    own: Readonly<Record<string, unknown>>,
+  ) => Record<string, unknown>;
+  readonly carried: ReadonlySet<string>;
+}
+
+/** How the kit read the kind's rows on a type it landed them on before, by
+ *  the mapping it wrote them there under, or nothing where it does not
+ *  know that mapping. */
+async function formerReading<E extends SettingsDeclaration>(
+  setup: RunSetup<E>,
+  kept: Kept | undefined,
+  kind: RunSetup<E>["connector"]["types"][number],
+  former: string,
+): Promise<Former | undefined> {
+  const name = kind.name;
+  if (name === undefined) return undefined;
+  const last = kept?.mapping?.kinds[name];
+  const entry =
+    kept?.landedUnder?.[kind.type.id]?.[former] ??
+    (last?.target_type === former ? last : undefined);
+  if (entry === undefined) return undefined;
+  const { kinds } = await planKinds(
+    setup.connector,
+    { version: 0, kinds: { [name]: entry }, rewrites: [] },
+    (type) => setup.marfa.resolvedType(type),
+    () => setup.marfa.edgeTypes(),
+  );
+  const planned = kinds.get(kind.type.id);
+  if (
+    planned === undefined ||
+    planned.off !== undefined ||
+    planned.target !== former
+  )
+    return undefined;
+  const fields = planned.fields;
+  if (fields === undefined)
+    return {
+      read: (properties) => ({ ...properties }),
+      landed: (own) => ({ ...own }),
+      carried: new Set(
+        kind.fields.filter((field) => !planned.omitted.includes(field)),
+      ),
+    };
+  return {
+    read: (properties) => fields.read(properties),
+    landed: (own) =>
+      fields.read(
+        fields.write(
+          fields.entry({ source_id: "", properties: own }).entry.properties,
+        ),
+      ),
+    carried: new Set(fields.fields.filter((field) => !field.startsWith("@"))),
+  };
+}
+
+/** A row's move back to the kind's own type: the kind's own fields it is
+ *  moved with, and its agreement as the move leaves it. */
+interface Return {
+  readonly own: Record<string, unknown>;
+  readonly agreement: Agreement | undefined;
+  /** The fields no stored value of matches what the vendor last agreed. */
+  readonly older: readonly string[];
+  /** The fields changed in Marfa and not yet carried. */
+  readonly edited: ReadonlySet<string>;
+}
+
+/**
+ * The kind's own fields a row is moved back with, so the move carries
+ * nothing the vendor already holds and loses nothing made in Marfa. A field
+ * the former type held is read as the row held it just before the move:
+ * where it differs from what the vendor last agreed, it is a change made in
+ * Marfa and not yet carried, so it is kept, the agreement keeps both its
+ * sides and the watch carries it. Any other field takes the newest value
+ * the row held on the kind's own type that lands as the vendor last agreed,
+ * and both sides of the agreement take that value, so they hold the vendor's
+ * own word and not the former mapping's reading of it; else the field takes
+ * the value it held before the move where that is what the vendor agreed.
+ * Where neither is, the row keeps its own value, the agreement forgets the
+ * vendor's mark, and the vendor's value is taken when it next sends the
+ * row. The vendor's side only ever keeps marks it held or the vendor's own
+ * word for one, and a move that fails after its agreement was written is
+ * judged the same way again, since a value stored as that word matches it.
+ */
+function returning(
+  row: Item,
+  versions: readonly Readonly<Record<string, unknown>>[],
+  agreement: Agreement | undefined,
+  former: Former | undefined,
+  kindFields: readonly string[],
+): Return {
+  const own: Record<string, unknown> = { ...(versions[0] ?? {}) };
+  if (agreement === undefined)
+    return { own, agreement, older: [], edited: new Set() };
+  const before = former?.read(row.properties);
+  const unread = new Set(
+    Array.isArray(before?.[unreadKey]) ? (before[unreadKey] as string[]) : [],
+  );
+  const landings = new Map<object, Record<string, unknown>>();
+  const landed = (
+    properties: Readonly<Record<string, unknown>>,
+  ): Record<string, unknown> => {
+    if (former === undefined) return { ...properties };
+    const known = landings.get(properties);
+    if (known !== undefined) return known;
+    const view = former.landed(properties);
+    landings.set(properties, view);
+    return view;
+  };
+  const candidates =
+    former === undefined ? [row.properties, ...versions] : versions;
+  const edited = new Set<string>();
+  const older: string[] = [];
+  const restored: Record<string, string> = {};
+  const fields = new Set(
+    Object.keys(agreement.vendor).filter((field) => !field.startsWith("@")),
+  );
+  for (const field of kindFields)
+    if (former?.carried.has(field) === true) fields.add(field);
+  for (const field of fields) {
+    const wanted = agreement.vendor[field] ?? "";
+    const readable =
+      before !== undefined &&
+      former?.carried.has(field) === true &&
+      !unread.has(field);
+    const value = readable ? held(before, field) : undefined;
+    // A restore agrees the vendor's own word, so a move tried again finds
+    // the agreed value stored as it is, not as the former mapping lands it.
+    const agreed = (properties: Readonly<Record<string, unknown>>): boolean =>
+      Object.hasOwn(properties, field) &&
+      (mark(held(properties, field)) === wanted ||
+        (readable && mark(held(landed(properties), field)) === wanted));
+    const found = wanted === "" ? undefined : candidates.find(agreed);
+    const landsAs =
+      found === undefined || !readable
+        ? wanted
+        : mark(held(landed(found), field));
+    if (readable && mark(value) !== wanted && mark(value) !== landsAs) {
+      edited.add(field);
+      if (value === undefined) Reflect.deleteProperty(own, field);
+      else own[field] = value;
+      continue;
+    }
+    if (wanted === "") continue;
+    if (found !== undefined) {
+      own[field] = held(found, field);
+      restored[field] = mark(own[field]);
+    } else if (readable && mark(value) === wanted) own[field] = value;
+    else older.push(field);
+  }
+  const vendor: Record<string, string> = {};
+  for (const [field, mark] of Object.entries(agreement.vendor))
+    if (
+      (!field.startsWith("@") || field === occurredKey) &&
+      !older.includes(field)
+    )
+      vendor[field] = restored[field] ?? mark;
+  return {
+    own,
+    older,
+    edited,
+    agreement: {
+      ...agreement,
+      vendor,
+      marfa: {
+        ...Object.fromEntries(
+          [...edited].flatMap((field) =>
+            Object.hasOwn(agreement.marfa, field)
+              ? [[field, agreement.marfa[field] ?? ""]]
+              : [],
+          ),
+        ),
+        ...restored,
+      },
+    },
+  };
+}
+
 /** What the rewrites a run carried out leave behind. */
 interface Rewritten {
   /** The former types each kind's own type no longer has rows on. */
@@ -530,27 +752,24 @@ interface Rewritten {
   readonly unreached: string | undefined;
 }
 
-/** The types each kind's rows may be on besides its target: its own type,
- *  every type the kept mappings landed it on, and the last kept mapping's
- *  target. */
-function formerTypes<E extends SettingsDeclaration>(
+/** The types the kept state says each kind's rows were landed on besides
+ *  its own, the last kept mapping's target among them. */
+function landedTypes<E extends SettingsDeclaration>(
   connector: RunSetup<E>["connector"],
   kept: Kept | undefined,
 ): Map<string, Set<string>> {
-  const formers = new Map<string, Set<string>>();
+  const landed = new Map<string, Set<string>>();
   for (const kind of connector.types) {
-    const held = new Set([
-      kind.type.id,
-      ...(kept?.landed?.[kind.type.id] ?? []),
-    ]);
+    const held = new Set(kept?.landed?.[kind.type.id] ?? []);
     const last =
       kind.name === undefined
         ? undefined
         : kept?.mapping?.kinds[kind.name]?.target_type;
     if (last !== undefined) held.add(last);
-    formers.set(kind.type.id, held);
+    held.delete(kind.type.id);
+    landed.set(kind.type.id, held);
   }
-  return formers;
+  return landed;
 }
 
 /** The types the kept state says each kind's rows were landed on, besides
@@ -563,7 +782,7 @@ function landedAfter<E extends SettingsDeclaration>(
   emptied: ReadonlyMap<string, ReadonlySet<string>> | undefined,
 ): Record<string, string[]> | undefined {
   const landed: Record<string, string[]> = {};
-  for (const [own, types] of formerTypes(connector, kept)) {
+  for (const [own, types] of landedTypes(connector, kept)) {
     const planned = plan?.kinds.get(own);
     if (planned !== undefined && planned.off === undefined)
       types.add(planned.target);
@@ -574,16 +793,55 @@ function landedAfter<E extends SettingsDeclaration>(
   return Object.keys(landed).length > 0 ? landed : undefined;
 }
 
+/** For each kind's own type, the mapping under which its rows were last
+ *  written on each type they are landed on, this run's target among them. */
+function landedUnderAfter<E extends SettingsDeclaration>(
+  connector: RunSetup<E>["connector"],
+  kept: Kept,
+  plan: Plan | undefined,
+  mapping: Mapping | undefined,
+  landed: Readonly<Record<string, readonly string[]>> | undefined,
+): Record<string, Record<string, KindMapping>> | undefined {
+  const under: Record<string, Record<string, KindMapping>> = {};
+  for (const kind of connector.types) {
+    const own = kind.type.id;
+    const held: Record<string, KindMapping> = {};
+    for (const type of landed?.[own] ?? []) {
+      const entry = kept.landedUnder?.[own]?.[type];
+      if (entry !== undefined) held[type] = entry;
+    }
+    const planned = plan?.kinds.get(own);
+    const entry =
+      kind.name === undefined ? undefined : mapping?.kinds[kind.name];
+    if (
+      planned !== undefined &&
+      planned.off === undefined &&
+      planned.target !== own &&
+      entry?.target_type === planned.target
+    )
+      held[planned.target] = entry;
+    if (Object.keys(held).length > 0) under[own] = held;
+  }
+  return Object.keys(under).length > 0 ? under : undefined;
+}
+
 /**
  * Carries out each rewrite the owner asked for: every row a kind wrote, on
- * its own type or on any type a kept mapping landed it on, under the
- * connector's source and outside the bin, is moved to the kind's target,
- * its fields the target lacks cleared. A request is cleared only once each
- * of its kinds is done; one a row refused, whose target is gone or that is
- * turned off waits for a later run, and a condition says why. A former type
- * the key is not shown to reach, by its type map, the mapping or a row
- * listed there, keeps the request open and the run from starting, since its
- * rows can be neither moved nor written.
+ * each type the request's `from` names for the kind, under the connector's
+ * source and outside the bin, is moved to the kind's target, its fields the
+ * target lacks cleared. A row on a type the kind was mapped onto before
+ * holds that type's fields, so it is moved with the kind's own fields from
+ * its newest version on the kind's own type, brought to what the vendor
+ * last agreed and keeping each change made in Marfa and not yet carried
+ * (`returning`), and one never there is left. Its agreement is written
+ * before the move, which is one write at the version read, so a move that
+ * fails leaves the row where it was for the next run. A request is cleared
+ * only once each of its kinds is done; one a row refused, whose target is gone or that is turned off waits
+ * for a later run, and a condition says why. So does one whose rows are on a
+ * type another kind's rows may be on too: Marfa does not say which kind
+ * wrote an item, so the kit moves none it cannot tell apart. A type the key
+ * is refused listing keeps the request open and the run from starting,
+ * since its rows can be neither moved nor written.
  */
 async function carryOutRewrites<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
@@ -594,30 +852,36 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
   conditions: Map<string, string>,
 ): Promise<Rewritten> {
   const { connector, marfa, logger } = setup;
-  const formers = formerTypes(connector, kept);
+  const landed = landedTypes(connector, kept);
   const emptied = new Map<string, Set<string>>();
   const unreachedAll: string[] = [];
-  let key: Key | undefined;
-  const reaches = async (type: string): Promise<boolean> => {
-    if (
-      Object.values(mapping.kinds).some(
-        (kind) => kind.enabled !== false && kind.target_type === type,
+  /** The other kinds whose rows may be on a type, by what the kit knows. */
+  const sharing = (type: string, own: string): string[] =>
+    connector.types
+      .filter(
+        (kind) =>
+          kind.type.id !== own &&
+          (kind.type.id === type ||
+            landed.get(kind.type.id)?.has(type) === true ||
+            (kind.name !== undefined &&
+              (mapping.kinds[kind.name]?.target_type === type ||
+                mapping.rewrites.some(
+                  (rewrite) =>
+                    kind.name !== undefined &&
+                    rewrite.from[kind.name]?.includes(type) === true,
+                )))),
       )
-    )
-      return true;
-    key ??= await marfa.currentKey();
-    const level = typeLevel(key, type);
-    return level === "read" || level === "write";
-  };
+      .map((kind) => kind.name ?? kind.type.id);
   for (const rewrite of mapping.rewrites) {
     const unfinished: string[] = [];
     const unreached: string[] = [];
+    const older = new Map<string, number>();
     let moved = 0;
     for (const name of rewrite.kinds) {
       const kind = connector.types.find((one) => one.name === name);
       const planned =
         kind === undefined ? undefined : plan.kinds.get(kind.type.id);
-      if (planned === undefined) {
+      if (kind === undefined || planned === undefined) {
         unfinished.push(`this build has no kind ${name}`);
         continue;
       }
@@ -629,7 +893,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         );
         continue;
       }
-      for (const former of formers.get(planned.own) ?? []) {
+      for (const former of rewrite.from[name] ?? []) {
         if (former === planned.target) continue;
         let listed: Item[] | undefined;
         try {
@@ -642,26 +906,89 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
           ))
             throw error;
         }
-        const rows = (listed ?? []).filter(
-          (row) =>
-            row.type === former &&
-            row.source === connector.source &&
-            row.state !== "trashed",
-        );
-        if (
-          listed === undefined ||
-          (rows.length === 0 && !(await reaches(former)))
-        ) {
+        if (listed === undefined) {
           unreached.push(
             `the kind ${name}'s rows on ${former} cannot be moved to ${planned.target}, since the key does not reach ${former}, and Marfa must let the connector reach its own rows there while the rewrite is open`,
           );
           continue;
         }
+        const rows = listed.filter(
+          (row) =>
+            row.type === former &&
+            row.source === connector.source &&
+            row.state !== "trashed",
+        );
+        const others = rows.length > 0 ? sharing(former, planned.own) : [];
+        if (others.length > 0) {
+          unfinished.push(
+            `the kind ${name}'s rows on ${former} are not moved, since the rows of ${others.join(", ")} may be there too and Marfa does not say which kind wrote each`,
+          );
+          continue;
+        }
         let left = false;
+        const leave = (row: Item, error: unknown): void => {
+          if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
+            throw error;
+          left = true;
+          unfinished.push(`${row.id} was not moved: ${describe(error)}`);
+        };
+        const back = former !== planned.own && rows.length > 0;
+        const store = new Store(marfa, setup.connectorId, setup.process);
+        const reading = back
+          ? await formerReading(setup, kept, kind, former)
+          : undefined;
+        if (back) await store.fetch(rows.map((row) => row.id));
+        const moves: { row: Item; landing: Landing }[] = [];
         for (const row of rows) {
           if (setup.signal.aborted) throw new Stopped();
+          if (!back) {
+            moves.push({ row, landing: movedProperties(planned, row) });
+            continue;
+          }
           try {
-            const landing = movedProperties(planned, row);
+            const versions = await ownVersions(marfa, row.id, planned.own);
+            if (versions.length === 0) {
+              left = true;
+              unfinished.push(
+                `${row.id} is left on ${former}, since it was never on ${planned.own} to hold the kind ${name}'s own fields, which it would be moved with`,
+              );
+              continue;
+            }
+            const returned = returning(
+              row,
+              versions,
+              store.get(row.id),
+              reading,
+              kind.fields,
+            );
+            const landing = movedProperties(planned, row, returned.own);
+            if (returned.agreement !== undefined) {
+              const view = plan.map.item({
+                ...row,
+                type: planned.target,
+                properties: landedOn(row, landing),
+              }).properties;
+              const side = sideOf(Object.keys(view), view);
+              for (const field of returned.edited)
+                Reflect.deleteProperty(side, field);
+              store.set(row.id, {
+                ...returned.agreement,
+                marfa: { ...side, ...returned.agreement.marfa },
+              });
+            }
+            for (const field of returned.older)
+              older.set(field, (older.get(field) ?? 0) + 1);
+            moves.push({ row, landing });
+          } catch (error) {
+            leave(row, error);
+          }
+        }
+        // Agreed first: a move that then fails leaves the row where it was,
+        // and the next run moves it on what this one agreed.
+        if (back) await store.flush();
+        for (const { row, landing } of moves) {
+          if (setup.signal.aborted) throw new Stopped();
+          try {
             for (const [field, message] of landing.faults)
               conditions.set(field, message);
             await marfa.retype(
@@ -673,10 +1000,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
             );
             moved += 1;
           } catch (error) {
-            if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
-              throw error;
-            left = true;
-            unfinished.push(`${row.id} was not moved: ${describe(error)}`);
+            leave(row, error);
           }
         }
         if (!left && former !== planned.own) {
@@ -687,6 +1011,11 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
       }
     }
     const conditionKey = `rewrite:${String(rewrite.number)}`;
+    if (older.size > 0)
+      conditions.set(
+        `${conditionKey}:older`,
+        `the rewrite ${String(rewrite.number)} moved rows that hold an older value, because no stored value of that field matches what the vendor last agreed: ${[...older].map(([field, rows]) => `${field} on ${String(rows)} ${rows === 1 ? "row" : "rows"}`).join(", ")}; each takes the vendor's value when the vendor next sends the row`,
+      );
     if (unreached.length > 0) {
       const message = `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} stays open and this run does not start: ${unreached.join("; ")}`;
       conditions.set(conditionKey, message);
@@ -1059,6 +1388,13 @@ export async function runOnce<E extends SettingsDeclaration>(
     stored,
     applied.plan,
     applied.emptied,
+  );
+  const keptLandedUnder = landedUnderAfter(
+    connector,
+    stored,
+    applied.plan,
+    applied.mapping,
+    keptLanded,
   );
   let acknowledged: Kept = structuredClone(stored);
   const draft = structuredClone(stored.state);
@@ -2043,6 +2379,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     }),
     ...(keptMapping !== undefined && { mapping: keptMapping }),
     ...(keptLanded !== undefined && { landed: keptLanded }),
+    ...(keptLandedUnder !== undefined && { landedUnder: keptLandedUnder }),
     ...((relinked.size > 0 || overflowed) && {
       relinked: {
         rows: Object.fromEntries(relinked),
@@ -4216,6 +4553,9 @@ export async function runOnce<E extends SettingsDeclaration>(
             }),
         ...(keptMapping !== undefined && { mapping: keptMapping }),
         ...(keptLanded !== undefined && { landed: keptLanded }),
+        ...(keptLandedUnder !== undefined && {
+          landedUnder: keptLandedUnder,
+        }),
         ...(keptPurges.length > 0 && { purges: keptPurges }),
         ...((relinked.size > 0 || overflowed) && {
           relinked: {

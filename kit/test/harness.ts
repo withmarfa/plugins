@@ -109,6 +109,13 @@ export const linkedType: TypeDefinition = {
   link_field: "vendor_id",
 };
 
+export const noteType: TypeDefinition = {
+  ...linkedType,
+  id: "test.note",
+  label: "Note",
+  description: "A note from the test vendor.",
+};
+
 /** `toString` is a name every object answers. */
 export const testFields = ["title", "note", "link", "vendor_id", "toString"];
 
@@ -181,6 +188,8 @@ export interface Vendor {
   /** The two-way kind's own type in place of `linkedType`, under its id. */
   kindType?: TypeDefinition;
   kindFields?: string[];
+  /** The rows of a second two-way kind, `note`, of `noteType`. */
+  notes?: Entry[];
 }
 
 export function vendor(entries: Entry[] = []): Vendor {
@@ -240,6 +249,9 @@ function twoWayConnector(held: Vendor) {
         ...(held.readOnly !== undefined && { readOnly: held.readOnly }),
         ...(held.derived !== undefined && { derived: held.derived }),
       },
+      ...(held.notes === undefined
+        ? []
+        : [{ name: "note", type: noteType, fields: testFields }]),
     ],
     ...(held.connections !== undefined && { connections: held.connections }),
     ...(held.retired !== undefined && { retired: held.retired }),
@@ -256,6 +268,8 @@ function twoWayConnector(held: Vendor) {
       if (held.fail !== undefined) throw held.fail;
       if (held.token !== undefined) context.state.set("token", held.token);
       await context.upsert(testType.id, held.entries);
+      if (held.notes !== undefined)
+        await context.upsert(noteType.id, held.notes);
       if (held.archived.length > 0) {
         await context.archive(testType.id, held.archived);
       }
@@ -473,6 +487,7 @@ export class Harness {
 
   constructor(readonly server: ScriptedServer) {
     server.settings = { test_token: secretToken };
+    server.kindTypes = { entry: testType.id, note: noteType.id };
   }
 
   static async create(): Promise<Harness> {
