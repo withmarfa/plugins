@@ -131,6 +131,20 @@ describe("a kind's fields mapped onto the target's", () => {
     });
   });
 
+  it("names as left out only a field neither a template nor a field's from reads", async () => {
+    mapFields(standard);
+    expect(await harness.twoWay(held())).toBe(0);
+    const warning = harness.problems()["mapping-fields:entry"];
+    expect(warning).toContain("without link,");
+    expect(warning).not.toMatch(/without[^,]*\btitle\b/);
+
+    mapFields({ ...standard, title: { from: "note" } }, { version: 2 });
+    expect(await quiet(held())).toBe(0);
+    expect(harness.problems()["mapping-fields:entry"]).toContain(
+      "without title, link,",
+    );
+  });
+
   it("lands a status word on the word its override names", async () => {
     mapFields(standard, { overrides: { waiting: "blocked" } });
     expect(await harness.twoWay(held())).toBe(0);

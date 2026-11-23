@@ -31,6 +31,17 @@ export async function loadTemplates(): Promise<void> {
   engine = made;
 }
 
+/** The names a template reads from the values it is given, none where it
+ *  does not parse: a render says what is wrong with it. */
+export function templateNames(source: string): string[] {
+  if (engine === undefined) return [];
+  try {
+    return engine.undeclaredVariablesInStr(source, false);
+  } catch {
+    return [];
+  }
+}
+
 export type Rendered =
   | { readonly text: string; readonly fault?: undefined }
   | { readonly text?: undefined; readonly fault: string };
