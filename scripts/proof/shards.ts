@@ -77,7 +77,7 @@ export const GROUPS = [
   { name: "google-sign-in", instance: "hooks", statements: 5, seconds: 2 },
   { name: "control", instance: "hooks", statements: 4, seconds: 3 },
   { name: "todoist-mapping", instance: "own", statements: 6, seconds: 10 },
-  { name: "connector-host", instance: "own", statements: 5, seconds: 183 },
+  { name: "connector-host", instance: "own", statements: 5, seconds: 240 },
   {
     name: "readwise-with-reader",
     instance: "own",

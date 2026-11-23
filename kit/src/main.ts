@@ -489,7 +489,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
-    "It reads what the owner chose for it at the start of every run: a paused connector skips the run, SIGUSR2 runs it now, and it answers the mapping previews that wait, again on each look between runs.",
+    "It reads what the owner chose for it at the start of every run: a paused connector skips the run (under --every it then exits 0, and the host starts it again once the owner resumes it), SIGUSR2 runs it now, and it answers the mapping previews that wait, again on each look between runs.",
     "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing, a value is invalid, or a run found settings only the owner can mend (SettingsRefused).",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
@@ -739,7 +739,8 @@ async function started<E extends SettingsDeclaration>(
 }
 
 /** Why a session ended that no run mends. */
-type Halt = Ended | "settings" | "unhosted" | "definition" | "keyRefused";
+type Halt =
+  Ended | "settings" | "unhosted" | "definition" | "keyRefused" | "paused";
 
 /** Said when the settings door answers that this key is not the one a
  *  connector host minted for the plugin's connector. */
@@ -1180,9 +1181,16 @@ async function serve<E extends SettingsDeclaration>(
     const control = await controlled();
     if (over()) return undefined;
     if (control?.paused === true) {
-      logger.info(
-        "the owner paused this connector, so this run does not start and reports nothing",
-      );
+      if (schedule.mode === "every") {
+        logger.info(
+          "the owner paused this connector, so this run does not start and reports nothing, and the connector stops; the host starts it again when the owner resumes it",
+        );
+        end("paused");
+      } else {
+        logger.info(
+          "the owner paused this connector, so this run does not start and reports nothing",
+        );
+      }
       return undefined;
     }
     const unprepared = await prepare();
@@ -1393,7 +1401,8 @@ async function serve<E extends SettingsDeclaration>(
     if (halted === "key" || halted === "address") hold.abandon();
     else await hold.release();
   }
-  if (halted === undefined || (succeeded && code === 0)) return code;
+  if (halted === undefined || halted === "paused" || (succeeded && code === 0))
+    return code;
   if (halted === "settings") return exitCode.settings;
   if (halted === "unhosted" || halted === "keyRefused") return exitCode.key;
   if (halted === "definition") return exitCode.definition;

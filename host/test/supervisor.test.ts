@@ -147,9 +147,8 @@ describe("the connector host's supervisor", () => {
     expect(spawned("rss")).toBe(1);
   });
 
-  it("does not start a paused connector, and stops a running one when it is paused", async () => {
-    const { api, server, step, poll, starts, supervisor, spawned } =
-      supervised();
+  it("does not start a paused connector", async () => {
+    const { api, server, step, starts, supervisor, spawned } = supervised();
     const code = server.serve("rss-1", connectorCode());
     const news = server.serve("news-1", connectorCode());
     api.connectors = [
@@ -159,18 +158,152 @@ describe("the connector host's supervisor", () => {
     await step();
     await until(() => starts("rss").length === 1);
     expect(spawned("news")).toBe(0);
-    api.connectors = [
-      assigned("rss", "0.0.1", code, { paused: true }),
-      assigned("news", "0.0.1", news, { paused: true }),
-    ];
+    expect(supervisor.status().connectors[1]).toMatchObject({
+      state: "stopped",
+      detail: "paused by the owner",
+    });
+  });
+
+  it("wakes a running connector once when it is paused, never stops it, and sends SIGTERM for no pause", async () => {
+    const { api, server, step, poll, starts, home, clock, supervisor } =
+      supervised();
+    const code = server.serve("rss-1", connectorCode());
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    clock.advance(minute);
+    api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
     await poll();
-    expect(supervisor.status().connectors.map((one) => one.state)).toEqual([
-      "stopped",
-      "stopped",
-    ]);
-    expect(supervisor.status().connectors[0]?.detail).toBe(
-      "paused by the owner",
-    );
+    await until(() => logOf(home, "rss").includes("WOKEN"));
+    const pid = supervisor.status().connectors[0]?.pid;
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "running",
+      detail: "paused by the owner; finishing the run under way",
+      pid,
+    });
+    // Each later look at the same pause sends nothing.
+    await poll();
+    await poll();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(logOf(home, "rss").split("WOKEN")).toHaveLength(2);
+    expect(logOf(home, "rss")).not.toContain("TERM");
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "running",
+      pid,
+    });
+    // Resumed and paused again, it is woken again.
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await poll();
+    api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
+    await poll();
+    await until(() => logOf(home, "rss").split("WOKEN").length === 3);
+    expect(logOf(home, "rss")).not.toContain("TERM");
+  });
+
+  it("does not restart a connector that exits 0 while paused, and starts it at the next look once it is resumed, with no back-off", async () => {
+    const {
+      api,
+      server,
+      step,
+      poll,
+      starts,
+      home,
+      clock,
+      supervisor,
+      spawned,
+    } = supervised();
+    const code = server.serve("rss-1", connectorCode("stops-when-woken"));
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    clock.advance(minute);
+    api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
+    await poll();
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      detail: "paused by the owner",
+      lastExit: expect.stringContaining("exited 0") as unknown,
+    });
+    expect(logOf(home, "rss")).toContain("WOKEN");
+    expect(logOf(home, "rss")).not.toContain("TERM");
+    // However many looks, and however long, it stays stopped.
+    for (let look = 0; look < 12; look++) await poll();
+    expect(spawned("rss")).toBe(1);
+    expect(supervisor.status().connectors[0]?.nextStart).toBeUndefined();
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await poll();
+    await until(() => starts("rss").length === 2);
+    expect(supervisor.status().connectors[0]?.state).toBe("running");
+  });
+
+  it("does not start a connector that exits 0 by itself again until a look shows it not paused", async () => {
+    const { api, server, step, poll, starts, clock, supervisor } = supervised();
+    // What a connector does when its run start reads a pause the host has
+    // not seen yet.
+    const code = server.serve("rss-1", connectorCode({ exit: 0 }));
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    // Well past the wait after an ordinary exit, still before the next look.
+    clock.advance(30_000);
+    await step();
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "stopped",
+      detail:
+        "it stopped itself for a pause; it starts again once Marfa says it is not paused",
+    });
+    expect(starts("rss")).toHaveLength(1);
+    api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
+    await poll();
+    expect(starts("rss")).toHaveLength(1);
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await poll();
+    await until(() => starts("rss").length === 2);
+    // A look that shows it not paused starts it at once, too.
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    await poll();
+    await until(() => starts("rss").length === 3);
+  });
+
+  it("starts a connector at once after it stopped for a pause even when it crashed before", async () => {
+    const { api, server, step, poll, starts, clock, supervisor } = supervised();
+    const crash = server.serve("rss-1", connectorCode({ exit: 1 }));
+    api.connectors = [assigned("rss", "0.0.1", crash)];
+    // Enough crashes that the wait to start again is longer than the two
+    // looks below, so only clearing it on pause lets the resumed look start it.
+    const crashes = 9;
+    for (let made = 1; made <= crashes; made += 1) {
+      await step();
+      await until(() => starts("rss").length === made);
+      await until(() => supervisor.status().connectors[0]?.state === "stopped");
+      if (made < crashes) clock.advance(5 * minute);
+    }
+    // Paused while it waits to start again: it is not started.
+    api.connectors = [assigned("rss", "0.0.1", crash, { paused: true })];
+    await poll();
+    expect(starts("rss")).toHaveLength(crashes);
+    api.connectors = [assigned("rss", "0.0.1", crash)];
+    await poll();
+    await until(() => starts("rss").length === crashes + 1);
+  });
+
+  it("still stops a paused, running connector with SIGTERM for a new version", async () => {
+    const { api, server, step, poll, starts, home, clock, supervisor } =
+      supervised();
+    const first = server.serve("rss-1", connectorCode());
+    api.connectors = [assigned("rss", "0.0.1", first)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    clock.advance(minute);
+    const second = server.serve("rss-2", `${connectorCode()}// two\n`);
+    api.connectors = [assigned("rss", "0.0.2", second, { paused: true })];
+    await poll();
+    await until(() => logOf(home, "rss").includes("TERM"));
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    // The new version is not started while paused.
+    await poll();
+    expect(starts("rss")).toHaveLength(1);
   });
 
   it("wakes a running connector with SIGUSR2 for a run request, and starts a waiting one at once", async () => {

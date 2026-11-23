@@ -39,18 +39,24 @@ export function sha256(text: string | Buffer): string {
 /**
  * A connector's code for the tests: it says how it started on standard
  * output, then serves until `SIGTERM`, or exits with `exit` after writing
- * `error` to standard error.
+ * `error` to standard error. `stops-when-woken` is a connector that finds
+ * itself paused at the run the wake signal starts: it exits 0 then.
  */
 export function connectorCode(
   behavior:
-    { exit: number; error?: string } | "serve" | "slow-to-listen" = "serve",
+    | { exit: number; error?: string }
+    | "serve"
+    | "slow-to-listen"
+    | "stops-when-woken" = "serve",
 ): string {
   // A connector built on the kit listens for the wake signal only once it
   // has loaded, and until then the signal ends it.
   const listen =
     behavior === "slow-to-listen"
       ? `setTimeout(() => { process.on("SIGUSR2", () => console.log("WOKEN")); console.log("LISTENING"); }, 500);`
-      : `process.on("SIGUSR2", () => console.log("WOKEN"));`;
+      : behavior === "stops-when-woken"
+        ? `process.on("SIGUSR2", () => { console.log("WOKEN"); process.exit(0); });`
+        : `process.on("SIGUSR2", () => console.log("WOKEN"));`;
   const start = `import { createHash } from "node:crypto";
 ${listen}
 process.on("SIGTERM", () => { console.log("TERM"); process.exit(0); });
@@ -64,7 +70,11 @@ console.log("START " + JSON.stringify({
   execArgv: process.execArgv,
 }));
 `;
-  if (behavior === "serve" || behavior === "slow-to-listen")
+  if (
+    behavior === "serve" ||
+    behavior === "slow-to-listen" ||
+    behavior === "stops-when-woken"
+  )
     return `${start}setInterval(() => {}, 60_000);
 `;
   return `${start}console.error(${JSON.stringify(behavior.error ?? "it failed")});

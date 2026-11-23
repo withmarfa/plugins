@@ -198,7 +198,7 @@ function alive(pid: number): boolean {
  * installs from its one-time link and runs, fetches the RSS connector's code
  * over https from the address its plugin names, checks its SHA-256, mints the
  * connector's key and starts it under the permission model; the connector
- * runs and reports. The owner's run now wakes it, pause stops it, and taking
+ * runs and reports. The owner's run now wakes it, pause lets the run under way finish and the connector stop itself, and taking
  * the assignment away deletes its key and code. Runs no service.
  */
 export async function proveConnectorHost(
@@ -374,23 +374,101 @@ export async function proveConnectorHost(
     );
 
     await check(
-      "connector-host: pausing the connector stops its process, and status says the owner paused it",
+      "connector-host: pausing a connector with a run under way wakes it once and never stops it, the run finishes and reports, and the process then exits 0 on its own, which status shows as paused by the owner",
       async () => {
-        const paused = await runMarfa(["plugins", "pause", "rss"], {
-          env: owner,
-        });
-        if (paused.code !== 0)
-          throw new Error(`marfa plugins pause exited ${String(paused.code)}`);
-        await until(
-          async () =>
-            pid !== undefined &&
-            !alive(pid) &&
-            (await running.command(["status"])).stdout.includes(
-              ": paused by the owner",
-            ),
-          () => `the connector was not stopped:\n${running.log}`,
-        );
-        return `process ${String(pid)} stopped; status says paused by the owner`;
+        // The run reads two feeds one after the other and holds on the second
+        // until the host has woken it for the pause, which the host does at
+        // its next poll: the first answers late enough that the run is still
+        // under way then, inside the connector's own minute for one feed.
+        const first = feeds.feeds["/atom.xml"];
+        const second = feeds.feeds["/rss.xml"];
+        if (first === undefined || second === undefined)
+          throw new Error("the proof's feeds are gone");
+        const held = (): {
+          entered: number;
+          open: Promise<void>;
+          release: () => void;
+        } => {
+          let release = (): void => undefined;
+          const open = new Promise<void>((done) => {
+            release = done;
+          });
+          return { entered: 0, open, release };
+        };
+        const early = held();
+        const late = held();
+        first.gate = early;
+        second.gate = late;
+        let slow: NodeJS.Timeout | undefined;
+        try {
+          await setSettings(url, "rss", {
+            rss_feeds: `${feeds.url}/atom.xml\n${feeds.url}/rss.xml`,
+          });
+          const before = await lastRun();
+          const asked = await runMarfa(["plugins", "run", "rss"], {
+            env: owner,
+          });
+          if (asked.code !== 0)
+            throw new Error(`marfa plugins run exited ${String(asked.code)}`);
+          await until(
+            () => early.entered > 0,
+            () => `no run reached the first feed:\n${running.log}`,
+          );
+          slow = setTimeout(early.release, 20_000);
+          await until(
+            () => late.entered > 0,
+            () => `the run never reached the second feed:\n${running.log}`,
+          );
+          const paused = await runMarfa(["plugins", "pause", "rss"], {
+            env: owner,
+          });
+          if (paused.code !== 0)
+            throw new Error(
+              `marfa plugins pause exited ${String(paused.code)}`,
+            );
+          await until(
+            () => running.log.includes("so it was woken to finish the run"),
+            () => `the host never woke the connector:\n${running.log}`,
+          );
+          if (pid === undefined || !alive(pid))
+            throw new Error(
+              `the connector did not outlive the pause:\n${running.log}`,
+            );
+          late.release();
+          await until(
+            async () => {
+              const last = await lastRun();
+              return (
+                last?.finished_at !== before?.finished_at &&
+                last?.outcome === "succeeded"
+              );
+            },
+            () => `the run under way did not report:\n${running.log}`,
+          );
+          await until(
+            async () =>
+              pid !== undefined &&
+              !alive(pid) &&
+              (await running.command(["status"])).stdout.includes(
+                ": paused by the owner",
+              ),
+            () => `the connector did not stop itself:\n${running.log}`,
+          );
+          if (
+            running.log.includes("stopping, since the owner paused") ||
+            !running.log.includes("while paused, as it stops itself")
+          )
+            throw new Error(
+              `the host stopped it, or did not see it stop itself:\n${running.log}`,
+            );
+          return `process ${String(pid)} was woken, finished the run under way and reported it, then exited 0 by itself; status says paused by the owner`;
+        } finally {
+          clearTimeout(slow);
+          early.release();
+          late.release();
+          delete first.gate;
+          delete second.gate;
+        }
       },
     );
 
