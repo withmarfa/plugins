@@ -56,6 +56,21 @@ class Running {
     );
   }
 
+  /** The exit code, once the process has ended by itself. */
+  async ended(): Promise<number | null> {
+    let timer: NodeJS.Timeout | undefined;
+    const late = new Promise<never>((_, fail) => {
+      timer = setTimeout(() => {
+        fail(new Error(`the connector never exited:\n${this.output}`));
+      }, 60_000);
+    });
+    try {
+      return await Promise.race([this.exited, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** What the host sends a sleeping connector for run now. */
   wake(): void {
     this.child.kill("SIGUSR2");
@@ -81,8 +96,8 @@ async function until(
 /**
  * What the owner asks of a plugin's connector through the command line: pause
  * and resume it, ask it to run now, and ask how a kind would land. A connector
- * on a key its host minted, woken by the host's `SIGUSR2`, skips a paused run
- * and reports nothing, runs on a request and clears it by naming it, and
+ * on a key its host minted, woken by the host's `SIGUSR2`, skips a paused run,
+ * reports nothing and exits 0, runs on a request and clears it by naming it, and
  * answers a mapping preview at a run's start, writing nothing and never saving
  * the draft. Needs a server built with test hooks only for the group's own
  * instance.
@@ -108,11 +123,11 @@ export async function proveControl(url: string): Promise<void> {
       throw new Error(`the control door refused: ${JSON.stringify(error)}`);
     return data;
   };
-  const running = new Running(url, key.key, file);
+  let running = new Running(url, key.key, file);
   try {
     await running.said("run succeeded");
     await check(
-      "control: a paused connector skips its run, reports nothing and leaves its rows, and the owner cannot ask a paused connector to run",
+      "control: a paused connector skips its run, reports nothing, leaves its rows and exits 0, and the owner cannot ask a paused connector to run",
       async () => {
         const before = (await registration(owner, key.id)).last_run;
         await notes([
@@ -124,6 +139,7 @@ export async function proveControl(url: string): Promise<void> {
           throw new Error(`pause: exit ${String(paused.code)}`);
         running.wake();
         await running.said("owner paused this connector");
+        const exit = await running.ended();
         const after = (await registration(owner, key.id)).last_run;
         const held = await rows(reader);
         const asked = await marfa(["plugins", "run", plugin]);
@@ -131,16 +147,17 @@ export async function proveControl(url: string): Promise<void> {
           held.size !== 1 ||
           after?.finished_at !== before?.finished_at ||
           after?.outcome !== "succeeded" ||
-          asked.code === 0
+          asked.code === 0 ||
+          exit !== 0
         )
           throw new Error(
-            `${String(held.size)} rows, last run ${JSON.stringify(after)} after ${JSON.stringify(before)}, run asked exit ${String(asked.code)}\n${running.log}`,
+            `${String(held.size)} rows, last run ${JSON.stringify(after)} after ${JSON.stringify(before)}, run asked exit ${String(asked.code)}, connector exit ${String(exit)}\n${running.log}`,
           );
-        return `paused: SIGUSR2 skipped the run, ${String(held.size)} row, the last run unchanged, and run now was refused (exit ${String(asked.code)})`;
+        return `paused: SIGUSR2 skipped the run and the connector exited 0, ${String(held.size)} row, the last run unchanged, and run now was refused (exit ${String(asked.code)})`;
       },
     );
     await check(
-      "control: resumed, a run asked for and the host's SIGUSR2 run the connector at once, and its report names the request, which clears it",
+      "control: resumed, the connector the host starts again runs at once on the run asked for, and its report names the request, which clears it",
       async () => {
         const before = (await registration(owner, key.id)).last_run;
         const resumed = await marfa(["plugins", "resume", plugin]);
@@ -150,7 +167,8 @@ export async function proveControl(url: string): Promise<void> {
           throw new Error(
             `resume ${String(resumed.code)}, run ${String(asked.code)}, request ${String(waiting)}`,
           );
-        running.wake();
+        // What the host does on the look that shows it resumed.
+        running = new Running(url, key.key, file);
         await until(
           async () => (await status()).run_requested_at === null,
           () => `the request was never cleared:\n${running.log}`,
