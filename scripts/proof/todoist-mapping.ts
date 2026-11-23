@@ -17,8 +17,9 @@ const target = "common.ticket.task";
  * Todoist's one kind under the owner's mapping: turned off, it writes
  * nothing, and turned on again it takes up what it missed; mapped onto the
  * Tickets plugin's `common.ticket.task`, the rows it wrote before keep
- * syncing where they are, a rewrite the server refuses waits, and a new
- * task lands with a templated title and an overridden status word.
+ * a rewrite moves the rows it wrote before onto the target, where they keep
+ * syncing, and a new task lands with a templated title and an overridden
+ * status word.
  */
 export async function proveTodoistMapping(
   marfa: MarfaClient,
@@ -140,12 +141,8 @@ export async function proveTodoistMapping(
     );
 
     await installTypes(url, "tickets");
-    // Marfa refuses the connector's key a retype into the target type
-    // (403 type_not_permitted), and skips its agreements for items there, so
-    // the proof states what holds with the kind mapped and no new task: the
-    // rows it wrote before stay its own and keep syncing, and a rewrite waits.
     await check(
-      `todoist-mapping: mapped onto ${target}, the rows it wrote before keep syncing where they are, and a rewrite the server will not carry out is kept under its number, with a condition naming the refusal`,
+      `todoist-mapping: mapped onto ${target}, a rewrite moves the rows it wrote before onto ${target}, keeping each item, and they keep syncing there`,
       async () => {
         const before = await own();
         await save(onTarget);
@@ -159,29 +156,25 @@ export async function proveTodoistMapping(
         await runOnce();
         const waiting = await rewrites();
         const summary = String((await lastRun(manager, key.id)).summary);
-        const after = await own();
-        const z = after.get(`${account}:z`);
+        const left = await own();
+        const onIt = await mapped();
+        const z = onIt.get(`${account}:z`);
         if (
-          !waiting.includes(data.number) ||
-          !summary.includes(
-            `the rewrite ${String(data.number)} of task is not finished`,
-          ) ||
+          waiting.includes(data.number) ||
+          left.size !== 0 ||
+          onIt.size !== before.size ||
           z?.id !== before.get(`${account}:z`)?.id ||
-          z?.properties["title"] !== "Water the plants at noon" ||
-          (await mapped()).size !== 0
+          z?.properties["title"] !== "Water the plants at noon"
         )
           throw new Error(
-            `rewrites waiting ${waiting.join() || "none"}; z reads ${String(z?.properties["title"])}; ${summary}`,
+            `rewrites waiting ${waiting.join() || "none"}; ${String(left.size)} left on todoist.task, ${String(onIt.size)} on ${target}; z holds ${JSON.stringify(z?.properties)}; ${summary}`,
           );
-        return `z, still on todoist.task, reads "${z.properties["title"]}"; rewrite ${String(data.number)} waits; ${summary}`;
+        return `rewrite ${String(data.number)} finished; ${String(onIt.size)} items moved onto ${target}; z, the same item, reads "${z.properties["title"]}"; ${summary}`;
       },
     );
 
-    // Marfa skips the connector's agreements for its items on a mapped
-    // target (withmarfa/marfa#3492), so the run that creates one fails after
-    // the item lands.
     await check(
-      `todoist-mapping: with a templated title and a status override, a new task lands on ${target} with the rendered title and the overridden word, and the run then fails on agreement-skipped, since Marfa skips the connector's agreements for items of a mapped target`,
+      `todoist-mapping: with a templated title and a status override, a new task lands on ${target} with the rendered title and the overridden word, and the run keeps its agreement`,
       async () => {
         await save({
           ...onTarget,
@@ -197,13 +190,12 @@ export async function proveTodoistMapping(
         if (
           landed?.properties["title"] !== "Call the plumber (from Todoist)" ||
           landed.properties["status"] !== "backlog" ||
-          code === 0 ||
-          !output.includes("agreement-skipped")
+          code !== 0
         )
           throw new Error(
-            `the run exited ${String(code)}; b holds ${JSON.stringify(landed?.properties)}`,
+            `the run exited ${String(code)}; b holds ${JSON.stringify(landed?.properties)}: ${output}`,
           );
-        return `b on ${target} reads "${landed.properties["title"]}" at ${landed.properties["status"]}; the run exited ${String(code)} on agreement-skipped`;
+        return `b on ${target} reads "${landed.properties["title"]}" at ${landed.properties["status"]}; the run exited 0`;
       },
     );
   } finally {
