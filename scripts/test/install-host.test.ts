@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readlinkSync } from "node:fs";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -249,15 +249,23 @@ describe("install-host.sh", () => {
 
   it("refuses to run without curl", async () => {
     const base = await hold();
-    const empty = join(base, "bin");
-    await mkdir(empty);
+    // Every command the system has but curl: /bin holds curl on some
+    // systems, where it links to /usr/bin.
+    const bin = join(base, "bin");
+    await mkdir(bin);
+    for (const dir of ["/bin", "/usr/bin"]) {
+      for (const name of readdirSync(dir)) {
+        if (name === "curl" || existsSync(join(bin, name))) continue;
+        await symlink(join(dir, name), join(bin, name));
+      }
+    }
     const script = join(base, "install-host.sh");
     await writeFile(
       script,
       await renderInstallHost(version, "withmarfa/plugins"),
     );
     const ran = await run(script, ["https://marfa.example.com/connect#code"], {
-      PATH: "/bin",
+      PATH: bin,
       HOME: await hold(),
       TMPDIR: process.env["TMPDIR"] ?? tmpdir(),
     });
