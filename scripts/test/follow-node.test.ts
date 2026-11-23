@@ -3,6 +3,7 @@
  * release. `.github/workflows/follow-node.yml` calls it.
  */
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -99,5 +100,23 @@ describe("scripts/follow-node.sh decide", () => {
     const result = decide(over);
     expect(result.status).toBe(1);
     expect(result.output).toMatch(/^follow-node\.sh: /);
+  });
+});
+
+describe(".github/workflows/follow-node.yml", () => {
+  const workflow = readFileSync(
+    join(ROOT, ".github", "workflows", "follow-node.yml"),
+    "utf8",
+  );
+
+  it("checks the paths the patch staged, from a copy of the check made before it is applied, and reads no path line by line", () => {
+    const copy = workflow.indexOf("cp scripts/only-staged-paths.sh");
+    const apply = workflow.indexOf("git apply --index");
+    const check = workflow.indexOf('"${check}" host/node.json');
+    expect(copy).toBeGreaterThan(-1);
+    expect(apply).toBeGreaterThan(copy);
+    expect(check).toBeGreaterThan(apply);
+    expect(workflow).not.toContain("tr '\\0' '\\n'");
+    expect(workflow).not.toContain("--numstat");
   });
 });
