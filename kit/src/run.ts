@@ -635,13 +635,11 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         try {
           listed = await marfa.ownRows(former, "any");
         } catch (error) {
-          if (
-            !(
-              error instanceof Refusal &&
-              error.status === 403 &&
-              error.code === "type_not_permitted"
-            )
-          )
+          if (!(
+            error instanceof Refusal &&
+            error.status === 403 &&
+            error.code === "type_not_permitted"
+          ))
             throw error;
         }
         const rows = (listed ?? []).filter(
