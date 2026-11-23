@@ -7,7 +7,8 @@ import {
   type components,
   type MarfaClient,
 } from "@withmarfa/client";
-import { bundleIn, permissionFlags } from "../permission-flags.js";
+import { permissionFlags } from "@withmarfa/connector-host/permission-flags";
+import { bundleIn } from "../bundle-files.js";
 import { check } from "./check.js";
 import { freshConnectorKey, setSettings, type ConnectorKey } from "./host.js";
 import {

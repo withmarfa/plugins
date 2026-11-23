@@ -25,7 +25,8 @@ import {
 } from "../bundle-connectors.js";
 import { bundlesIn, helpOf } from "../check-bundles.js";
 import { readPin, type Pin } from "../node-pin.js";
-import { bundleName, permissionFlags } from "../permission-flags.js";
+import { permissionFlags } from "@withmarfa/connector-host/permission-flags";
+import { bundleName } from "../bundle-files.js";
 
 const run = promisify(execFile);
 
@@ -38,7 +39,7 @@ afterAll(async () => {
 
 async function scratch(): Promise<string> {
   // A real path: a bundle reached through a link is not readable under the
-  // permission flags (`scripts/permission-flags.ts`).
+  // permission flags (`host/src/permission-flags.ts`).
   const folder = await realpath(await mkdtemp(join(tmpdir(), "bundle-test-")));
   made.push(folder);
   return folder;

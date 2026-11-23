@@ -431,7 +431,7 @@ A run cut short by SIGTERM or SIGINT is not reported, since a run's outcome is o
 At the start of every run the connector reads what the owner chose for it, once, from `GET /plugins/{name}/connector`. A connector that looks between runs reads it again on each look, to answer previews.
 
 - **Paused:** the host does not start a paused connector and stops a running one. The kit skips the run as a second guard, reports nothing as failed and logs one line. Under `--once` it exits 0 saying so.
-- **Run now:** the host wakes a sleeping connector with `SIGUSR1`. The run starts at once, as on its schedule, and a signal that arrives during a run makes one more run follow, never two. A run that read a run request reports it as `run_requested_at`, which clears it; a run that read none names none.
+- **Run now:** the host wakes a sleeping connector with `SIGUSR2`. The run starts at once, as on its schedule, and a signal that arrives during a run makes one more run follow, never two. A run that read a run request reports it as `run_requested_at`, which clears it; a run that read none names none.
 - **Previews:** the connector answers each pending mapping preview with the item as the mapping would write it, from the item the preview names or from a recent entry it reads from its vendor, and writes nothing to Marfa or the vendor for it. A connector that looks between runs answers a preview within a look, with no signal; another answers it at its next run. A preview it cannot render, because the item is gone, a template fails, the vendor is down or the result is over 65,536 bytes, is answered with an error. A paused connector answers no preview.
 - **A door that does not answer** lets the run go ahead as scheduled, with one warning. A key that is no plugin connector's skips the read.
 
@@ -473,7 +473,7 @@ The process exits with a code that tells its host what to do next (`kit/src/exit
 
 ### Telemetry
 
-A connector can send its logs and a trace of each run, which carries the error of a failed run, to an OpenTelemetry collector over OTLP/HTTP. Telemetry is off by default: until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the kit sends nothing of its own, loads no OpenTelemetry code, opens no connection and writes the same log lines. A failed run reaches its owner through Marfa, as a run recorded with its error, which `marfa attention` lists. The settings are the ones Marfa's server reads, so one set of values serves both.
+A connector can send its logs and a trace of each run, which carries the error of a failed run, to an OpenTelemetry collector over OTLP/HTTP. Telemetry is off by default: until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the kit sends nothing of its own, loads no OpenTelemetry code, opens no connection and writes the same log lines. A failed run reaches its owner through Marfa, as a run recorded with its error, which `marfa attention` lists. These are environment variables of the connector's process, apart from Marfa's server, which keeps its telemetry as stored settings with defaults of its own.
 
 | Setting                                                                | Meaning                                                                                                                                | Default                                   |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |

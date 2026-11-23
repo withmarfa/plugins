@@ -11,8 +11,8 @@
     "check-plugins.ts",
     "connector-plugins.ts",
     "node-pin.ts",
-    "permission-flags.ts",
+    "bundle-files.ts",
     "release"
   ],
-  "references": [{ "path": "../kit" }]
+  "references": [{ "path": "../kit" }, { "path": "../host" }]
 }

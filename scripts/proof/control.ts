@@ -13,7 +13,7 @@ const type = "proof.control.note";
 const entry = resolve(import.meta.dirname, "control-connector.js");
 
 /** The connector as its host runs it: a long-lived process on a key the host
- *  minted, which the host wakes with `SIGUSR1`. */
+ *  minted, which the host wakes with `SIGUSR2`. */
 class Running {
   private output = "";
   private readonly exited: Promise<number | null>;
@@ -58,7 +58,7 @@ class Running {
 
   /** What the host sends a sleeping connector for run now. */
   wake(): void {
-    this.child.kill("SIGUSR1");
+    this.child.kill("SIGUSR2");
   }
 
   async stop(): Promise<number | null> {
@@ -81,7 +81,7 @@ async function until(
 /**
  * What the owner asks of a plugin's connector through the command line: pause
  * and resume it, ask it to run now, and ask how a kind would land. A connector
- * on a key its host minted, woken by the host's `SIGUSR1`, skips a paused run
+ * on a key its host minted, woken by the host's `SIGUSR2`, skips a paused run
  * and reports nothing, runs on a request and clears it by naming it, and
  * answers a mapping preview at a run's start, writing nothing and never saving
  * the draft. Needs a server built with test hooks only for the group's own
@@ -136,11 +136,11 @@ export async function proveControl(url: string): Promise<void> {
           throw new Error(
             `${String(held.size)} rows, last run ${JSON.stringify(after)} after ${JSON.stringify(before)}, run asked exit ${String(asked.code)}\n${running.log}`,
           );
-        return `paused: SIGUSR1 skipped the run, ${String(held.size)} row, the last run unchanged, and run now was refused (exit ${String(asked.code)})`;
+        return `paused: SIGUSR2 skipped the run, ${String(held.size)} row, the last run unchanged, and run now was refused (exit ${String(asked.code)})`;
       },
     );
     await check(
-      "control: resumed, a run asked for and the host's SIGUSR1 run the connector at once, and its report names the request, which clears it",
+      "control: resumed, a run asked for and the host's SIGUSR2 run the connector at once, and its report names the request, which clears it",
       async () => {
         const before = (await registration(owner, key.id)).last_run;
         const resumed = await marfa(["plugins", "resume", plugin]);

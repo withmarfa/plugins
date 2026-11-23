@@ -1,0 +1,20 @@
+{
+  "name": "@withmarfa/connector-host",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "marfa-connector-host": "./dist/main.js"
+  },
+  "exports": {
+    "./permission-flags": {
+      "types": "./dist/permission-flags.d.ts",
+      "import": "./dist/permission-flags.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@withmarfa/client": "0.0.101"
+  }
+}

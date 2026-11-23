@@ -24,7 +24,12 @@ export default defineConfig({
       ".claude/**",
       "_trash/**",
       "_archive/**",
-      ...(onPinnedMajor ? [] : ["scripts/test/bundle-connectors.test.ts"]),
+      ...(onPinnedMajor
+        ? []
+        : [
+            "host/test/supervisor.test.ts",
+            "scripts/test/bundle-connectors.test.ts",
+          ]),
     ],
     // Many tests drive real processes, which pass in a second or two locally
     // and outlast the 5 s default on a loaded CI runner; a test that truly
