@@ -89,6 +89,7 @@ describe("a type filter", () => {
       server.types.set(id, type);
       server.insert(`${id}:1`, {}, id);
     }
+    server.grants.type_permissions = { "*": "read" };
   });
 
   const names = (rows: unknown): string[] =>
@@ -102,6 +103,12 @@ describe("a type filter", () => {
       "test.base",
       "test.base.child",
     ]);
+  });
+
+  it("leaves out of a page every row of a type the key cannot read, as though it were not there", async () => {
+    server.grants.type_permissions = { "test.*": "read" };
+    const { body } = await call("GET", "/items?type=test.base");
+    expect(names(body["data"])).toEqual(["test.base", "test.base.child"]);
   });
 
   it("lists a type with nothing under it alone", async () => {

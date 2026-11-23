@@ -42,8 +42,10 @@ import {
   causeOf,
   retryAfterOf,
   conflictedCopyTag,
+  typeLevel,
   type Cause,
   type Edge,
+  type Key,
   type Marfa,
 } from "./marfa.js";
 import {
@@ -458,6 +460,8 @@ interface Applied {
   readonly conditions: ReadonlyMap<string, string>;
   /** Why the run cannot start, where the mapping could not be had. */
   readonly failure: unknown;
+  /** The former types a rewrite emptied, by each kind's own type. */
+  readonly emptied?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
 }
 
 function sameTypes(a: readonly string[], b: readonly string[]): boolean {
@@ -499,24 +503,94 @@ function movedProperties(
   };
 }
 
+/** What the rewrites a run carried out leave behind. */
+interface Rewritten {
+  /** The former types each kind's own type no longer has rows on. */
+  readonly emptied: ReadonlyMap<string, ReadonlySet<string>>;
+  /** Why a rewrite cannot be carried out until Marfa lets the key reach a
+   *  type its kind's rows are on. */
+  readonly unreached: string | undefined;
+}
+
+/** The types each kind's rows may be on besides its target: its own type,
+ *  every type the kept mappings landed it on, and the last kept mapping's
+ *  target. */
+function formerTypes<E extends SettingsDeclaration>(
+  connector: RunSetup<E>["connector"],
+  kept: Kept | undefined,
+): Map<string, Set<string>> {
+  const formers = new Map<string, Set<string>>();
+  for (const kind of connector.types) {
+    const held = new Set([kind.type.id, ...(kept?.landed?.[kind.type.id] ?? [])]);
+    const last =
+      kind.name === undefined
+        ? undefined
+        : kept?.mapping?.kinds[kind.name]?.target_type;
+    if (last !== undefined) held.add(last);
+    formers.set(kind.type.id, held);
+  }
+  return formers;
+}
+
+/** The types the kept state says each kind's rows were landed on, besides
+ *  its own, with this run's targets added and those a rewrite emptied
+ *  taken out. */
+function landedAfter<E extends SettingsDeclaration>(
+  connector: RunSetup<E>["connector"],
+  kept: Kept,
+  plan: Plan | undefined,
+  emptied: ReadonlyMap<string, ReadonlySet<string>> | undefined,
+): Record<string, string[]> | undefined {
+  const landed: Record<string, string[]> = {};
+  for (const [own, types] of formerTypes(connector, kept)) {
+    const planned = plan?.kinds.get(own);
+    if (planned !== undefined && planned.off === undefined)
+      types.add(planned.target);
+    types.delete(own);
+    for (const type of emptied?.get(own) ?? []) types.delete(type);
+    if (types.size > 0) landed[own] = [...types].sort();
+  }
+  return Object.keys(landed).length > 0 ? landed : undefined;
+}
+
 /**
- * Carries out each rewrite the owner asked for: every row a kind wrote on its
- * own type, under the connector's source and outside the bin, is moved to
- * the kind's target, its fields the target lacks cleared. A request is
- * cleared only once each of its kinds is done; one a row refused, whose
- * target is gone or that is turned off waits for a later run, and a
- * condition says why.
+ * Carries out each rewrite the owner asked for: every row a kind wrote, on
+ * its own type or on any type a kept mapping landed it on, under the
+ * connector's source and outside the bin, is moved to the kind's target,
+ * its fields the target lacks cleared. A request is cleared only once each
+ * of its kinds is done; one a row refused, whose target is gone or that is
+ * turned off waits for a later run, and a condition says why. A former type
+ * the key is not shown to reach, by its type map, the mapping or a row
+ * listed there, keeps the request open and the run from starting, since its
+ * rows can be neither moved nor written.
  */
 async function carryOutRewrites<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   plugin: string,
   mapping: Mapping,
   plan: Plan,
+  kept: Kept | undefined,
   conditions: Map<string, string>,
-): Promise<void> {
+): Promise<Rewritten> {
   const { connector, marfa, logger } = setup;
+  const formers = formerTypes(connector, kept);
+  const emptied = new Map<string, Set<string>>();
+  const unreachedAll: string[] = [];
+  let key: Key | undefined;
+  const reaches = async (type: string): Promise<boolean> => {
+    if (
+      Object.values(mapping.kinds).some(
+        (kind) => kind.enabled !== false && kind.target_type === type,
+      )
+    )
+      return true;
+    key ??= await marfa.currentKey();
+    const level = typeLevel(key, type);
+    return level === "read" || level === "write";
+  };
   for (const rewrite of mapping.rewrites) {
     const unfinished: string[] = [];
+    const unreached: string[] = [];
     let moved = 0;
     for (const name of rewrite.kinds) {
       const kind = connector.types.find((one) => one.name === name);
@@ -534,38 +608,59 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         );
         continue;
       }
-      if (planned.target === planned.own) continue;
-      const rows = (await marfa.ownRows(planned.own, "any")).filter(
-        (row) =>
-          row.type === planned.own &&
-          row.source === connector.source &&
-          row.state !== "trashed",
-      );
-      for (const row of rows) {
-        if (setup.signal.aborted) throw new Stopped();
-        try {
-          const landing = movedProperties(planned, row);
-          for (const [key, message] of landing.faults)
-            conditions.set(key, message);
-          await marfa.retype(
-            row.id,
-            row.version,
-            planned.target,
-            landing.properties,
-            landing.clear,
+      for (const former of formers.get(planned.own) ?? []) {
+        if (former === planned.target) continue;
+        const rows = (await marfa.ownRows(former, "any")).filter(
+          (row) =>
+            row.type === former &&
+            row.source === connector.source &&
+            row.state !== "trashed",
+        );
+        if (rows.length === 0 && !(await reaches(former))) {
+          unreached.push(
+            `the kind ${name}'s rows on ${former} cannot be moved to ${planned.target}, since the key does not reach ${former}, and Marfa must let the connector reach its own rows there while the rewrite is open`,
           );
-          moved += 1;
-        } catch (error) {
-          if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
-            throw error;
-          unfinished.push(`${row.id} was not moved: ${describe(error)}`);
+          continue;
+        }
+        let left = false;
+        for (const row of rows) {
+          if (setup.signal.aborted) throw new Stopped();
+          try {
+            const landing = movedProperties(planned, row);
+            for (const [field, message] of landing.faults)
+              conditions.set(field, message);
+            await marfa.retype(
+              row.id,
+              row.version,
+              planned.target,
+              landing.properties,
+              landing.clear,
+            );
+            moved += 1;
+          } catch (error) {
+            if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
+              throw error;
+            left = true;
+            unfinished.push(`${row.id} was not moved: ${describe(error)}`);
+          }
+        }
+        if (!left && former !== planned.own) {
+          const held = emptied.get(planned.own) ?? new Set<string>();
+          held.add(former);
+          emptied.set(planned.own, held);
         }
       }
     }
-    const key = `rewrite:${String(rewrite.number)}`;
+    const conditionKey = `rewrite:${String(rewrite.number)}`;
+    if (unreached.length > 0) {
+      const message = `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} stays open and this run does not start: ${unreached.join("; ")}`;
+      conditions.set(conditionKey, message);
+      unreachedAll.push(message);
+      continue;
+    }
     if (unfinished.length > 0) {
       conditions.set(
-        key,
+        conditionKey,
         `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} is not finished, so it waits for the next run: ${unfinished.slice(0, 3).join("; ")}${unfinished.length > 3 ? `; and ${String(unfinished.length - 3)} more` : ""}`,
       );
       continue;
@@ -578,11 +673,15 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
     } catch (error) {
       if (ending.has(causeOf(error)) || causeOf(error) === "marfa") throw error;
       conditions.set(
-        key,
+        conditionKey,
         `the rewrite ${String(rewrite.number)} was carried out and could not be cleared, so the next run looks at it again: ${describe(error)}`,
       );
     }
   }
+  return {
+    emptied,
+    unreached: unreachedAll.length > 0 ? unreachedAll.join("; ") : undefined,
+  };
 }
 
 /**
@@ -667,6 +766,7 @@ async function applyMapping<E extends SettingsDeclaration>(
     }
   }
   let plan: Plan;
+  let emptied: ReadonlyMap<string, ReadonlySet<string>> | undefined;
   try {
     plan = await planKinds(
       connector,
@@ -692,7 +792,26 @@ async function applyMapping<E extends SettingsDeclaration>(
       shared.version = plan.version;
       shared.plan = plan;
     }
-    if (fresh) await carryOutRewrites(setup, plugin, mapping, plan, conditions);
+    if (fresh && mapping.rewrites.length > 0) {
+      const kept = await new Store(
+        marfa,
+        setup.connectorId,
+        setup.process,
+      ).load();
+      const rewritten = await carryOutRewrites(
+        setup,
+        plugin,
+        mapping,
+        plan,
+        kept,
+        conditions,
+      );
+      if (rewritten.unreached !== undefined) {
+        logger.error(rewritten.unreached);
+        return failed(new Error(rewritten.unreached));
+      }
+      emptied = rewritten.emptied;
+    }
   } catch (error) {
     if (!setup.signal.aborted && !ending.has(causeOf(error)))
       logger.error(
@@ -705,6 +824,7 @@ async function applyMapping<E extends SettingsDeclaration>(
     mapping: unmapped ? undefined : mapping,
     conditions,
     failure: undefined,
+    emptied,
   };
 }
 
@@ -899,6 +1019,12 @@ export async function runOnce<E extends SettingsDeclaration>(
   }
   const stored = loaded ?? { state: {}, conditions: {} };
   const keptMapping = applied.mapping ?? stored.mapping;
+  const keptLanded = landedAfter(
+    connector,
+    stored,
+    applied.plan,
+    applied.emptied,
+  );
   let acknowledged: Kept = structuredClone(stored);
   const draft = structuredClone(stored.state);
   const outbound = new Map(
@@ -1881,6 +2007,7 @@ export async function runOnce<E extends SettingsDeclaration>(
       watched: acknowledged.watched,
     }),
     ...(keptMapping !== undefined && { mapping: keptMapping }),
+    ...(keptLanded !== undefined && { landed: keptLanded }),
     ...((relinked.size > 0 || overflowed) && {
       relinked: {
         rows: Object.fromEntries(relinked),
@@ -4053,6 +4180,7 @@ export async function runOnce<E extends SettingsDeclaration>(
               }),
             }),
         ...(keptMapping !== undefined && { mapping: keptMapping }),
+        ...(keptLanded !== undefined && { landed: keptLanded }),
         ...(keptPurges.length > 0 && { purges: keptPurges }),
         ...((relinked.size > 0 || overflowed) && {
           relinked: {

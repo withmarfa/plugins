@@ -492,6 +492,10 @@ export class ScriptedServer {
   readonly previewAnswers: { id: string; body: Record<string, unknown> }[] = [];
   /** The numbers of the rewrites the connector cleared, in order. */
   readonly rewritesDone: number[] = [];
+  /** Types the key reaches beyond its type map and the mapping, as Marfa
+   *  would let a connector reach its rows on a former target while a
+   *  rewrite is open. */
+  readonly formerReach = new Set<string>();
   /** The key is refused as a revoked one is: 401 at every door. */
   revoked = false;
   /** The registration is gone: every door under it answers 404 until the
@@ -2398,8 +2402,11 @@ export class ScriptedServer {
       send(400, { error: { code: "validation_error" } });
       return;
     }
+    // A row of a type the key cannot read is left out of every page, as
+    // though it were not there.
     const matches = this.rows.filter(
       (row) =>
+        this.permission(row.type) !== "none" &&
         this.ofType(row, type) &&
         (query.get("source") === null || row.source === query.get("source")) &&
         (state === "any" || row.state === state) &&
@@ -3062,6 +3069,7 @@ export class ScriptedServer {
       )
     )
       return "write";
+    if (this.formerReach.has(type)) return "write";
     const level = resolve(
       this.grants.type_permissions ?? this.minted.type_permissions,
       type,

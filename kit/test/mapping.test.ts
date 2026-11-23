@@ -292,6 +292,89 @@ describe("a rewrite the owner asks for", () => {
   });
 });
 
+describe("a rewrite back from a former target", () => {
+  /** Both rows written, then mapped onto the target and rewritten there,
+   *  then mapped back to the kind's own type with a second rewrite asked. */
+  async function mappedBack(held: Vendor): Promise<string[]> {
+    expect(await harness.twoWay(held)).toBe(0);
+    const ids = [harness.server.row("a:1").id, harness.server.row("a:2").id];
+    mapTo(target);
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T09:00:00.000Z",
+      },
+    ];
+    expect(await quiet(held)).toBe(0);
+    for (const id of ids) expect(harness.server.byId(id).type).toBe(target);
+    mapTo(linkedType.id, { version: 2 });
+    harness.server.mapping.rewrites = [
+      {
+        number: 2,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T10:00:00.000Z",
+      },
+    ];
+    return ids;
+  }
+
+  it("keeps the request open and fails the run, naming the kind and the former type, where Marfa does not let the key reach it", async () => {
+    const held = vendor([one, two]);
+    const ids = await mappedBack(held);
+    expect(await quiet(held)).not.toBe(0);
+    for (const id of ids) expect(harness.server.byId(id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    const run = harness.lastRun();
+    expect(run.outcome).toBe("failed");
+    expect(run.error).toContain(`the kind entry`);
+    expect(run.error).toContain(target);
+    expect(run.error).toContain("Marfa must let");
+  });
+
+  it("moves the rows back from the former target and clears the request where Marfa lets the key reach it", async () => {
+    const held = vendor([one, two]);
+    const ids = await mappedBack(held);
+    harness.server.formerReach.add(target);
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    for (const id of ids)
+      expect(harness.server.byId(id).type).toBe(linkedType.id);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    expect(harness.lastRun().outcome).toBe("succeeded");
+  });
+
+  it("moves the rows onto a third type from every type they were on", async () => {
+    harness.server.installType({
+      id: "common.ticket.bug",
+      label: "Bug",
+      parent: "common.ticket",
+      fields: {},
+    });
+    const held = vendor([one, two]);
+    const ids = await mappedBack(held);
+    mapTo("common.ticket.bug", { version: 2 });
+    harness.server.formerReach.add(target);
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    for (const id of ids)
+      expect(harness.server.byId(id).type).toBe("common.ticket.bug");
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+  });
+
+  it("fails a run whose every write is refused because its rows are out of the key's reach", async () => {
+    const held = vendor([one, two]);
+    await mappedBack(held);
+    harness.server.mapping.rewrites = [];
+    held.entries = [
+      { ...one, properties: { ...one.properties, title: "1" } },
+      { ...two, properties: { ...two.properties, title: "2" } },
+    ];
+    expect(await quiet(held)).not.toBe(0);
+    expect(harness.lastRun().outcome).toBe("failed");
+  });
+});
+
 describe("the mapping's read", () => {
   it("falls back to the mapping the last run kept, and says so, where Marfa does not answer it", async () => {
     mapTo(target);

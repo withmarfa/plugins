@@ -1700,7 +1700,13 @@ export class Rows {
       return;
     }
     this.hooks.refused(sourceId, `${error.code}, ${error.detail}`);
-    if (unmendable.has(error.code)) return;
+    if (unmendable.has(error.code)) {
+      // Holds nothing back, but a batch refused whole for it is still one
+      // no row of which landed.
+      this.batch.refused += 1;
+      this.batch.codes.set(error.code, error);
+      return;
+    }
     this.held += 1;
     if (parked) {
       this.batch.tried -= 1;

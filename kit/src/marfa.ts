@@ -143,6 +143,30 @@ export class KeyNarrowed extends Error {
   override name = "KeyNarrowed";
 }
 
+/** What a key holds on a type by its type map, as Marfa resolves it: an
+ *  exact entry first, then the wildcard with the longest root, `*` last. */
+export function typeLevel(key: Key, type: string): string | undefined {
+  const held = key.type_permissions;
+  if (Object.hasOwn(held, type)) return held[type];
+  let best: string | undefined;
+  let length = -1;
+  for (const [pattern, level] of Object.entries(held)) {
+    const root =
+      pattern === "*"
+        ? ""
+        : pattern.endsWith(".*")
+          ? pattern.slice(0, -2)
+          : undefined;
+    if (root === undefined) continue;
+    if (root !== "" && type !== root && !type.startsWith(`${root}.`)) continue;
+    if (root.length > length) {
+      best = level;
+      length = root.length;
+    }
+  }
+  return best;
+}
+
 /** What the key may not write of the connector's own types and connections,
  *  each named with its family. */
 export function keyNarrowerThanTypes(
