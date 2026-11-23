@@ -90,7 +90,7 @@ Each connector runs in a process of its own under Node's permission model: it
 can read only its own code file and reach the network. It can't write files,
 start child processes or workers, or load native add-ons. It gets only
 `MARFA_API_URL`, `MARFA_API_KEY`, `PATH`, `HOME`, the locale and time zone,
-and the `OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
+and the `OTEL_*` and `MARFA_OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
 
 Node doesn't treat its permission model as a security boundary against code
 written to escape it. For example, it doesn't stop a connector from sending

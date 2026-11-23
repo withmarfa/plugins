@@ -63,6 +63,7 @@ describe("the connector host's supervisor", () => {
       LANG: "en_GB.UTF-8",
       LC_TIME: "en_GB.UTF-8",
       OTEL_SERVICE_NAME: "not-sent",
+      MARFA_OTEL_SAMPLE_RATIO: "0.1",
       SECRET_OF_THE_HOST: "kept",
       NODE_OPTIONS: "--inspect",
     };
@@ -93,6 +94,7 @@ describe("the connector host's supervisor", () => {
       PATH: process.env["PATH"],
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
       OTEL_SERVICE_NAME: "a-connector",
+      MARFA_OTEL_SAMPLE_RATIO: "0.1",
     });
     api.connectors = [
       assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
@@ -103,6 +105,7 @@ describe("the connector host's supervisor", () => {
       [
         "MARFA_API_KEY",
         "MARFA_API_URL",
+        "MARFA_OTEL_SAMPLE_RATIO",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_SERVICE_NAME",
         "PATH",

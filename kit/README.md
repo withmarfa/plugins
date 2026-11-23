@@ -473,7 +473,7 @@ The process exits with a code that tells its host what to do next (`kit/src/exit
 
 ### Telemetry
 
-A connector can send its logs and a trace of each run, which carries the error of a failed run, to an OpenTelemetry collector over OTLP/HTTP. Telemetry is off by default: until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the kit sends nothing of its own, loads no OpenTelemetry code, opens no connection and writes the same log lines. A failed run reaches its owner through Marfa, as a run recorded with its error, which `marfa attention` lists. The settings are the ones Marfa's server reads, so one set of values serves both.
+A connector can send its logs and a trace of each run, which carries the error of a failed run, to an OpenTelemetry collector over OTLP/HTTP. Telemetry is off by default: until `OTEL_EXPORTER_OTLP_ENDPOINT` is set, the kit sends nothing of its own, loads no OpenTelemetry code, opens no connection and writes the same log lines. A failed run reaches its owner through Marfa, as a run recorded with its error, which `marfa attention` lists. These are environment variables of the connector's process, apart from Marfa's server, which keeps its telemetry as stored settings with defaults of its own.
 
 | Setting                                                                | Meaning                                                                                                                                | Default                                   |
 | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |

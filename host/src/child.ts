@@ -35,7 +35,8 @@ export function childEnvironment(
     if (
       passed.includes(name) ||
       name.startsWith("LC_") ||
-      (telemetry && name.startsWith("OTEL_"))
+      (telemetry &&
+        (name.startsWith("OTEL_") || name.startsWith("MARFA_OTEL_")))
     )
       env[name] = value;
   }
