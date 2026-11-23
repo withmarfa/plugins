@@ -171,7 +171,7 @@ describe("the connector host's supervisor", () => {
   });
 
   it("wakes a running connector with SIGUSR2 for a run request, and starts a waiting one at once", async () => {
-    const { api, server, step, starts, home, clock } = supervised();
+    const { api, server, step, starts, home, clock, supervisor } = supervised();
     const code = server.serve("rss-1", connectorCode());
     const failing = server.serve("news-1", connectorCode({ exit: 1 }));
     api.connectors = [
@@ -181,6 +181,12 @@ describe("the connector host's supervisor", () => {
     await step();
     await until(
       () => starts("rss").length === 1 && starts("news").length === 1,
+    );
+    // The failing one is waiting to start again, not still on its way out.
+    await until(
+      () =>
+        supervisor.status().connectors.find((one) => one.plugin === "news")
+          ?.state === "stopped",
     );
     await step();
     clock.advance(1000);
