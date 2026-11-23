@@ -40,25 +40,44 @@ describe("a connector the owner paused", () => {
     expect(harness.lastRun().outcome).toBe("succeeded");
   });
 
-  it("skips each scheduled run while paused, and runs again the interval after it is resumed", async () => {
+  it("exits 0 under --every when a run start reads it paused, reporting nothing as failed and logging one line", async () => {
     const held = vendor([entry]);
     harness.server.control.paused = true;
     const exit = start(
       testConnector(held),
       harness.runtime(["--every", "15m"]),
     );
-    await harness.clock.sleeping(15 * minute);
-    await harness.clock.wake(15 * minute);
-    await harness.clock.sleeping(15 * minute);
-    expect(held.runs).toBe(0);
-    harness.server.control.paused = false;
-    await harness.clock.wake(15 * minute);
-    await until(() => held.runs === 1 && harness.server.runs.length === 1);
-    harness.stop();
     expect(await exit).toBe(exitCode.stopped);
+    expect(held.runs).toBe(0);
+    expect(harness.server.runs).toEqual([]);
+    expect(harness.server.rows).toEqual([]);
+    expect(
+      harness.lines.filter((line) =>
+        line.includes("owner paused this connector"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("finishes a run under way when it is paused, and exits 0 when the run the wake asked for finds it paused", async () => {
+    const held = vendor([entry]);
+    let release = (): void => undefined;
+    held.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const exit = start(
+      testConnector(held),
+      harness.runtime(["--every", "15m"]),
+    );
+    await until(() => held.runs === 1);
+    harness.server.control.paused = true;
+    harness.wake();
+    release();
+    expect(await exit).toBe(exitCode.stopped);
+    expect(held.runs).toBe(1);
     expect(harness.server.runs.map((run) => run.outcome)).toEqual([
       "succeeded",
     ]);
+    expect(harness.server.rows).toHaveLength(1);
   });
 });
 

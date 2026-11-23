@@ -119,6 +119,8 @@ interface Running {
   /** The wall clock at the start, for `status`. */
   startedOn: number;
   stopping: boolean;
+  /** The wake signal was sent for the pause the owner holds now. */
+  pauseWoken: boolean;
 }
 
 interface Slot {
@@ -427,9 +429,10 @@ export class Supervisor {
       return;
     }
     if (entry.paused) {
-      await this.stopChild(slot, "the owner paused it");
+      await this.pause(slot, entry, code, now);
       return;
     }
+    if (slot.running !== undefined) slot.running.pauseWoken = false;
     const request = entry.run_requested_at;
     const asked = request !== null && request !== slot.actedRequest;
     if (slot.hold !== undefined) {
@@ -474,6 +477,33 @@ export class Supervisor {
     const file = await this.fetchCode(slot, code);
     if (file === undefined) return;
     await this.start(slot, file, code, request);
+  }
+
+  /** A paused connector is not started. One running is woken once, so its
+   *  next run start reads the pause and it stops itself after the run under
+   *  way; only another version or code stops it from here. */
+  private async pause(
+    slot: Slot,
+    entry: Assigned,
+    code: Code,
+    now: number,
+  ): Promise<void> {
+    const running = slot.running;
+    if (running === undefined || running.stopping) return;
+    if (running.sha256 !== code.sha256 || running.version !== entry.version) {
+      await this.stopChild(
+        slot,
+        `version ${entry.version} replaces ${running.version}`,
+      );
+      slot.crashes = 0;
+      slot.restartAt = undefined;
+      return;
+    }
+    if (running.pauseWoken || !this.wake(slot, now)) return;
+    running.pauseWoken = true;
+    this.log(
+      `${slot.plugin}: the owner paused it, so it was woken to finish the run under way and stop`,
+    );
   }
 
   /** Sends the wake signal to a running connector past its first moments,
@@ -607,6 +637,7 @@ export class Supervisor {
       startedAt: this.now(),
       startedOn: this.wall(),
       stopping: false,
+      pauseWoken: false,
     };
     slot.running = running;
     // The connector reads the request as its first run starts.
@@ -636,7 +667,13 @@ export class Supervisor {
     }
     const entry = slot.entry;
     const said = `${plugin}: ${describeExit(exit)}`;
-    if (exit.code === 2) {
+    if (exit.code === 0 && entry.paused) {
+      slot.crashes = 0;
+      slot.restartAt = undefined;
+      this.log(
+        `${said} while paused, as it stops itself; it starts again when the owner resumes it`,
+      );
+    } else if (exit.code === 2) {
       slot.hold = {
         kind: "definition",
         version: entry.version,
@@ -769,7 +806,11 @@ export class Supervisor {
           return {
             ...base,
             state: "running",
-            detail: running.stopping ? "stopping" : "running",
+            detail: running.stopping
+              ? "stopping"
+              : entry.paused
+                ? "paused by the owner; finishing the run under way"
+                : "running",
             ...(running.child.pid !== undefined && { pid: running.child.pid }),
             since: iso(running.startedOn),
           };

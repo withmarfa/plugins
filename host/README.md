@@ -3,7 +3,8 @@
 `marfa-connector-host` runs the connectors your Marfa assigns to a machine. It
 links the machine to your Marfa once, then runs as a background service: it
 asks Marfa which connectors to run, fetches their code, gives each one a key
-of its own and restarts, pauses or removes them as you choose in Marfa.
+of its own and starts, restarts, pauses or removes them as you choose in Marfa.
+A connector you pause finishes the run under way and then stops itself.
 
 ## Install
 

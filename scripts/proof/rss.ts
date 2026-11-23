@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
-import { createServer } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import type { MarfaClient } from "@withmarfa/client";
@@ -34,6 +38,8 @@ interface Feed {
   redirect?: string;
   /** Called on a request it never answers. */
   hang?: () => void;
+  /** Counts each request it holds, and answers it once `open` settles. */
+  gate?: { entered: number; open: Promise<void> };
 }
 
 export async function serveFeeds(): Promise<{
@@ -53,12 +59,11 @@ export async function serveFeeds(): Promise<{
     },
   };
   const answers: number[] = [];
-  const server = createServer((req, res) => {
-    const feed = feeds[req.url ?? ""];
-    if (feed?.hang !== undefined) {
-      feed.hang();
-      return;
-    }
+  const answer = (
+    req: IncomingMessage,
+    res: ServerResponse,
+    feed: Feed | undefined,
+  ): void => {
     const status =
       feed === undefined
         ? 404
@@ -84,6 +89,21 @@ export async function serveFeeds(): Promise<{
         }),
       })
       .end(feed.body);
+  };
+  const server = createServer((req, res) => {
+    const feed = feeds[req.url ?? ""];
+    if (feed?.hang !== undefined) {
+      feed.hang();
+      return;
+    }
+    if (feed?.gate !== undefined) {
+      feed.gate.entered += 1;
+      void feed.gate.open.then(() => {
+        answer(req, res, feed);
+      });
+      return;
+    }
+    answer(req, res, feed);
   });
   await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
   return {
