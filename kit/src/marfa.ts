@@ -1411,7 +1411,8 @@ export class Marfa {
   }
 
   /** Replaces a row's properties at the version read; on a moved version
-   *  the server merges over what landed, shown by a jump past one. */
+   *  the server merges over what landed, shown by a jump past one. Says
+   *  whether Marfa found the write changed nothing. */
   async update(
     id: string,
     version: number,
@@ -1419,7 +1420,7 @@ export class Marfa {
     occurredAt: string | undefined,
     sourceId?: string,
     exact = false,
-  ): Promise<Item> {
+  ): Promise<{ item: Item; unchanged: boolean }> {
     const { data, error, response } = await this.client.PATCH("/items/{id}", {
       params: { path: { id } },
       body: {
@@ -1433,7 +1434,12 @@ export class Marfa {
     });
     if (data === undefined) throw refusal(response, error);
     this.noteLink(data.item);
-    return this.seen(data.item);
+    // Marfa answers a write that leaves the item as it stood this way, and
+    // writes no version for it.
+    return {
+      item: this.seen(data.item),
+      unchanged: data.acknowledged === true,
+    };
   }
 
   async endpoints(id: string): Promise<InboundEndpoint[]> {

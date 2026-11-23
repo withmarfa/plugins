@@ -789,10 +789,10 @@ export class Rows {
           rekey,
           this.kind.policy !== undefined,
         );
-        this.index(written);
+        this.index(written.item);
         this.agree(row.id, merged.agreement, entry);
         this.report(row.id, merged);
-        this.count(row.id, "updated");
+        this.count(row.id, written.unchanged ? "unchanged" : "updated");
         return;
       } catch (error) {
         if (
@@ -1040,17 +1040,17 @@ export class Rows {
         else properties[field] = value;
       }
       this.checkStopped();
+      let written: { item: Item; unchanged: boolean };
       try {
-        this.index(
-          await this.marfa.update(
-            row.id,
-            row.version,
-            properties,
-            undefined,
-            undefined,
-            this.kind.policy !== undefined,
-          ),
+        written = await this.marfa.update(
+          row.id,
+          row.version,
+          properties,
+          undefined,
+          undefined,
+          this.kind.policy !== undefined,
         );
+        this.index(written.item);
       } catch (error) {
         await this.absorb(error, row.source_id ?? row.id);
         continue;
@@ -1071,7 +1071,7 @@ export class Rows {
         }
         this.store.set(row.id, { ...agreement, vendor, marfa });
       }
-      this.count(row.id, "updated");
+      this.count(row.id, written.unchanged ? "unchanged" : "updated");
     }
   }
 
@@ -1281,17 +1281,17 @@ export class Rows {
       }
       if (found.length === 0) return [];
       this.checkStopped();
+      let written: { item: Item; unchanged: boolean };
       try {
-        this.index(
-          await this.marfa.update(
-            row.id,
-            row.version,
-            properties,
-            undefined,
-            undefined,
-            this.kind.policy !== undefined,
-          ),
+        written = await this.marfa.update(
+          row.id,
+          row.version,
+          properties,
+          undefined,
+          undefined,
+          this.kind.policy !== undefined,
         );
+        this.index(written.item);
       } catch (error) {
         if (
           attempt === 0 &&
@@ -1303,7 +1303,7 @@ export class Rows {
         await this.absorb(error, row.source_id ?? row.id);
         return [];
       }
-      this.count(row.id, "updated");
+      this.count(row.id, written.unchanged ? "unchanged" : "updated");
       return found;
     }
     return [];
@@ -1392,8 +1392,8 @@ export class Rows {
           undefined,
           this.kind.policy !== undefined,
         );
-        this.index(written);
-        this.count(row.id, "updated");
+        this.index(written.item);
+        this.count(row.id, written.unchanged ? "unchanged" : "updated");
       } catch (error) {
         if (
           attempt === 0 &&

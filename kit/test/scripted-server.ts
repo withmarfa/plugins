@@ -3286,6 +3286,23 @@ export class ScriptedServer {
       return true;
     };
     const sourceId = input["source_id"];
+    // A write that would leave the row as it stands writes no version and
+    // is answered `acknowledged` (`versions/update-unchanged`).
+    const land = (
+      left: Record<string, unknown>,
+      at: string | undefined,
+    ): boolean => {
+      if (
+        isDeepStrictEqual(left, row.properties) &&
+        (at === undefined || at === row.occurred_at) &&
+        (typeof sourceId !== "string" || sourceId === row.source_id)
+      )
+        return true;
+      if (typeof sourceId === "string") row.source_id = sourceId;
+      this.write(row, left, at);
+      return false;
+    };
+    let unchanged = false;
     if (
       typeof sourceId === "string" &&
       this.rows.some(
@@ -3348,17 +3365,14 @@ export class ScriptedServer {
         else Reflect.deleteProperty(merged, key);
       }
       if (linkTaken(merged)) return;
-      if (typeof sourceId === "string") row.source_id = sourceId;
-      this.write(row, merged, movesTime ? occurredAt : undefined);
+      unchanged = land(merged, movesTime ? occurredAt : undefined);
     } else {
       const left =
         input["properties_mode"] === "replace"
           ? properties
           : { ...row.properties, ...properties };
       if (linkTaken(left)) return;
-      if (typeof sourceId === "string") row.source_id = sourceId;
-      this.write(
-        row,
+      unchanged = land(
         left,
         typeof occurredAt === "string" ? occurredAt : undefined,
       );
@@ -3366,6 +3380,7 @@ export class ScriptedServer {
     send(200, {
       item: { ...this.wire(row), edges: this.hydrated(row.id) },
       metadata: this.metadata(row),
+      ...(unchanged && { acknowledged: true }),
     });
   }
 }
