@@ -262,23 +262,82 @@ function gh(program: string, args: readonly string[]): Promise<Ran> {
   });
 }
 
+/** What the release of `tag` is: none, a draft, published, or unknown. */
+async function releaseState(
+  tag: string,
+  program: string,
+): Promise<"none" | "draft" | "published" | { unknown: string }> {
+  const ran = await gh(program, ["release", "view", tag, "--json", "isDraft"]);
+  if (ran.code !== 0) {
+    return /release not found/i.test(ran.stderr)
+      ? "none"
+      : {
+          unknown: `gh exited ${String(ran.code)}: ${ran.stderr.trim()}`,
+        };
+  }
+  try {
+    const { isDraft } = JSON.parse(ran.stdout) as { isDraft?: unknown };
+    if (isDraft === true) return "draft";
+    if (isDraft === false) return "published";
+  } catch {
+    // Answered below.
+  }
+  return { unknown: `gh printed ${ran.stdout.trim()}` };
+}
+
 /**
- * Fails when a release exists for `tag`. A release that cannot be asked about
- * fails too: nothing is published on a guess.
+ * Fails when a published release exists for `tag`, or when the release
+ * cannot be asked about: nothing is published on a guess. A draft was never
+ * public, so it does not block: with `deleteDrafts`, which needs a token that
+ * may write, it is deleted, as a run that was stopped halfway leaves one.
  */
-export async function assertAbsent(tag: string, program = "gh"): Promise<void> {
+export async function assertAbsent(
+  tag: string,
+  program = "gh",
+  options: { deleteDrafts?: boolean } = {},
+): Promise<void> {
   versionOfTag(tag);
-  const ran = await gh(program, ["release", "view", tag]);
-  if (ran.code === 0) {
-    throw new Error(
-      `a release for ${tag} exists; it is never overwritten: publish a later tag`,
-    );
+  for (let tries = 0; tries < 5; tries += 1) {
+    const state = await releaseState(tag, program);
+    if (state === "none") return;
+    if (state === "published") {
+      throw new Error(
+        `a release for ${tag} exists; it is never overwritten: publish a later tag`,
+      );
+    }
+    if (typeof state === "object") {
+      throw new Error(
+        `could not ask whether a release for ${tag} exists (${state.unknown})`,
+      );
+    }
+    if (options.deleteDrafts !== true) return;
+    const deleted = await gh(program, ["release", "delete", tag, "--yes"]);
+    if (deleted.code !== 0) {
+      throw new Error(
+        `could not delete the draft release for ${tag} (gh exited ${String(deleted.code)}): ${deleted.stderr.trim()}`,
+      );
+    }
   }
-  if (!/release not found/i.test(ran.stderr)) {
-    throw new Error(
-      `could not ask whether a release for ${tag} exists (gh exited ${String(ran.code)}): ${ran.stderr.trim()}`,
-    );
+  throw new Error(`drafts for ${tag} are still there after deleting five`);
+}
+
+/**
+ * After a failed step, deletes the release of `tag` only while it is still
+ * a draft, and says what it is now.
+ */
+async function withdraw(tag: string, program: string): Promise<string> {
+  const state = await releaseState(tag, program);
+  if (state === "draft") {
+    const deleted = await gh(program, ["release", "delete", tag, "--yes"]);
+    return deleted.code === 0
+      ? `the draft for ${tag} was deleted`
+      : `the draft for ${tag} could not be deleted: ${deleted.stderr.trim()}`;
   }
+  if (state === "published") {
+    return `${tag} is published and was kept: check its assets and that it is marked latest`;
+  }
+  if (state === "none") return `no release for ${tag} is left`;
+  return `${tag} was left as it is, since it could not be read (${state.unknown})`;
 }
 
 /**
@@ -303,7 +362,8 @@ export function assertNewer(
  * checking that they are the ones `build` wrote (their checksums), that no
  * release exists for the tag, and that the tag is later than the latest
  * release. The release is created as a draft, the assets are uploaded, and
- * only then is it published, so a failed upload leaves nothing published. A
+ * only then is it published, so a failed upload leaves nothing published.
+ * After a failure the release is deleted only while it is still a draft. A
  * dry run does the checks and creates nothing.
  */
 export async function publish(
@@ -340,7 +400,7 @@ export async function publish(
     }
   }
   const program = options.gh ?? "gh";
-  await assertAbsent(tag, program);
+  await assertAbsent(tag, program, { deleteDrafts: options.dryRun !== true });
   assertNewer(version, await (options.published ?? readPublished)());
   if (options.dryRun === true) return files;
   const notes = `Plugin bundles at ${version}, each connector's code, the connector host, install-host.sh, plugins.json and ${checksumsFile}.`;
@@ -357,7 +417,7 @@ export async function publish(
   ]);
   if (created.code !== 0) {
     throw new Error(
-      `gh release create ${tag} exited ${String(created.code)}: ${created.stderr.trim()}`,
+      `gh release create ${tag} exited ${String(created.code)}: ${created.stderr.trim()}; ${await withdraw(tag, program)}`,
     );
   }
   const uploaded = await gh(program, [
@@ -367,9 +427,8 @@ export async function publish(
     ...files.map((name) => join(dir, name)),
   ]);
   if (uploaded.code !== 0) {
-    await gh(program, ["release", "delete", tag, "--yes"]);
     throw new Error(
-      `gh release upload ${tag} exited ${String(uploaded.code)}: ${uploaded.stderr.trim()}`,
+      `gh release upload ${tag} exited ${String(uploaded.code)}: ${uploaded.stderr.trim()}; ${await withdraw(tag, program)}`,
     );
   }
   const edited = await gh(program, [
@@ -380,9 +439,8 @@ export async function publish(
     "--latest",
   ]);
   if (edited.code !== 0) {
-    await gh(program, ["release", "delete", tag, "--yes"]);
     throw new Error(
-      `gh release edit ${tag} exited ${String(edited.code)}: ${edited.stderr.trim()}`,
+      `gh release edit ${tag} exited ${String(edited.code)}: ${edited.stderr.trim()}; ${await withdraw(tag, program)}`,
     );
   }
   return files;
@@ -410,7 +468,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.log(`built ${files.join(", ")}`);
     } else if (command === "absent") {
       await assertAbsent(required("tag"));
-      console.log(`no release for ${required("tag")}`);
+      console.log(`no published release for ${required("tag")}`);
     } else if (command === "publish") {
       const dryRun = process.argv.includes("--dry-run");
       const files = await publish(required("tag"), required("dir"), { dryRun });

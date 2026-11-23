@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -182,9 +182,11 @@ describe("the build", () => {
 describe("publishing", () => {
   let fake: string;
   let log: string;
+  let state: string;
 
-  function fakeGh(view: "absent" | "exists" | "error"): void {
-    vi.stubEnv("FAKE_GH_VIEW", view);
+  /** What the release of the tag is, as the fake `gh` answers. */
+  function fakeGh(view: "absent" | "draft" | "published" | "error"): void {
+    writeFileSync(state, `${view}\n`);
   }
 
   beforeEach(async () => {
@@ -192,27 +194,36 @@ describe("publishing", () => {
     made.push(folder);
     fake = join(folder, "gh");
     log = join(folder, "calls.log");
+    state = join(folder, "state");
     await writeFile(
       fake,
       [
         "#!/bin/sh",
         'echo "$@" >> "$FAKE_GH_LOG"',
-        'if [ "$1 $2" = "release view" ]; then',
-        '  case "$FAKE_GH_VIEW" in',
-        "    exists) exit 0 ;;",
-        '    error) echo "error connecting to api.github.com" >&2; exit 1 ;;',
-        '    *) echo "release not found" >&2; exit 1 ;;',
-        "  esac",
-        "fi",
-        'if [ "$1 $2" = "release edit" ] && [ "${FAKE_GH_FAIL:-}" = edit ]; then',
-        '  echo "edit failed" >&2',
-        "  exit 1",
-        "fi",
+        'state=$(cat "$FAKE_GH_STATE")',
+        'case "$1 $2" in',
+        '  "release view")',
+        '    case "$state" in',
+        "      draft) echo '{\"isDraft\":true}' ;;",
+        "      published) echo '{\"isDraft\":false}' ;;",
+        '      error) echo "error connecting to api.github.com" >&2; exit 1 ;;',
+        '      *) echo "release not found" >&2; exit 1 ;;',
+        "    esac ;;",
+        '  "release create") echo draft > "$FAKE_GH_STATE" ;;',
+        '  "release delete") echo absent > "$FAKE_GH_STATE" ;;',
+        '  "release edit")',
+        '    case "${FAKE_GH_FAIL:-}" in',
+        '      edit) echo "edit failed" >&2; exit 1 ;;',
+        '      edit-after-publishing) echo published > "$FAKE_GH_STATE"; echo "edit failed" >&2; exit 1 ;;',
+        "    esac",
+        '    echo published > "$FAKE_GH_STATE" ;;',
+        "esac",
         "exit 0",
         "",
       ].join("\n"),
     );
     await chmod(fake, 0o755);
+    vi.stubEnv("FAKE_GH_STATE", state);
     vi.stubEnv("FAKE_GH_LOG", log);
     fakeGh("absent");
     await releaseBuild();
@@ -262,7 +273,7 @@ describe("publishing", () => {
     const files = await publish("v0.0.13", out, { gh: fake, published: none });
     expect(files).toEqual(releaseFiles());
     const all = await calls();
-    expect(all[0]).toBe("release view v0.0.13");
+    expect(all[0]).toBe("release view v0.0.13 --json isDraft");
     const create = all[1] ?? "";
     expect(create).toMatch(/^release create v0\.0\.13 /);
     expect(create).toContain("--draft");
@@ -283,11 +294,45 @@ describe("publishing", () => {
       publish("v0.0.13", out, { gh: fake, published: none }),
     ).rejects.toThrow("gh release edit v0.0.13 exited");
     expect(await calls()).toEqual([
-      "release view v0.0.13",
+      "release view v0.0.13 --json isDraft",
       expect.stringMatching(/^release create v0\.0\.13 /),
       expect.stringMatching(/^release upload v0\.0\.13 /),
       "release edit v0.0.13 --draft=false --latest",
+      "release view v0.0.13 --json isDraft",
       "release delete v0.0.13 --yes",
+    ]);
+  });
+
+  it("keeps a release the failed edit published, and says it is published", async () => {
+    vi.stubEnv("FAKE_GH_FAIL", "edit-after-publishing");
+    await expect(
+      publish("v0.0.13", out, { gh: fake, published: none }),
+    ).rejects.toThrow(/v0\.0\.13 is published/);
+    const all = await calls();
+    expect(all.some((call) => call.startsWith("release delete"))).toBe(false);
+    expect(all.at(-1)).toBe("release view v0.0.13 --json isDraft");
+  });
+
+  it("deletes a draft a stopped run left for the tag, then publishes", async () => {
+    fakeGh("draft");
+    await publish("v0.0.13", out, { gh: fake, published: none });
+    expect(await calls()).toEqual([
+      "release view v0.0.13 --json isDraft",
+      "release delete v0.0.13 --yes",
+      "release view v0.0.13 --json isDraft",
+      expect.stringMatching(/^release create v0\.0\.13 /),
+      expect.stringMatching(/^release upload v0\.0\.13 /),
+      "release edit v0.0.13 --draft=false --latest",
+    ]);
+  });
+
+  it("lets a draft through without deleting it when it only asks, or in a dry run", async () => {
+    fakeGh("draft");
+    await expect(assertAbsent("v0.0.13", fake)).resolves.toBeUndefined();
+    await publish("v0.0.13", out, { gh: fake, dryRun: true, published: none });
+    expect(await calls()).toEqual([
+      "release view v0.0.13 --json isDraft",
+      "release view v0.0.13 --json isDraft",
     ]);
   });
 
@@ -298,15 +343,15 @@ describe("publishing", () => {
       published: none,
     });
     expect(files).toContain("plugins.json");
-    expect(await calls()).toEqual(["release view v0.0.13"]);
+    expect(await calls()).toEqual(["release view v0.0.13 --json isDraft"]);
   });
 
   it("fails when a release exists for the tag, and creates nothing", async () => {
-    fakeGh("exists");
+    fakeGh("published");
     await expect(
       publish("v0.0.13", out, { gh: fake, published: none }),
     ).rejects.toThrow("a release for v0.0.13 exists; it is never overwritten");
-    expect(await calls()).toEqual(["release view v0.0.13"]);
+    expect(await calls()).toEqual(["release view v0.0.13 --json isDraft"]);
   });
 
   it("fails when it cannot ask whether the release exists, and creates nothing", async () => {
@@ -314,12 +359,12 @@ describe("publishing", () => {
     await expect(
       publish("v0.0.13", out, { gh: fake, published: none }),
     ).rejects.toThrow("could not ask whether a release for v0.0.13 exists");
-    expect(await calls()).toEqual(["release view v0.0.13"]);
+    expect(await calls()).toEqual(["release view v0.0.13 --json isDraft"]);
   });
 
   it("asks alone whether a release exists", async () => {
     await expect(assertAbsent("v0.0.13", fake)).resolves.toBeUndefined();
-    fakeGh("exists");
+    fakeGh("published");
     await expect(assertAbsent("v0.0.13", fake)).rejects.toThrow("exists");
   });
 
@@ -438,7 +483,10 @@ describe("the release workflow", () => {
     );
     expect(check?.run).toContain("HX7739G8FX");
     expect(check?.run).toContain("runtime");
-    expect(check?.run).not.toContain("spctl");
+    expect(check?.run).toContain(
+      'spctl --assess --type open --context context:primary-signature -v "$node"',
+    );
+    expect(check?.run).not.toContain("--type execute");
     expect(check?.run).not.toContain("--type install");
     expect(workflow.jobs["sign"]?.["runs-on"]).toBe("macos-latest");
   });

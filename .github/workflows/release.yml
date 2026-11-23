@@ -75,11 +75,10 @@ jobs:
           retention-days: 7
 
   # `codesign` checks the official Node binary: a strict verify, the Node.js
-  # Foundation team and the hardened runtime. `spctl --assess --type execute`
-  # is the assessment for running a program. On the official binary it rejects
-  # the file ("the code is valid but does not seem to be an app") because the
-  # signature uses an obsolete resource envelope. `--type install` assesses an
-  # installer package, so this job uses neither.
+  # Foundation team and the hardened runtime. Gatekeeper then assesses it with
+  # `spctl --assess --type open --context context:primary-signature`, the form
+  # for a command-line binary, which accepts it as Notarized Developer ID.
+  # `--type execute` rejects any bare Mach-O binary as not an app.
   sign:
     name: Sign
     needs: build
@@ -107,6 +106,7 @@ jobs:
             team=$(printf '%s\n' "$info" | awk -F= '/^TeamIdentifier=/{print $2}')
             test "$team" = "HX7739G8FX"
             printf '%s\n' "$info" | grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*\<runtime\>'
+            spctl --assess --type open --context context:primary-signature -v "$node"
             rm -rf "$dir"
           done
           test "$found" = 2
