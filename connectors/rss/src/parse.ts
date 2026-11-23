@@ -12,11 +12,6 @@ export const parseLimits = {
 
 export const parseTimeoutMs = 30_000;
 
-/** What a read may hand back, serialized: about three times the largest real
- *  feed checked. A value every entry repeats, such as the feed's title,
- *  counts once per entry, as it is written once per row. */
-export const maxResultChars = 32 * 1024 * 1024;
-
 export class TooHeavy extends Error {
   override name = "TooHeavy";
 }

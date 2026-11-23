@@ -1,12 +1,12 @@
 import { parentPort, workerData } from "node:worker_threads";
 import {
   decodeFeed,
+  maxResultChars,
   readFeed,
   TooManyElements,
   TooManyEntries,
 } from "./feeds.js";
 import type { Read } from "./feeds.js";
-import { maxResultChars } from "./parse.js";
 import type { ParseAnswer, ParseInput } from "./parse.js";
 
 const { feed, bytes, contentType, documentUrl } = workerData as ParseInput;

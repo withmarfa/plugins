@@ -19,6 +19,7 @@ import {
   registration,
   restore,
   rowsOf,
+  startOf,
   trash,
   type Item,
 } from "./connector.js";
@@ -537,7 +538,7 @@ export async function proveGitHub(
       async () => {
         const child = spawn(
           "node",
-          [entry, "--every", "1h", "--look-every", "1s"],
+          startOf(entry, ["--every", "1h", "--look-every", "1s"]),
           {
             env: {
               PATH: process.env["PATH"],

@@ -4,6 +4,7 @@
   "type": "module",
   "dependencies": {
     "@withmarfa/client": "0.0.101",
-    "@withmarfa/connector": "workspace:*"
+    "@withmarfa/connector": "workspace:*",
+    "esbuild": "0.28.2"
   }
 }
