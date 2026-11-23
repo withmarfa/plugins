@@ -849,6 +849,10 @@ export class Supervisor {
         if (entry.connector.code === undefined)
           return stopped("its plugin carries no code");
         if (entry.paused) return stopped("paused by the owner");
+        if (slot.pausedOn !== undefined)
+          return stopped(
+            "it stopped itself for a pause; it starts again once Marfa says it is not paused",
+          );
         const hold = slot.hold;
         if (hold?.kind === "definition")
           return stopped(

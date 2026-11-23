@@ -248,6 +248,11 @@ describe("the connector host's supervisor", () => {
     // Well past the wait after an ordinary exit, still before the next look.
     clock.advance(30_000);
     await step();
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "stopped",
+      detail:
+        "it stopped itself for a pause; it starts again once Marfa says it is not paused",
+    });
     expect(starts("rss")).toHaveLength(1);
     api.connectors = [assigned("rss", "0.0.1", code, { paused: true })];
     await poll();
