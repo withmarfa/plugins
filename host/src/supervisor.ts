@@ -489,7 +489,13 @@ export class Supervisor {
     now: number,
   ): Promise<void> {
     const running = slot.running;
-    if (running === undefined || running.stopping) return;
+    if (running === undefined) {
+      // Resuming starts it at the next look, whatever it waited on before.
+      slot.crashes = 0;
+      slot.restartAt = undefined;
+      return;
+    }
+    if (running.stopping) return;
     if (running.sha256 !== code.sha256 || running.version !== entry.version) {
       await this.stopChild(
         slot,
