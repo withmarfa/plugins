@@ -131,6 +131,41 @@ describe("a kind's fields mapped onto the target's", () => {
     });
   });
 
+  it("names as left out only a field neither a template nor a field's from reads", async () => {
+    mapFields(standard);
+    expect(await harness.twoWay(held())).toBe(0);
+    const warning = harness.problems()["mapping-fields:entry"];
+    expect(warning).toContain("without link,");
+    expect(warning).not.toMatch(/without[^,]*\btitle\b/);
+
+    mapFields({ ...standard, title: { from: "note" } }, { version: 2 });
+    expect(await quiet(held())).toBe(0);
+    expect(harness.problems()["mapping-fields:entry"]).toContain(
+      "without title, link,",
+    );
+  });
+
+  it("counts no update for a row the first run after the mapping sends again and Marfa finds unchanged", async () => {
+    const doing: Entry = {
+      ...one,
+      properties: { ...one.properties, status: "doing" },
+    };
+    expect(await harness.twoWay(held([doing]))).toBe(0);
+    const { version, updated_at } = harness.server.row("a:1");
+    mapFields(standard);
+    expect(await quiet(held([doing])), harness.lines.join("\n")).toBe(0);
+    expect(
+      harness.server.requestsTo(
+        "PATCH",
+        "/items/" + harness.server.row("a:1").id,
+      ),
+    ).toHaveLength(1);
+    const after = harness.server.row("a:1");
+    expect([after.version, after.updated_at]).toEqual([version, updated_at]);
+    expect(harness.lastRun().summary).toMatch(/updated 0\b/);
+    expect(harness.lastRun().summary).toMatch(/unchanged 1\b/);
+  });
+
   it("lands a status word on the word its override names", async () => {
     mapFields(standard, { overrides: { waiting: "blocked" } });
     expect(await harness.twoWay(held())).toBe(0);

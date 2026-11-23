@@ -492,6 +492,10 @@ export class ScriptedServer {
   readonly previewAnswers: { id: string; body: Record<string, unknown> }[] = [];
   /** The numbers of the rewrites the connector cleared, in order. */
   readonly rewritesDone: number[] = [];
+  /** Types the key reaches beyond its type map and the mapping, as Marfa
+   *  would let a connector reach its rows on a former target while a
+   *  rewrite is open. */
+  readonly formerReach = new Set<string>();
   /** The key is refused as a revoked one is: 401 at every door. */
   revoked = false;
   /** The registration is gone: every door under it answers 404 until the
@@ -2040,7 +2044,7 @@ export class ScriptedServer {
       return;
     }
     if (method === "GET" && url.pathname === "/items") {
-      this.listItems(url.searchParams, send);
+      this.listItems(url.searchParams, send, refuse);
       this.afterRead?.(request);
       return;
     }
@@ -2361,7 +2365,7 @@ export class ScriptedServer {
   /** A type filter names the type, every type whose identifier begins with
    *  it and a dot, and every type whose chain of parents reaches it
    *  (`types/listing-subtree`). */
-  private ofType(row: Row, type: string | null): boolean {
+  private ofType(row: Pick<Row, "type">, type: string | null): boolean {
     if (type === null || row.type === type) return true;
     if (row.type.startsWith(`${type}.`)) return true;
     const seen = new Set([row.type]);
@@ -2374,7 +2378,7 @@ export class ScriptedServer {
     return false;
   }
 
-  private listItems(query: URLSearchParams, send: Send): void {
+  private listItems(query: URLSearchParams, send: Send, refuse: Refuse): void {
     const state = query.get("state") ?? "active";
     const type = query.get("type");
     // The edge terms a filter takes, joined by OR, up to the server's caps
@@ -2398,8 +2402,27 @@ export class ScriptedServer {
       send(400, { error: { code: "validation_error" } });
       return;
     }
+    if (
+      type !== null &&
+      this.types.has(type) &&
+      ![...this.types.keys()].some(
+        (id) =>
+          this.ofType({ type: id }, type) && this.permission(id) !== "none",
+      )
+    ) {
+      refuse(
+        403,
+        "type_not_permitted",
+        `Read access to type "${type}" denied`,
+        { grant: { kind: "type", name: type, level: "read" } },
+      );
+      return;
+    }
+    // A row of a type the key cannot read is left out of every page, as
+    // though it were not there.
     const matches = this.rows.filter(
       (row) =>
+        this.permission(row.type) !== "none" &&
         this.ofType(row, type) &&
         (query.get("source") === null || row.source === query.get("source")) &&
         (state === "any" || row.state === state) &&
@@ -3062,6 +3085,7 @@ export class ScriptedServer {
       )
     )
       return "write";
+    if (this.formerReach.has(type)) return "write";
     const level = resolve(
       this.grants.type_permissions ?? this.minted.type_permissions,
       type,
@@ -3278,6 +3302,23 @@ export class ScriptedServer {
       return true;
     };
     const sourceId = input["source_id"];
+    // A write that would leave the row as it stands writes no version and
+    // is answered `acknowledged` (`versions/update-unchanged`).
+    const land = (
+      left: Record<string, unknown>,
+      at: string | undefined,
+    ): boolean => {
+      if (
+        isDeepStrictEqual(left, row.properties) &&
+        (at === undefined || at === row.occurred_at) &&
+        (typeof sourceId !== "string" || sourceId === row.source_id)
+      )
+        return true;
+      if (typeof sourceId === "string") row.source_id = sourceId;
+      this.write(row, left, at);
+      return false;
+    };
+    let unchanged: boolean;
     if (
       typeof sourceId === "string" &&
       this.rows.some(
@@ -3340,17 +3381,14 @@ export class ScriptedServer {
         else Reflect.deleteProperty(merged, key);
       }
       if (linkTaken(merged)) return;
-      if (typeof sourceId === "string") row.source_id = sourceId;
-      this.write(row, merged, movesTime ? occurredAt : undefined);
+      unchanged = land(merged, movesTime ? occurredAt : undefined);
     } else {
       const left =
         input["properties_mode"] === "replace"
           ? properties
           : { ...row.properties, ...properties };
       if (linkTaken(left)) return;
-      if (typeof sourceId === "string") row.source_id = sourceId;
-      this.write(
-        row,
+      unchanged = land(
         left,
         typeof occurredAt === "string" ? occurredAt : undefined,
       );
@@ -3358,6 +3396,7 @@ export class ScriptedServer {
     send(200, {
       item: { ...this.wire(row), edges: this.hydrated(row.id) },
       metadata: this.metadata(row),
+      ...(unchanged && { acknowledged: true }),
     });
   }
 }

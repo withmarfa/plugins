@@ -416,6 +416,7 @@ function looks<E extends SettingsDeclaration>(
 async function awaitChanges<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   held: (trigger: Trigger) => Promise<RunResult | undefined>,
+  previews: () => Promise<void>,
   wake: Wake,
   everyMs: number,
   next: number,
@@ -431,6 +432,8 @@ async function awaitChanges<E extends SettingsDeclaration>(
     if (left <= 0) return;
     const woken = await wake.sleep(Math.min(left, everyMs), signal);
     if (woken || stopped() || clock.now().getTime() >= next) return;
+    await previews();
+    if (stopped()) return;
     let waiting = false;
     try {
       if (connector.inbound !== undefined) {
@@ -486,7 +489,7 @@ function helpOf<E extends SettingsDeclaration>(
           `It reads its settings from Marfa at the start of every run; the owner sets them with \`marfa plugins settings ${connector.name}\` and \`marfa plugins secret ${connector.name}\`:`,
           ...named,
         ]),
-    "It reads what the owner chose for it at the start of every run: a paused connector skips the run, SIGUSR1 runs it now, and it answers the mapping previews that wait.",
+    "It reads what the owner chose for it at the start of every run: a paused connector skips the run, SIGUSR1 runs it now, and it answers the mapping previews that wait, again on each look between runs.",
     "It exits 0 once stopped, 1 for any other failure, including a host not found or a certificate refused (tried again under --every), 2 when its definition or command line is wrong or MARFA_API_URL is malformed or redirected, 3 when Marfa or the kit refuses its key, and 4 when a required setting is missing, a value is invalid, or a run found settings only the owner can mend (SettingsRefused).",
     "  Startup failures found before telemetry starts, including a missing MARFA_API_URL or MARFA_API_KEY, are logged only.",
   ];
@@ -1151,6 +1154,27 @@ async function serve<E extends SettingsDeclaration>(
       return undefined;
     }
   };
+  /** Answers the mapping previews the owner's choices say wait. Writes
+   *  nothing, so it needs no hold. */
+  const answerWaiting = async (control: Control | undefined): Promise<void> => {
+    if (control === undefined || control.paused || control.previews === 0)
+      return;
+    await answerPreviews({
+      connector: setup.connector,
+      values: setup.values,
+      marfa,
+      plugin: setup.plugin ?? connector.name,
+      logger,
+      signal: lasting,
+    });
+  };
+  /** What a look between runs does besides reading Marfa's log: answers
+   *  the previews that wait, so one is answered within a look. */
+  const previewsOnLook = async (): Promise<void> => {
+    const control = await controlled();
+    if (over()) return;
+    await answerWaiting(control);
+  };
   const held = async (trigger: Trigger): Promise<RunResult | undefined> => {
     heldUntil = undefined;
     const control = await controlled();
@@ -1163,17 +1187,8 @@ async function serve<E extends SettingsDeclaration>(
     }
     const unprepared = await prepare();
     if (unprepared !== undefined || over()) return unprepared;
-    if (control !== undefined && control.previews > 0) {
-      await answerPreviews({
-        connector: setup.connector,
-        values: setup.values,
-        marfa,
-        plugin: setup.plugin ?? connector.name,
-        logger,
-        signal: lasting,
-      });
-      if (over()) return undefined;
-    }
+    await answerWaiting(control);
+    if (over()) return undefined;
     let taken;
     try {
       taken = await hold.take();
@@ -1363,6 +1378,7 @@ async function serve<E extends SettingsDeclaration>(
         await awaitChanges(
           setup,
           held,
+          previewsOnLook,
           wake,
           schedule.lookMs,
           next,

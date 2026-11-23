@@ -69,6 +69,9 @@ export interface Kept {
   /** The types, as written, whose changes the cursor has followed: a type
    *  not among them is compared whole once it is followed again. */
   watched?: string[];
+  /** For each kind's own type, the other types the owner's mappings have
+   *  landed its rows on, which a rewrite moves them back from. */
+  landed?: Record<string, string[]>;
 }
 
 const perRequest = 500;
@@ -93,6 +96,17 @@ function keptOf(value: unknown, problems: unknown): Kept {
   const cursor = kept["cursor"];
   const mapping = kept["mapping"];
   const watched = kept["watched"];
+  const landed = isRecord(kept["landed"])
+    ? Object.fromEntries(
+        Object.entries(kept["landed"]).flatMap(
+          ([own, types]): [string, string[]][] =>
+            Array.isArray(types) &&
+            types.every((type) => typeof type === "string")
+              ? [[own, types]]
+              : [],
+        ),
+      )
+    : {};
   const outboundRetryAt = retryDeadline(kept["outboundRetryAt"]);
   const purges = Array.isArray(kept["purges"])
     ? kept["purges"].filter(isRecord).map((purge) => purge as unknown as Purge)
@@ -135,6 +149,7 @@ function keptOf(value: unknown, problems: unknown): Kept {
     ...(isMapping(mapping) && { mapping }),
     ...(Array.isArray(watched) &&
       watched.every((type) => typeof type === "string") && { watched }),
+    ...(Object.keys(landed).length > 0 && { landed }),
     ...(purges.length > 0 && { purges }),
     ...((Object.keys(relinked.rows).length > 0 ||
       relinked.overflowed === true) && { relinked }),
@@ -238,6 +253,7 @@ export class Store {
       ...(kept.relinked !== undefined && { relinked: kept.relinked }),
       ...(kept.mapping !== undefined && { mapping: kept.mapping }),
       ...(kept.watched !== undefined && { watched: kept.watched }),
+      ...(kept.landed !== undefined && { landed: kept.landed }),
     };
     if (
       (kept.inbound !== undefined || kept.outbound !== undefined) &&

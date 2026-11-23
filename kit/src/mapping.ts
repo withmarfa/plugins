@@ -10,7 +10,7 @@ import type {
 import type { EdgeType } from "./marfa.js";
 import type { Narrowed } from "./own-types.js";
 import { wireOf } from "./shipped.js";
-import { loadTemplates, render } from "./template.js";
+import { loadTemplates, render, templateNames } from "./template.js";
 import { cleaned, fingerprint } from "./values.js";
 
 export type Mapping = components["schemas"]["ConnectorMapping"];
@@ -636,6 +636,19 @@ async function shapeFields(input: {
   return { fields: map, omitted: [...map.omitted] };
 }
 
+/** The kind's fields a mapping's templates read, which the target holds
+ *  through them though no field is filled from them one for one. */
+async function readByTemplates(
+  entry: KindMapping | undefined,
+): Promise<Set<string>> {
+  const sources = Object.values(entry?.fields ?? {}).flatMap((source) =>
+    "template" in source ? [source.template] : [],
+  );
+  if (sources.length === 0) return new Set();
+  await loadTemplates();
+  return new Set(sources.flatMap((source) => templateNames(source)));
+}
+
 /** Fields the kit cannot write a file's row without. */
 const fileFields = ["blob_ref", "mime_type"];
 
@@ -708,10 +721,12 @@ export async function planKinds<E extends SettingsDeclaration>(
         resolve,
         resolved: undefined,
       });
-      if (shaped.omitted.length > 0)
+      const read = await readByTemplates(entry);
+      const unread = shaped.omitted.filter((field) => !read.has(field));
+      if (unread.length > 0)
         conditions.set(
           `mapping-fields:${label}`,
-          `the kind ${label} lands on ${target} without ${shaped.omitted.join(", ")}, since its mapping fills no field from them`,
+          `the kind ${label} lands on ${target} without ${unread.join(", ")}, since its mapping fills no field from them`,
         );
       plans.set(own, {
         ...base,
@@ -769,8 +784,9 @@ export async function planKinds<E extends SettingsDeclaration>(
     const omittedTables = Object.keys(kind.type.tables ?? {}).filter(
       (table) => !resolved.tables.has(table),
     );
+    const read = await readByTemplates(entry);
     const left = [
-      ...omitted,
+      ...omitted.filter((field) => !read.has(field)),
       ...omittedTables.map((table) => `the table ${table}`),
     ];
     if (left.length > 0) {
