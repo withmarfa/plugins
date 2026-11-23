@@ -570,7 +570,7 @@ async function history(
  * whose own value differs from the mark the vendor last agreed takes the
  * newest value the row held under that name with that mark: it was changed
  * while the row was on the other type. A field no past value matches keeps
- * what the move gave it, until the vendor next changes it; the answer names
+ * what the move gave it, until the vendor next sends the row; the answer names
  * each such field with the number of rows it holds an older value on.
  */
 async function agreeMoved<E extends SettingsDeclaration>(
@@ -823,7 +823,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
     if (older !== undefined && older.size > 0)
       conditions.set(
         `${conditionKey}:older`,
-        `the rewrite ${String(rewrite.number)} moved rows that hold values from before they were on another type, since the vendor changed them there under the mapping's own names: ${[...older].map(([field, rows]) => `${field} on ${String(rows)} ${rows === 1 ? "row" : "rows"}`).join(", ")}; each takes the vendor's value when the vendor next changes it`,
+        `the rewrite ${String(rewrite.number)} moved rows that hold an older value, because no stored value of that field matches what the vendor last agreed: ${[...older].map(([field, rows]) => `${field} on ${String(rows)} ${rows === 1 ? "row" : "rows"}`).join(", ")}; each takes the vendor's value when the vendor next sends the row`,
       );
     if (unreached.length > 0) {
       const message = `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} stays open and this run does not start: ${unreached.join("; ")}`;
