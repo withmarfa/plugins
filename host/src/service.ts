@@ -21,6 +21,31 @@ function xml(text: string): string {
     .replaceAll('"', "&quot;");
 }
 
+/**
+ * Exit code `run` returns after `current` names a newer release. `KeepAlive`
+ * restarts only a non-zero exit, and systemd's `Restart=on-failure` does the
+ * same, so the service starts the new build. A clean stop stays 0, and a
+ * removed host is not restarted.
+ */
+export const updateExit = 75;
+
+/**
+ * The program the service runs: the `current` link, never one version's
+ * path, so an update does not rewrite the service file. The link's target
+ * is a shell script. It starts the Node beside it, and `run` listens for
+ * `SIGUSR1` itself.
+ */
+export function installedProgram(
+  root: string,
+  env: NodeJS.ProcessEnv,
+): Program {
+  const chosen = env["MARFA_CONNECTOR_HOST_HOME"];
+  return {
+    args: [join(root, "current", "bin", "marfa-connector-host")],
+    home: chosen === undefined || chosen === "" ? undefined : root,
+  };
+}
+
 /** The LaunchAgent that keeps `run` going on macOS. */
 export function launchAgent(program: Program): string {
   const strings = (values: string[]): string =>

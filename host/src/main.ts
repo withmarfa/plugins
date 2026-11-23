@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-import { realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline/promises";
-import { fileURLToPath } from "node:url";
 import {
   install,
   logs,
@@ -17,7 +15,13 @@ import {
 import { Home, homeFolder, safePluginName } from "./home.js";
 import { LinkRefused } from "./link.js";
 import { RedeemRefused } from "./marfa.js";
-import { serviceFor, ServiceRefused } from "./service.js";
+import { installedProgram, serviceFor, ServiceRefused } from "./service.js";
+import {
+  hostPlatform,
+  runningVersion,
+  updateRelease,
+  UpdateRefused,
+} from "./update.js";
 
 const usage = `marfa-connector-host: runs the connectors your Marfa assigns to this machine.
 
@@ -28,6 +32,7 @@ Usage:
   marfa-connector-host status      The host, and each connector it runs.
   marfa-connector-host logs [<plugin>]
                                    The host's log, or one connector's.
+  marfa-connector-host update      Install a newer release beside this one.
   marfa-connector-host uninstall [--yes]
                                    Stop the service and delete the host's files.
   marfa-connector-host run         Run the connectors; what the service runs.
@@ -96,24 +101,53 @@ async function main(args: string[]): Promise<number> {
         );
         return 1;
       }
-      const script = realpathSync(fileURLToPath(import.meta.url));
-      const chosen = process.env["MARFA_CONNECTOR_HOST_HOME"];
       await install(
         home,
         link,
         io,
         service === undefined
           ? undefined
-          : {
-              service,
-              program: {
-                args: [process.execPath, "--disable-sigusr1", script],
-                home:
-                  chosen === undefined || chosen === "" ? undefined : home.root,
-              },
-            },
+          : { service, program: installedProgram(home.root, process.env) },
       );
       return 0;
+    }
+    case "update": {
+      if (!known([], 0)) return 2;
+      const version = runningVersion(import.meta.url);
+      if (version === undefined) {
+        io.err(
+          "This copy was not installed from a release, so it cannot update itself.",
+        );
+        return 1;
+      }
+      const platform = hostPlatform();
+      if (platform === undefined) {
+        io.err(
+          `This system (${process.platform} ${process.arch}) has no connector host build. Nothing was changed.`,
+        );
+        return 1;
+      }
+      try {
+        const outcome = await updateRelease({
+          root: home.root,
+          version,
+          platform,
+        });
+        if (outcome.kind === "stay") {
+          io.out(`This host is already the newest release, ${version}.`);
+        } else {
+          io.out(
+            `Updated to ${outcome.version}. The service starts it when the copy that is running exits.`,
+          );
+        }
+        return 0;
+      } catch (error) {
+        if (error instanceof UpdateRefused) {
+          io.err(error.message);
+          return 1;
+        }
+        throw error;
+      }
     }
     case "run": {
       if (!known([], 0)) return 2;

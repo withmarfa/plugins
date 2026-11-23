@@ -2,10 +2,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  installedProgram,
   launchAgent,
   ServiceRefused,
   serviceFor,
   systemdService,
+  updateExit,
 } from "../src/service.js";
 import { scratch } from "./helpers.js";
 
@@ -199,5 +201,21 @@ WantedBy=default.target
       throw new Error("Could not find service");
     };
     expect(serviceFor("darwin", {}, home, 501, failing)?.pid()).toBeUndefined();
+  });
+
+  it("runs the current link, and a newer release exits non-zero", () => {
+    const program = installedProgram("/data", {});
+    expect(program.args).toEqual([
+      join("/data", "current", "bin", "marfa-connector-host"),
+    ]);
+    expect(program.args.join(" ")).not.toContain("versions");
+    expect(program.home).toBeUndefined();
+    expect(
+      installedProgram("/data", { MARFA_CONNECTOR_HOST_HOME: "" }).home,
+    ).toBe(undefined);
+    expect(
+      installedProgram("/data", { MARFA_CONNECTOR_HOST_HOME: "/data" }).home,
+    ).toBe("/data");
+    expect(updateExit).not.toBe(0);
   });
 });

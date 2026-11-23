@@ -4,6 +4,10 @@ import { chmod, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { parse } from "yaml";
+import type { Platform } from "../node-pin.js";
+import { platforms } from "../node-pin.js";
+import { hostArchiveName, installHostName } from "../release/host-archive.js";
+import type { Index } from "../release/only-adds.js";
 import {
   assertAbsent,
   build,
@@ -12,7 +16,6 @@ import {
   versionOf,
   versionOfTag,
 } from "../release/release.js";
-import type { Index } from "../release/only-adds.js";
 import { emptyTree, remove, writePlugin } from "./plugin-fixtures.js";
 
 const root = resolve(import.meta.dirname, "../..");
@@ -31,6 +34,45 @@ let base: string;
 let out: string;
 const made: string[] = [];
 
+async function standInNode(
+  platform: Platform,
+): Promise<{ node: string; license: string }> {
+  const dir = await emptyTree();
+  made.push(dir);
+  await mkdir(join(dir, "bin"), { recursive: true });
+  const node = join(dir, "bin", "node");
+  await writeFile(node, `node ${platform}\n`);
+  const license = join(dir, "LICENSE");
+  await writeFile(license, `license ${platform}\n`);
+  return { node, license };
+}
+
+const parts = {
+  node: standInNode,
+  async bundleHost(file: string): Promise<void> {
+    await writeFile(file, "console.log('host')\n");
+  },
+};
+
+function releaseBuild(
+  version = "0.0.13",
+  folder = out,
+  tree = base,
+): Promise<string[]> {
+  return build(version, folder, tree, parts);
+}
+
+function releaseFiles(version = "0.0.13"): string[] {
+  return [
+    "alpha.plugin.json",
+    "beta.plugin.json",
+    checksumsFile,
+    installHostName,
+    ...platforms.map((platform) => hostArchiveName(version, platform)),
+    "plugins.json",
+  ];
+}
+
 beforeEach(async () => {
   base = await emptyTree();
   out = join(await emptyTree(), "release");
@@ -47,18 +89,13 @@ afterEach(async () => {
 
 describe("the build", () => {
   it("writes a bundle for each plugin, an index and a checksums file, and nothing else", async () => {
-    const files = await build("0.0.13", out, base);
-    expect(files).toEqual([
-      "alpha.plugin.json",
-      "beta.plugin.json",
-      checksumsFile,
-      "plugins.json",
-    ]);
+    const files = await releaseBuild();
+    expect(files).toEqual(releaseFiles());
     expect((await readdir(out)).sort()).toEqual(files);
   });
 
   it("lists each bundle with the SHA-256 of the file, and stamps the version of the tag in the index and the bundle", async () => {
-    await build("0.0.13", out, base);
+    await releaseBuild();
     const index = JSON.parse(
       await readFile(join(out, "plugins.json"), "utf8"),
     ) as {
@@ -87,16 +124,14 @@ describe("the build", () => {
   });
 
   it("lists every file but itself in the checksums, each with the SHA-256 of its bytes", async () => {
-    await build("0.0.13", out, base);
+    await releaseBuild();
     const lines = (await readFile(join(out, checksumsFile), "utf8"))
       .trim()
       .split("\n");
     const names = lines.map((line) => line.split("  ")[1]);
-    expect(names).toEqual([
-      "alpha.plugin.json",
-      "beta.plugin.json",
-      "plugins.json",
-    ]);
+    expect(names).toEqual(
+      releaseFiles().filter((name) => name !== checksumsFile),
+    );
     for (const line of lines) {
       const [sha, name] = line.split("  ");
       expect(sha).toBe(sha256(await readFile(join(out, name ?? ""))));
@@ -107,24 +142,22 @@ describe("the build", () => {
     await writePlugin(base, "types/versioned", {
       manifest: { version: "1.0.0" },
     });
-    await expect(build("0.0.13", out, base)).rejects.toThrow(
-      /types\/versioned[^]*version/,
-    );
+    await expect(releaseBuild()).rejects.toThrow(/types\/versioned[^]*version/);
     expect(await readdir(out).catch(() => [])).toEqual([]);
 
     await writePlugin(base, "types/versioned");
-    expect(await build("0.0.13", out, base)).toContain("versioned.plugin.json");
+    expect(await releaseBuild()).toContain("versioned.plugin.json");
   });
 
   it("fails a folder of types that is no plugin, since it would never be released", async () => {
     await mkdir(join(base, "types", "forgotten"), { recursive: true });
-    await expect(build("0.0.13", out, base)).rejects.toThrow("types/forgotten");
+    await expect(releaseBuild()).rejects.toThrow("types/forgotten");
   });
 
   it("fails into a folder that is not empty, never mixing two releases", async () => {
     await mkdir(out, { recursive: true });
     await writeFile(join(out, "left-behind.plugin.json"), "{}");
-    await expect(build("0.0.13", out, base)).rejects.toThrow("is not empty");
+    await expect(releaseBuild()).rejects.toThrow("is not empty");
   });
 
   it("refuses what is not a version or a tag", () => {
@@ -171,6 +204,10 @@ describe("publishing", () => {
         '    *) echo "release not found" >&2; exit 1 ;;',
         "  esac",
         "fi",
+        'if [ "$1 $2" = "release edit" ] && [ "${FAKE_GH_FAIL:-}" = edit ]; then',
+        '  echo "edit failed" >&2',
+        "  exit 1",
+        "fi",
         "exit 0",
         "",
       ].join("\n"),
@@ -178,7 +215,7 @@ describe("publishing", () => {
     await chmod(fake, 0o755);
     vi.stubEnv("FAKE_GH_LOG", log);
     fakeGh("absent");
-    await build("0.0.13", out, base);
+    await releaseBuild();
   });
 
   afterEach(() => {
@@ -223,21 +260,35 @@ describe("publishing", () => {
 
   it("creates the release of the tag with every asset, marked latest, never overwriting", async () => {
     const files = await publish("v0.0.13", out, { gh: fake, published: none });
-    expect(files).toEqual([
-      "alpha.plugin.json",
-      "beta.plugin.json",
-      checksumsFile,
-      "plugins.json",
-    ]);
+    expect(files).toEqual(releaseFiles());
     const all = await calls();
     expect(all[0]).toBe("release view v0.0.13");
     const create = all[1] ?? "";
     expect(create).toMatch(/^release create v0\.0\.13 /);
-    for (const file of files) expect(create).toContain(join(out, file));
-    expect(create).toContain("--latest");
+    expect(create).toContain("--draft");
     expect(create).toContain("--verify-tag");
+    expect(create).not.toContain("--latest");
     expect(create).not.toContain("--clobber");
-    expect(all).toHaveLength(2);
+    for (const file of files) expect(create).not.toContain(join(out, file));
+    const upload = all[2] ?? "";
+    expect(upload).toMatch(/^release upload v0\.0\.13 /);
+    for (const file of files) expect(upload).toContain(join(out, file));
+    expect(all[3]).toBe("release edit v0.0.13 --draft=false --latest");
+    expect(all).toHaveLength(4);
+  });
+
+  it("deletes the draft when publishing it fails, and leaves nothing published", async () => {
+    vi.stubEnv("FAKE_GH_FAIL", "edit");
+    await expect(
+      publish("v0.0.13", out, { gh: fake, published: none }),
+    ).rejects.toThrow("gh release edit v0.0.13 exited");
+    expect(await calls()).toEqual([
+      "release view v0.0.13",
+      expect.stringMatching(/^release create v0\.0\.13 /),
+      expect.stringMatching(/^release upload v0\.0\.13 /),
+      "release edit v0.0.13 --draft=false --latest",
+      "release delete v0.0.13 --yes",
+    ]);
   });
 
   it("publishes nothing in a dry run, which still checks everything", async () => {
@@ -334,6 +385,7 @@ describe("the release workflow", () => {
   it("holds no permission by default, and each job only the ones it uses", () => {
     expect(workflow.permissions).toEqual({});
     expect(workflow.jobs["build"]?.permissions).toEqual({ contents: "read" });
+    expect(workflow.jobs["sign"]?.permissions).toEqual({ contents: "read" });
     expect(workflow.jobs["publish"]?.permissions).toEqual({
       contents: "write",
       "id-token": "write",
@@ -343,9 +395,11 @@ describe("the release workflow", () => {
 
   it("publishes only for a pushed tag, after the build, so a manual run publishes nothing", () => {
     const job = workflow.jobs["publish"];
-    expect(job?.needs).toBe("build");
+    expect(job?.needs).toEqual(["build", "sign"]);
     expect(job?.if).toBe("${{ github.event_name == 'push' }}");
     expect(workflow.jobs["build"]?.if).toBeUndefined();
+    expect(workflow.jobs["sign"]?.needs).toBe("build");
+    expect(workflow.jobs["sign"]?.if).toBeUndefined();
   });
 
   it("attests the assets before it publishes them", () => {
@@ -374,9 +428,24 @@ describe("the release workflow", () => {
     );
   });
 
-  it("runs on standard hosted Linux", () => {
+  it("checks each darwin node signature before it publishes, and still proves the plugins", () => {
+    const prove = workflow.jobs["build"]?.steps.find((step) =>
+      step.run?.includes("pnpm proof --group plugins"),
+    );
+    expect(prove).toBeDefined();
+    const check = workflow.jobs["sign"]?.steps.find((step) =>
+      step.run?.includes("codesign --verify --strict"),
+    );
+    expect(check?.run).toContain("HX7739G8FX");
+    expect(check?.run).toContain("runtime");
+    expect(check?.run).not.toContain("spctl");
+    expect(check?.run).not.toContain("--type install");
+    expect(workflow.jobs["sign"]?.["runs-on"]).toBe("macos-latest");
+  });
+
+  it("runs on standard GitHub-hosted runners", () => {
     for (const job of Object.values(workflow.jobs)) {
-      expect(job["runs-on"]).toBe("ubuntu-latest");
+      expect(["ubuntu-latest", "macos-latest"]).toContain(job["runs-on"]);
     }
   });
 });

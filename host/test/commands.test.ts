@@ -3,7 +3,9 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
@@ -13,6 +15,7 @@ import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  commandLink,
   install,
   logs,
   Refused,
@@ -256,6 +259,46 @@ describe("installing the connector host", () => {
     ).rejects.toThrow(RedeemRefused);
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_first");
     expect(readFileSync(home.key("rss"), "utf8")).toBe("marfa_k1_rss");
+  });
+
+  it("keeps updates turned off when it links again", async () => {
+    const home = freshHome();
+    mkdirSync(home.root, { recursive: true });
+    writeFileSync(
+      home.hostJson,
+      `${JSON.stringify({ origin: "https://old.example", id: "old", name: "Old", updates: false }, null, 2)}\n`,
+    );
+    await install(
+      home,
+      "https://marfa.example.com/connect#code",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed()),
+    );
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      origin: "https://marfa.example.com",
+      id: "host-1",
+      name: "Studio Mac",
+      updates: false,
+    });
+  });
+
+  it("links again when host.json is not JSON, and leaves updates on", async () => {
+    const home = freshHome();
+    mkdirSync(home.root, { recursive: true });
+    writeFileSync(home.hostJson, "{");
+    await install(
+      home,
+      "https://marfa.example.com/connect#code",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed()),
+    );
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      origin: "https://marfa.example.com",
+      id: "host-1",
+      name: "Studio Mac",
+    });
   });
 });
 
@@ -548,5 +591,29 @@ describe("the connector host's status, logs and uninstall", () => {
     expect(existsSync(home.root)).toBe(false);
     expect(uninstallPlan(home, undefined)).toEqual([]);
     expect(readdirSync(join(home.root, ".."))).toEqual([]);
+  });
+
+  it("removes the command only when it points inside this install", async () => {
+    const home = await linked();
+    const userHome = scratch();
+    mkdirSync(join(userHome, ".local", "bin"), { recursive: true });
+    const link = commandLink(userHome);
+    symlinkSync(join(home.root, "bin", "marfa-connector-host"), link);
+    expect(uninstallPlan(home, undefined, userHome)).toEqual([
+      `the command, ${link}`,
+      `the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`,
+    ]);
+    await uninstall(home, undefined, userHome);
+    expect(() => readlinkSync(link)).toThrow();
+
+    const other = await linked();
+    const outside = join(scratch(), "marfa-connector-host");
+    symlinkSync(outside, link);
+    expect(uninstallPlan(other, undefined, userHome)).toEqual([
+      `the host's folder, with its key, its connectors' keys, their code and the logs: ${other.root}`,
+    ]);
+    await uninstall(other, undefined, userHome);
+    expect(readlinkSync(link)).toBe(outside);
+    expect(existsSync(other.root)).toBe(false);
   });
 });

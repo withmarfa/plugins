@@ -7,43 +7,57 @@ of its own and restarts, pauses or removes them as you choose in Marfa.
 
 ## Install
 
-Releases don't carry the host yet, so build it from this repository on Node
-26 (the release `host/node.json` pins):
-
-```sh
-pnpm install --frozen-lockfile && pnpm build
-```
-
-Make a one-time link in your Marfa, then give it to the host within 15
-minutes:
+A release carries the host. This installs the newest one and links the
+machine. Make a one-time link in your Marfa, then give it to the installer
+within 15 minutes:
 
 ```sh
 marfa hosts add "Studio Mac"
-node host/dist/main.js install '<link>'
+curl -fsSL https://github.com/withmarfa/plugins/releases/latest/download/install-host.sh | sh -s -- '<link>'
 ```
+
+The script downloads that same release's archive for this machine
+(`darwin-arm64`, `darwin-x64`, `linux-x64` or `linux-arm64`), checks its
+SHA-256, unpacks it beside any older copy and links `marfa-connector-host`
+on your `PATH` (`~/.local/bin`). It then runs
+`marfa-connector-host install '<link>'`.
 
 On macOS this loads the LaunchAgent `so.marfa.connector-host`; on Linux it
 enables the systemd user unit `marfa-connector-host.service` and prints the
 `loginctl enable-linger` command that keeps it running while you're logged
-out. With `--no-service`, it installs no service, and you run
-`marfa-connector-host run` under your own supervisor. Installing again with a
-new link replaces the host's identity and deletes every connector's key and
-code. While a `run` the service doesn't own uses the host's folder, `install`
+out. The service runs `current/bin/marfa-connector-host`, so a later update
+does not rewrite the service file. With `--no-service`, it installs no
+service, and you run `marfa-connector-host run` under your own supervisor.
+Installing again with a new link replaces the host's identity and deletes
+every connector's key and code. `"updates": false` in `host.json` is kept.
+While a `run` the service doesn't own uses the host's folder, `install`
 and `uninstall` refuse with "Stop the running host first"; the service's own
 `run` they stop themselves.
 
-## Status, logs and uninstall
+## Updates
 
-Until the host is on your `PATH`, run `node host/dist/main.js` in place of
-`marfa-connector-host`.
+Once a day the running host asks which release is newest. When a newer one
+exists, it checks that release's archive, unpacks it beside the copy that is
+running, points `current` at it and exits. The service starts the new one.
+`marfa-connector-host update` does this when you run it.
+
+A failed download or checksum changes nothing. The two newest copies are
+kept, and so is the one that is running.
+
+Turn the daily check off with `MARFA_CONNECTOR_HOST_NO_UPDATE=1`, or with
+`"updates": false` in `host.json`. `update` still works.
+
+## Status, logs and uninstall
 
 ```sh
 marfa-connector-host status          # the host, and each connector it runs
-marfa-connector-host logs [<plugin>]  # the host's log, or one connector's
-marfa-connector-host uninstall       # removes the service and every file
+marfa-connector-host logs [<plugin>] # the host's log, or one connector's
+marfa-connector-host update          # install a newer release beside this one
+marfa-connector-host uninstall       # removes the service, the command and every file
 ```
 
-After you uninstall, remove the host from your Marfa with
+Uninstall removes the `~/.local/bin/marfa-connector-host` link when it points
+at this install. After you uninstall, remove the host from your Marfa with
 `marfa hosts remove <host>` so its connectors can run elsewhere.
 
 ## Files
@@ -53,7 +67,10 @@ on macOS, `$XDG_DATA_HOME/marfa/connector-host/` (by default
 `~/.local/share/marfa/connector-host/`) on Linux, or the folder
 `MARFA_CONNECTOR_HOST_HOME` names:
 
-- `host.json`: the Marfa address and the host's name and ID.
+- `versions/<version>/`: one installed release. `current` points at the one
+  the service runs.
+- `host.json`: the Marfa address, the host's name and ID, and `"updates": false`
+  when the daily check is off.
 - `host.key`: the host's own key, mode 600.
 - `run.lock`: the process ID of the `run` that uses the folder, so only one
   does.
