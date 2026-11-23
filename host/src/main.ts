@@ -127,7 +127,7 @@ async function main(args: string[]): Promise<number> {
           done();
         });
       });
-      return run({
+      const code = await run({
         home,
         env: process.env,
         execPath: process.execPath,
@@ -136,6 +136,10 @@ async function main(args: string[]): Promise<number> {
         },
         stopped,
       });
+      // Once stopped, nothing left pending, such as a socket a fetch left
+      // open, keeps the process alive.
+      process.stdout.write("", () => process.exit(code));
+      return code;
     }
     case "status":
       if (!known([], 0)) return 2;

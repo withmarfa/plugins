@@ -83,26 +83,37 @@ export class CodeStore {
   ) {}
 
   /** The path of `plugin`'s code, fetched and checked first unless a file
-   *  with that digest is already here. */
-  async ensure(plugin: string, code: Code): Promise<string> {
+   *  with that digest is already here. `stop` ends a fetch under way. */
+  async ensure(
+    plugin: string,
+    code: Code,
+    stop?: AbortSignal,
+  ): Promise<string> {
     if (!safeDigest(code.sha256))
       throw new CodeRefused(`${code.sha256} is not a SHA-256`);
     const path = this.home.codeFile(plugin, code.sha256);
     const held = await digestOf(path);
     if (held === code.sha256) return path;
     if (held !== undefined) await rm(path, { force: true });
-    await this.fetchTo(plugin, code, path);
+    await this.fetchTo(plugin, code, path, stop);
     return path;
   }
 
-  private async fetchTo(plugin: string, code: Code, path: string) {
+  private async fetchTo(
+    plugin: string,
+    code: Code,
+    path: string,
+    stop: AbortSignal | undefined,
+  ) {
     const folder = this.home.code(plugin);
     await mkdir(folder, { recursive: true, mode: 0o700 });
     const temporary = join(
       folder,
       `.${randomBytes(6).toString("hex")}.download`,
     );
-    const signal = AbortSignal.timeout(this.timeoutMs);
+    const timeout = AbortSignal.timeout(this.timeoutMs);
+    const signal =
+      stop === undefined ? timeout : AbortSignal.any([timeout, stop]);
     let file: FileHandle | undefined;
     try {
       let url = https(code.url);
@@ -128,6 +139,7 @@ export class CodeStore {
       const hash = createHash("sha256");
       let size = 0;
       for await (const chunk of answer.body) {
+        signal.throwIfAborted();
         size += chunk.byteLength;
         if (size > code.size) {
           await answer.discard();

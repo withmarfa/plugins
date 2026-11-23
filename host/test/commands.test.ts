@@ -6,7 +6,11 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
+import { createServer as createHttpServer } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import type { AddressInfo } from "node:net";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   install,
@@ -24,7 +28,7 @@ import { LinkRefused } from "../src/link.js";
 import { takeLock } from "../src/lock.js";
 import { RedeemRefused } from "../src/marfa.js";
 import type { Service } from "../src/service.js";
-import { marfaAnswer, scratch, until } from "./helpers.js";
+import { assigned, marfaAnswer, scratch, until } from "./helpers.js";
 
 function printed(): Io & { lines: string[] } {
   const lines: string[] = [];
@@ -239,6 +243,111 @@ describe("running the connector host", () => {
     stop();
     await expect(first).resolves.toBe(0);
     expect(existsSync(home.lock)).toBe(false);
+  });
+
+  it("ends its process promptly when stopped while a connector's code is being fetched", async () => {
+    const home = freshHome();
+    const tls = scratch();
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-keyout",
+        join(tls, "key.pem"),
+        "-out",
+        join(tls, "cert.pem"),
+        "-days",
+        "1",
+        "-subj",
+        "/CN=127.0.0.1",
+        "-addext",
+        "subjectAltName=IP:127.0.0.1",
+      ],
+      { stdio: "ignore" },
+    );
+    // Code that starts to arrive and then never ends.
+    let reached = false;
+    const silent = createHttpsServer(
+      {
+        key: readFileSync(join(tls, "key.pem")),
+        cert: readFileSync(join(tls, "cert.pem")),
+      },
+      (_request, response) => {
+        reached = true;
+        response.writeHead(200, { "Content-Type": "text/javascript" });
+        response.write("// the first bytes\n");
+      },
+    );
+    await new Promise<void>((done) => silent.listen(0, "127.0.0.1", done));
+    const codePort = (silent.address() as AddressInfo).port;
+    const marfa = createHttpServer((request, response) => {
+      const answer = marfaAnswer(200, {
+        id: "host-1",
+        name: "Studio Mac",
+        connectors: [
+          assigned("rss", "0.0.1", {
+            url: `https://127.0.0.1:${String(codePort)}/rss.mjs`,
+            sha256: "a".repeat(64),
+            size: 100,
+          }),
+        ],
+      });
+      response.writeHead(
+        request.url === "/connector-hosts/self" ? 200 : 404,
+        Object.fromEntries(answer.headers),
+      );
+      void answer.text().then((text) => response.end(text));
+    });
+    await new Promise<void>((done) => marfa.listen(0, "127.0.0.1", done));
+    const origin = `http://127.0.0.1:${String((marfa.address() as AddressInfo).port)}`;
+    try {
+      mkdirSync(home.root, { recursive: true });
+      writeFileSync(
+        home.hostJson,
+        JSON.stringify({ origin, id: "host-1", name: "Studio Mac" }),
+      );
+      writeSecret(home.hostKey, "marfa_k1_host_secret");
+      const child = spawn(
+        process.execPath,
+        [resolve(import.meta.dirname, "../dist/main.js"), "run"],
+        {
+          env: {
+            PATH: process.env["PATH"],
+            MARFA_CONNECTOR_HOST_HOME: home.root,
+            NODE_EXTRA_CA_CERTS: join(tls, "cert.pem"),
+          },
+          stdio: "ignore",
+        },
+      );
+      const exited = new Promise<number | null>((done) =>
+        child.once("exit", (code) => {
+          done(code);
+        }),
+      );
+      await until(() => reached, "the host never asked for the code");
+      child.kill("SIGTERM");
+      const ended = await Promise.race([
+        exited,
+        new Promise<"still running">((done) =>
+          setTimeout(() => {
+            done("still running");
+          }, 15_000),
+        ),
+      ]);
+      if (ended === "still running") child.kill("SIGKILL");
+      expect(ended).toBe(0);
+    } finally {
+      silent.close();
+      silent.closeAllConnections();
+      marfa.close();
+      marfa.closeAllConnections();
+    }
   });
 
   it("exits 0 and deletes every connector's key once Marfa refuses the host's key", async () => {

@@ -289,6 +289,7 @@ describe("the connector host's supervisor", () => {
     await step();
     await until(() => starts("rss").length === 1);
     expect(api.keys).toHaveLength(1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     // A plain restart mints nothing.
     clock.advance(10_000);
     await step();
@@ -352,11 +353,12 @@ describe("the connector host's supervisor", () => {
   });
 
   it("does not restart after exit 4 until the owner asks for a run, and tries again after 30 minutes", async () => {
-    const { api, server, step, starts, clock } = supervised();
+    const { api, server, step, starts, clock, supervisor } = supervised();
     const settings = server.serve("rss-1", connectorCode({ exit: 4 }));
     api.connectors = [assigned("rss", "0.0.1", settings)];
     await step();
     await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     await step();
     clock.advance(10 * minute);
     await step();
@@ -369,6 +371,7 @@ describe("the connector host's supervisor", () => {
     clock.advance(minute);
     await step();
     await until(() => starts("rss").length === 2);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     await step();
     clock.advance(29 * minute);
     await step();
@@ -429,7 +432,7 @@ describe("the connector host's supervisor", () => {
   });
 
   it("reports one failed run for a connector that fails before it registers, once per failure", async () => {
-    const { api, server, step, starts, clock } = supervised();
+    const { api, server, step, starts, clock, supervisor } = supervised();
     const failing = server.serve(
       "rss-1",
       connectorCode({
@@ -440,6 +443,7 @@ describe("the connector host's supervisor", () => {
     api.connectors = [assigned("rss", "0.0.1", failing)];
     await step();
     await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     clock.advance(minute);
     await step();
     await until(() => starts("rss").length === 2);
@@ -457,13 +461,14 @@ describe("the connector host's supervisor", () => {
   });
 
   it("reports nothing for a connector whose key registered", async () => {
-    const { api, server, step, starts, clock } = supervised();
+    const { api, server, step, starts, clock, supervisor } = supervised();
     const failing = server.serve("rss-1", connectorCode({ exit: 1 }));
     api.connectors = [
       assigned("rss", "0.0.1", failing, { registration_id: "reg-1" }),
     ];
     await step();
     await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     clock.advance(minute);
     await step();
     clock.advance(minute);
@@ -585,7 +590,7 @@ describe("the connector host's supervisor", () => {
   });
 
   it("reports only the types it brings in as read only for a connector that failed before it registered", async () => {
-    const { api, server, step, starts, clock } = supervised();
+    const { api, server, step, starts, clock, supervisor } = supervised();
     const failing = server.serve("rss-1", connectorCode({ exit: 1 }));
     const entry = assigned("rss", "0.0.1", failing);
     entry.connector.kinds = [
@@ -597,6 +602,7 @@ describe("the connector host's supervisor", () => {
     api.connectors = [entry];
     await step();
     await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     clock.advance(minute);
     await step();
     clock.advance(minute);

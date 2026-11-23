@@ -213,6 +213,8 @@ export class Supervisor {
   private firstPoll = true;
   private stopping = false;
   private unlinked = false;
+  /** Aborted by `stop`, which ends every fetch of code under way. */
+  private readonly halt = new AbortController();
   private readonly skipped = new Set<string>();
 
   constructor(private readonly options: SupervisorOptions) {
@@ -361,11 +363,13 @@ export class Supervisor {
    *  after the grace period. */
   async stop(): Promise<void> {
     this.stopping = true;
+    this.halt.abort();
     await Promise.all(
       [...this.slots.values()].map((slot) =>
         this.stopChild(slot, "the host is stopping"),
       ),
     );
+    await this.settled();
   }
 
   private kick(slot: Slot): void {
@@ -519,12 +523,17 @@ export class Supervisor {
 
   private async fetchCode(slot: Slot, code: Code): Promise<string | undefined> {
     try {
-      const file = await this.options.code.ensure(slot.plugin, code);
+      const file = await this.options.code.ensure(
+        slot.plugin,
+        code,
+        this.halt.signal,
+      );
       slot.codeFailures = 0;
       slot.codeRetryAt = undefined;
       slot.codeError = undefined;
       return file;
     } catch (error) {
+      if (this.stopping) return undefined;
       const message =
         error instanceof CodeRefused
           ? error.message
