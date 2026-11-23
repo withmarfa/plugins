@@ -74,9 +74,10 @@ export function nodeRuntime(): Runtime {
       process.once("SIGINT", once);
     },
     onWake: (listener) => {
-      // A platform without the signal has no host that sends it.
+      // Not SIGUSR1: under the permission model Node never delivers it. A
+      // platform without the signal has no host that sends it.
       try {
-        process.on("SIGUSR1", listener);
+        process.on("SIGUSR2", listener);
       } catch {
         return;
       }

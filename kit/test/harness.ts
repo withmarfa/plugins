@@ -549,7 +549,7 @@ export class Harness {
     this.stopListener?.();
   }
 
-  /** The host's `SIGUSR1`: a run now. */
+  /** The host's `SIGUSR2`: a run now. */
   wake(): void {
     this.wakeListener?.();
   }
