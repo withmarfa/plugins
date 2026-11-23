@@ -253,9 +253,11 @@ describe("install-host.sh", () => {
     // systems, where it links to /usr/bin.
     const bin = join(base, "bin");
     await mkdir(bin);
+    const linked = new Set(["curl"]);
     for (const dir of ["/bin", "/usr/bin"]) {
       for (const name of readdirSync(dir)) {
-        if (name === "curl" || existsSync(join(bin, name))) continue;
+        if (linked.has(name)) continue;
+        linked.add(name);
         await symlink(join(dir, name), join(bin, name));
       }
     }
