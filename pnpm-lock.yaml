@@ -111,6 +111,12 @@ importers:
         specifier: workspace:*
         version: link:../../kit
 
+  host:
+    dependencies:
+      '@withmarfa/client':
+        specifier: 0.0.101
+        version: 0.0.101
+
   kit:
     dependencies:
       '@joplin/turndown-plugin-gfm':

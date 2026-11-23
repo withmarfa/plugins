@@ -1,0 +1,14 @@
+{
+  "name": "@withmarfa/connector-host",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "marfa-connector-host": "./dist/main.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@withmarfa/client": "0.0.101"
+  }
+}

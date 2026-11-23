@@ -1,5 +1,6 @@
 packages:
   - "kit"
+  - "host"
   - "template/connector"
   - "connectors/*"
   - "scripts"
