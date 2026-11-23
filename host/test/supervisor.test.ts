@@ -627,7 +627,9 @@ describe("the connector host's supervisor", () => {
     // The clock does not move: well inside the wait after a crash, which the
     // request cuts short.
     await until(() => starts("rss").length === 2);
-    expect(lines.join("\n")).toContain("the owner asked for a run, so it starts now");
+    expect(lines.join("\n")).toContain(
+      "the owner asked for a run, so it starts now",
+    );
   });
 
   it("reports only the types it brings in as read only for a connector that failed before it registered", async () => {
