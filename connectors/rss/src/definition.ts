@@ -5,12 +5,14 @@ import {
   feedList,
   feedName,
   fetchFeed,
+  maxFeedAttributes,
   maxFeedElements,
   maxFeedEntries,
   maxFieldLength,
   maxResultChars,
   privateHosts,
   renderVersion,
+  TooManyAttributes,
   TooManyElements,
   TooManyEntries,
   type Feed,
@@ -23,14 +25,7 @@ import {
   TooLarge,
   TooManyRedirects,
 } from "./fetch.js";
-import {
-  parseLimits,
-  parseTimeoutMs,
-  readBounded,
-  TooBig,
-  TooHeavy,
-  TooSlow,
-} from "./parse.js";
+import { readDocument, TooBig } from "./parse.js";
 import {
   attachedTo,
   carrying,
@@ -94,6 +89,9 @@ function refusal(error: unknown): string | undefined {
   if (error instanceof TooManyElements) {
     return `holds more than ${String(maxFeedElements)} elements, so it is skipped`;
   }
+  if (error instanceof TooManyAttributes) {
+    return `holds more than ${String(maxFeedAttributes)} attributes, so it is skipped`;
+  }
   if (error instanceof RefusedAddress) {
     return error.hop === 0
       ? "is on this machine or a private network, which is read only when rss_private_hosts names its host"
@@ -102,14 +100,8 @@ function refusal(error: unknown): string | undefined {
   if (error instanceof TooManyRedirects) {
     return `redirected more than ${String(maxRedirects)} times, so it is skipped`;
   }
-  if (error instanceof TooHeavy) {
-    return `needs more than ${String(parseLimits.maxOldGenerationSizeMb)} MB to read, so it is skipped`;
-  }
   if (error instanceof TooBig) {
     return `reads to more than ${String(maxResultChars / 1024 / 1024)} Mi characters of entries, so it is skipped`;
-  }
-  if (error instanceof TooSlow) {
-    return `takes longer than ${String(parseTimeoutMs / 1000)} seconds to read, so it is skipped`;
   }
   return undefined;
 }
@@ -437,7 +429,7 @@ export function connector(settings: Settings) {
         }
         let parsed;
         try {
-          parsed = await readBounded(
+          parsed = readDocument(
             {
               feed,
               bytes: fetched.bytes,

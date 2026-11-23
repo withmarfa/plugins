@@ -1,24 +1,12 @@
-import { Worker } from "node:worker_threads";
 import type { Feed, Read } from "./feeds.js";
-import { TooManyElements, TooManyEntries } from "./feeds.js";
-
-/** What a feed's parse may hold. The largest real feed checked, about
- *  20 MiB, parses within 64 MB of heap. */
-export const parseLimits = {
-  maxOldGenerationSizeMb: 192,
-  maxYoungGenerationSizeMb: 32,
-  stackSizeMb: 4,
-};
-
-export const parseTimeoutMs = 30_000;
-
-export class TooHeavy extends Error {
-  override name = "TooHeavy";
-}
-
-export class TooSlow extends Error {
-  override name = "TooSlow";
-}
+import {
+  decodeFeed,
+  maxResultChars,
+  readFeed,
+  TooManyAttributes,
+  TooManyElements,
+  TooManyEntries,
+} from "./feeds.js";
 
 export class TooBig extends Error {
   override name = "TooBig";
@@ -35,81 +23,44 @@ export interface ParseInput {
   documentUrl: string;
 }
 
-export type ParseAnswer =
-  | { read: string }
-  | { refused: "entries" | "elements" | "size" }
-  | { unreadable: true };
+/** Whether a read comes to no more than `maxResultChars` once serialized,
+ *  counted entry by entry so a value every entry shares is paid for once per
+ *  entry and never copied out past the cap. */
+function withinCap(read: Read): boolean {
+  const { entries, ...rest } = read;
+  let length = JSON.stringify(rest).length;
+  for (const entry of entries) {
+    length += JSON.stringify(entry).length + 1;
+    if (length > maxResultChars) return false;
+  }
+  return true;
+}
 
 /**
- * Decodes and reads a feed in a worker whose heap is capped, so a document
- * built to take more memory or time than any real feed ends the worker, not
- * the connector.
+ * Decodes and reads a feed. What bounds it is its size, which the fetch
+ * limits, the counts `readFeed` refuses past (elements, attributes and
+ * entries) and the cap on what it reads to; the process's heap limit
+ * (`scripts/permission-flags.ts`) stands above all of them.
  */
-export function readBounded(
-  input: ParseInput,
-  signal: AbortSignal,
-  { timeoutMs = parseTimeoutMs }: { timeoutMs?: number } = {},
-): Promise<Read> {
-  return new Promise((done, fail) => {
-    if (signal.aborted) {
-      fail(
-        signal.reason instanceof Error ? signal.reason : new Error("aborted"),
-      );
-      return;
+export function readDocument(input: ParseInput, signal: AbortSignal): Read {
+  signal.throwIfAborted();
+  let read: Read;
+  try {
+    read = readFeed(
+      input.feed,
+      decodeFeed(input.bytes, input.contentType),
+      input.documentUrl,
+    );
+  } catch (error) {
+    if (
+      error instanceof TooManyEntries ||
+      error instanceof TooManyElements ||
+      error instanceof TooManyAttributes
+    ) {
+      throw error;
     }
-    const worker = new Worker(new URL("./parse-worker.js", import.meta.url), {
-      workerData: input,
-      resourceLimits: parseLimits,
-    });
-    let settled = false;
-    const settle = (finish: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal.removeEventListener("abort", onAbort);
-      void worker.terminate();
-      finish();
-    };
-    const timer = setTimeout(() => {
-      settle(() => {
-        fail(new TooSlow());
-      });
-    }, timeoutMs);
-    const onAbort = (): void => {
-      settle(() => {
-        fail(
-          signal.reason instanceof Error ? signal.reason : new Error("aborted"),
-        );
-      });
-    };
-    signal.addEventListener("abort", onAbort, { once: true });
-    worker.once("message", (answer: ParseAnswer) => {
-      settle(() => {
-        if ("read" in answer) done(JSON.parse(answer.read) as Read);
-        else if ("refused" in answer) {
-          fail(
-            answer.refused === "entries"
-              ? new TooManyEntries()
-              : answer.refused === "elements"
-                ? new TooManyElements()
-                : new TooBig(),
-          );
-        } else fail(new Unreadable());
-      });
-    });
-    worker.once("error", (error: Error & { code?: string }) => {
-      settle(() => {
-        fail(
-          error.code === "ERR_WORKER_OUT_OF_MEMORY"
-            ? new TooHeavy()
-            : new Unreadable(),
-        );
-      });
-    });
-    worker.once("exit", () => {
-      settle(() => {
-        fail(new TooHeavy());
-      });
-    });
-  });
+    throw new Unreadable();
+  }
+  if (!withinCap(read)) throw new TooBig();
+  return read;
 }

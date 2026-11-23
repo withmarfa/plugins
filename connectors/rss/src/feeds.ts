@@ -18,6 +18,11 @@ export const maxFeedEntries = 5000;
  *  200,000. */
 export const maxFeedElements = 300_000;
 
+/** Parsing holds an object per attribute as well, and a feed of few elements
+ *  can carry millions of them, so their count is bounded too; the largest real
+ *  feeds hold well under a third of it. */
+export const maxFeedAttributes = 1_000_000;
+
 /** What a read may hand back, serialized: about three times the largest real
  *  feed checked. A value every entry repeats, such as the feed's title,
  *  counts once per entry, as it is written once per row. */
@@ -31,18 +36,23 @@ export class TooManyElements extends Error {
   override name = "TooManyElements";
 }
 
+export class TooManyAttributes extends Error {
+  override name = "TooManyAttributes";
+}
+
 /**
- * A cheap refusal before the parse, which runs bounded in a worker either
- * way: counts each `<` that opens an element or a `<!` declaration, and as
- * entries those whose local name is `item` or `entry` in any case. Comments,
- * CDATA, the doctype, processing instructions, end tags and quoted attribute
- * values are passed over.
+ * A cheap refusal before the parse: counts each `<` that opens an element or a
+ * `<!` declaration, and as entries those whose local name is `item` or
+ * `entry` in any case, and each quoted attribute value as an attribute.
+ * Comments, CDATA, the doctype, processing instructions and end tags are
+ * passed over.
  */
 function countTags(text: string): void {
   const name = /[^\s/>]*/y;
   const tagEnd = /["'>]/g;
   let elements = 0;
   let entries = 0;
+  let attributes = 0;
   for (let at = text.indexOf("<"); at !== -1; at = text.indexOf("<", at)) {
     const skipTo = text.startsWith("<!--", at)
       ? "-->"
@@ -79,6 +89,8 @@ function countTags(text: string): void {
       }
       const close = text.indexOf(mark[0], mark.index + 1);
       if (close === -1) return;
+      attributes += 1;
+      if (attributes > maxFeedAttributes) throw new TooManyAttributes();
       tagEnd.lastIndex = close + 1;
     }
   }
