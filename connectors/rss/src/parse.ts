@@ -40,7 +40,7 @@ function withinCap(read: Read): boolean {
  * Decodes and reads a feed. What bounds it is its size, which the fetch
  * limits, the counts `readFeed` refuses past (elements, attributes and
  * entries) and the cap on what it reads to; the process's heap limit
- * (`scripts/permission-flags.ts`) stands above all of them.
+ * (`host/src/permission-flags.ts`) stands above all of them.
  */
 export function readDocument(input: ParseInput, signal: AbortSignal): Read {
   signal.throwIfAborted();

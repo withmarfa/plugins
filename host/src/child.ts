@@ -1,22 +1,11 @@
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import type { CappedLog } from "./log.js";
+import { permissionFlags } from "./permission-flags.js";
 
-/**
- * The arguments a connector's process starts with: the permission model on,
- * reading only its own code file, and reaching the network.
- */
+/** The arguments a connector's process starts with. */
 export function childArguments(file: string): string[] {
-  return [
-    "--permission",
-    `--allow-fs-read=${file}`,
-    "--allow-net",
-    // The RSS connector parses a feed in a worker with a capped heap.
-    "--allow-worker",
-    file,
-    "--every",
-    "15m",
-  ];
+  return [...permissionFlags(file), file, "--every", "15m"];
 }
 
 /**

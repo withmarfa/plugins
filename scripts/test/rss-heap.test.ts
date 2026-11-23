@@ -1,7 +1,7 @@
 /**
  * The RSS connector parses a feed in the one thread, so what bounds it is the
  * size, the element, attribute and entry counts and the cap on what it reads
- * to, and the heap cap every bundle runs under (`scripts/permission-flags.ts`)
+ * to, and the heap cap every bundle runs under (`host/src/permission-flags.ts`)
  * stands above them. These tests read the largest documents those counts admit
  * under that cap, from the connector as built.
  */
@@ -9,7 +9,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { maxHeapMb } from "../permission-flags.js";
+import { maxHeapMb } from "@withmarfa/connector-host/permission-flags";
 
 const run = promisify(execFile);
 const measure = resolve(

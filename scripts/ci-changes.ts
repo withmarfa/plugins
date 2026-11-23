@@ -102,11 +102,11 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
       [],
     ],
 
-    // The scripts that make a bundle and say how it is run, and the one that
-    // runs each bundle's `--help`. The unit tests import them, and so does the
-    // proof, which starts a connector from its bundle only when asked to.
+    // The scripts that make a bundle and find it, and the one that runs each
+    // bundle's `--help`. The unit tests import them, and so does the proof,
+    // which starts a connector from its bundle only when asked to.
     [
-      /^scripts\/(bundle-connectors|check-bundles|node-pin|permission-flags)\.ts$/,
+      /^scripts\/(bundle-connectors|bundle-files|check-bundles|node-pin)\.ts$/,
       ["code", "tests", "bundles"],
     ],
     // The proof runs every connector from what `pnpm build` makes, and the
@@ -116,6 +116,12 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     // The connector host: its own tests, and the proof's connector-host
     // group, which runs it from what `pnpm build` makes. No connector, image
     // or plugin reads it.
+    // The flags every bundle runs under, which the host, the proof and the
+    // `Bundles` job share.
+    [
+      /^host\/src\/permission-flags\.ts$/,
+      ["code", "tests", "proof", "bundles"],
+    ],
     [/^host\//, ["code", "tests", "proof"]],
     [
       /^scripts\/(test\/|no-skipped-tests\.ts$|retried-tests\.ts$|check-pr-description\.ts$|connector-plugins\.ts$)/,

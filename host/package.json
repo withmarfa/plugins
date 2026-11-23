@@ -5,6 +5,12 @@
   "bin": {
     "marfa-connector-host": "./dist/main.js"
   },
+  "exports": {
+    "./permission-flags": {
+      "types": "./dist/permission-flags.d.ts",
+      "import": "./dist/permission-flags.js"
+    }
+  },
   "files": [
     "dist"
   ],

@@ -5,6 +5,7 @@
   "dependencies": {
     "@withmarfa/client": "0.0.101",
     "@withmarfa/connector": "workspace:*",
+    "@withmarfa/connector-host": "workspace:*",
     "esbuild": "0.28.2"
   }
 }

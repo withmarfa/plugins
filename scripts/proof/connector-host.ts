@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { MarfaClient } from "@withmarfa/client";
+import { permissionFlags } from "@withmarfa/connector-host/permission-flags";
 import { bundleConnector } from "../bundle-connectors.ts";
 import { fetchNode, readPin } from "../node-pin.ts";
 import { runMarfa } from "../release/plugins.ts";
@@ -330,15 +331,11 @@ export async function proveConnectorHost(
         const cached = join(home, "connectors", "rss", "code", `${sha256}.mjs`);
         const key = join(home, "connectors", "rss", "key");
         const rows = await rowsOf(marfa, "rss.entry", "rss");
-        const flags = [
-          "--permission",
-          `--allow-fs-read=${cached}`,
-          "--allow-net",
-          "--allow-worker",
-        ];
+        const flags = permissionFlags(cached);
         const missing = flags.filter((flag) => !args.includes(flag));
         if (
           missing.length > 0 ||
+          args.includes("--allow-worker") ||
           args.includes("marfa_") ||
           !existsSync(cached) ||
           (statSync(key).mode & 0o777) !== 0o600 ||

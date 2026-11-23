@@ -26,7 +26,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build, type Metafile, type Plugin } from "esbuild";
 import { nodeTarget, readPin, type Pin } from "./node-pin.ts";
-import { bundleName } from "./permission-flags.ts";
+import { bundleName } from "./bundle-files.ts";
 
 const root = resolve(import.meta.dirname, "..");
 

@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { permissionFlags } from "./permission-flags.ts";
+import { permissionFlags } from "@withmarfa/connector-host/permission-flags";
 
 const run = promisify(execFile);
 

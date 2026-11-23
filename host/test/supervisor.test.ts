@@ -1,5 +1,6 @@
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { maxHeapMb, permissionFlags } from "../src/permission-flags.js";
 import {
   assigned,
   connectorCode,
@@ -46,12 +47,11 @@ describe("the connector host's supervisor", () => {
     await until(() => starts("rss").length === 1);
     const file = realpathSync(home.codeFile("rss", code.sha256));
     const [started] = starts("rss");
-    expect(started?.execArgv).toEqual([
-      "--permission",
-      `--allow-fs-read=${file}`,
-      "--allow-net",
-      "--allow-worker",
-    ]);
+    expect(started?.execArgv).toEqual(permissionFlags(file));
+    expect(started?.execArgv).not.toContain("--allow-worker");
+    expect(started?.execArgv).toContain(
+      `--max-old-space-size=${String(maxHeapMb)}`,
+    );
     expect(started?.args).toEqual(["--every", "15m"]);
   });
 

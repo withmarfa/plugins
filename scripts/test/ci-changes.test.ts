@@ -141,9 +141,14 @@ describe("what a change runs beyond formatting and the scan", () => {
       ["code", "tests", "bundles"],
     ],
     [
-      "the flags a bundle is run under",
-      ["scripts/permission-flags.ts"],
+      "where a bundle is found",
+      ["scripts/bundle-files.ts"],
       ["code", "tests", "bundles"],
+    ],
+    [
+      "the flags a bundle is run under, which the host, the proof and the bundles share",
+      ["host/src/permission-flags.ts"],
+      ["code", "tests", "proof", "bundles"],
     ],
     [
       "the Node the host carries, which the tests and the host's proof run on and the bundles are made for",
