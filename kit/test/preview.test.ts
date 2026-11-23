@@ -51,6 +51,14 @@ function ask(
   return preview;
 }
 
+async function until(holds: () => boolean): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!holds()) {
+    if (Date.now() > deadline) throw new Error("the condition never held");
+    await new Promise((resolve) => setTimeout(resolve, 2));
+  }
+}
+
 function answered(id: string) {
   const held = harness.server.previews.find((one) => one.id === id);
   if (held === undefined) throw new Error(`no preview ${id}`);
@@ -240,6 +248,31 @@ describe("a mapping preview", () => {
     harness.server.control.paused = false;
     expect(await harness.once(vendor([one]))).toBe(exitCode.stopped);
     expect(answered(preview.id).status).toBe("ready");
+  });
+
+  it("asked while the connector waits between runs is answered on its next look, with no run and no write", async () => {
+    const held = vendor([
+      { ...one, properties: { ...one.properties, vendor_id: "v1" } },
+    ]);
+    const exit = harness.twoWayRunning(held, [
+      "--every",
+      "1h",
+      "--look-every",
+      "10s",
+    ]);
+    await harness.clock.sleeping(10_000);
+    const row = harness.server.row("a:1");
+    const runs = harness.server.runs.length;
+    const writes = itemWrites();
+    const preview = ask({ item_id: row.id });
+    await harness.clock.wake(10_000);
+    await until(() => answered(preview.id).status !== "pending");
+    expect(answered(preview.id).status).toBe("ready");
+    await harness.clock.sleeping(10_000);
+    expect(harness.server.runs.length).toBe(runs);
+    expect(itemWrites()).toEqual(writes);
+    harness.stop();
+    expect(await exit).toBe(0);
   });
 
   it("reads the vendor once for every preview that names no item", async () => {
