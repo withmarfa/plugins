@@ -223,3 +223,23 @@ describe("scripts/follow-release.sh apply", () => {
     expect(read(dir, "kit/package.json")).toBe(manifest("0.0.23"));
   });
 });
+
+describe(".github/workflows/follow-releases.yml", () => {
+  const workflow = readFileSync(
+    join(ROOT, ".github", "workflows", "follow-releases.yml"),
+    "utf8",
+  );
+
+  it("checks the paths the patch staged, from a copy of the check made before it is applied, and reads no path line by line", () => {
+    const copy = workflow.indexOf("cp scripts/only-staged-paths.sh");
+    const apply = workflow.indexOf("git apply --index");
+    const check = workflow.indexOf(
+      '"${check}" scripts/monorepo.commit kit/package.json scripts/package.json pnpm-lock.yaml',
+    );
+    expect(copy).toBeGreaterThan(-1);
+    expect(apply).toBeGreaterThan(copy);
+    expect(check).toBeGreaterThan(apply);
+    expect(workflow).not.toContain("tr '\\0' '\\n'");
+    expect(workflow).not.toContain("--numstat");
+  });
+});

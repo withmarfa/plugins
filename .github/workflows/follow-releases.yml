@@ -168,18 +168,16 @@ jobs:
 
       # The patch came from a job that resolved packages from the registry, so
       # it may change the pin, the two manifests and the lockfile and nothing
-      # else.
+      # else. What it staged is checked after it is applied, path by path with
+      # no newline taken for a break between two, and before anything is
+      # committed, by a copy of the check made first, since the patch could
+      # change the script itself.
       - name: Apply the patch
         run: |
-          patch="${RUNNER_TEMP}/bump/bump.patch"
-          outside="$(git apply --numstat -z "${patch}" | tr '\0' '\n' | awk -F'\t' 'NF >= 3 { print $3 }' |
-            grep -Ev '^(scripts/monorepo\.commit|kit/package\.json|scripts/package\.json|pnpm-lock\.yaml)$' || true)"
-          if [[ -n "${outside}" ]]; then
-            echo "::error::The change touches paths other than the pin, the two manifests and the lockfile:"
-            echo "${outside}"
-            exit 1
-          fi
-          git apply --index "${patch}"
+          check="${RUNNER_TEMP}/only-staged-paths.sh"
+          cp scripts/only-staged-paths.sh "${check}"
+          git apply --index "${RUNNER_TEMP}/bump/bump.patch"
+          "${check}" scripts/monorepo.commit kit/package.json scripts/package.json pnpm-lock.yaml
 
       # Made only now. Contents write still reaches every branch and tag in
       # this repository, and nothing else in this job runs code it does not
