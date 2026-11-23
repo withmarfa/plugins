@@ -209,16 +209,38 @@ const journalFull = "retry-journal-full:";
 const keptConditions = 200;
 
 /** The conditions that fit in a report beside counts of this length. */
+/** The standing conditions as the summary names them: each message once,
+ *  without its closing full stop, with the keys of every condition that
+ *  says it. */
+function grouped(
+  standing: ReadonlyMap<string, string>,
+): Map<string, string[]> {
+  const lines = new Map<string, string[]>();
+  for (const [key, message] of standing) {
+    const text = message.trim().replace(/\.+$/, "");
+    const keys = lines.get(text) ?? [];
+    keys.push(key);
+    lines.set(text, keys);
+  }
+  return lines;
+}
+
+function line(text: string, keys: readonly string[]): string {
+  return keys.length > 1
+    ? `${text} (${String(keys.length)} conditions)`
+    : text;
+}
+
 function fitting(
   counts: string,
   standing: ReadonlyMap<string, string>,
 ): Set<string> {
   let length = counts.length;
   const shown = new Set<string>();
-  for (const [key, message] of standing) {
-    length += 2 + message.length;
+  for (const [text, keys] of grouped(standing)) {
+    length += 2 + line(text, keys).length;
     if (length > reportCap - moreNote) break;
-    shown.add(key);
+    for (const key of keys) shown.add(key);
   }
   return shown;
 }
@@ -229,8 +251,9 @@ function summarize(
   shown: ReadonlySet<string>,
 ): string {
   let summary = counts;
-  for (const [key, message] of standing) {
-    if (shown.has(key)) summary += `. ${message}`;
+  for (const [text, keys] of grouped(standing)) {
+    if (keys.every((key) => shown.has(key)))
+      summary += `. ${line(text, keys)}`;
   }
   const more = standing.size - shown.size;
   if (more > 0) {

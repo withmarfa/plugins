@@ -300,6 +300,27 @@ describe("conditions past what one summary holds", () => {
     await harness.close();
   });
 
+  it("name a message many conditions share once, with how many share it, and end each with one full stop", async () => {
+    const held = vendor([{ source_id: "a:1", properties: { title: "One" } }]);
+    const shared = `Reader took over this row, and ${"its values differ. ".repeat(8)}So it is not sent to Reader.`;
+    held.conditions = [
+      ...Array.from({ length: 10 }, (_, index): [string, string] => [
+        `adopted:${String(index)}`,
+        shared,
+      ]),
+      ["listing", "Reader listing has more pages."],
+      ["pending", "8 documents still have pending content work"],
+    ];
+    await harness.once(held);
+    const summary = harness.lastRun().summary ?? "";
+    expect(summary.split("Reader took over this row")).toHaveLength(2);
+    expect(summary).toContain("So it is not sent to Reader (10 conditions).");
+    expect(summary).toContain("Reader listing has more pages.");
+    expect(summary).toContain("8 documents still have pending content work");
+    expect(summary).not.toContain("..");
+    expect(summary).not.toContain("in the connector's log");
+  });
+
   it("are each reported in turn when more stand than a report holds, the rest counted and named in the log", async () => {
     const held = vendor([{ source_id: "a:1", properties: { title: "One" } }]);
     held.conditions = Array.from(
