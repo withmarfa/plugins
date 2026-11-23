@@ -26,7 +26,8 @@ import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { readIfThere, writeWhole } from "./files.js";
-import { alive, holder, takeLock, type Lock } from "./lock.js";
+import { Home } from "./home.js";
+import { alive, heldVersion, holder, takeLock, type Lock } from "./lock.js";
 
 /** Written in by the release build: the repository the release came from. */
 declare const MARFA_PLUGINS_REPOSITORY: string | undefined;
@@ -191,42 +192,62 @@ function switchCurrent(root: string, version: string): void {
 
 /** `.<version>.aside`: an installed copy moved aside while it is replaced. */
 const asideName = /^\.(\d+\.\d+\.\d+)\.aside$/;
+/** `.<version>.discard`: a copy moved out of the way to be deleted. */
+const discardName = /^\.\d+\.\d+\.\d+\.discard$/;
 /** `.stage-<pid>-<random>`: the folder one installer stages into. */
 const stageName = /^\.stage-(\d+)-/;
 
-/**
- * What a stopped installer left, cleared under the update lock: a copy set
- * aside goes back where it was when nothing took its place, and a staging
- * folder goes once the process that made it is gone.
- */
-function recover(dir: string): void {
-  for (const name of readdirSync(dir)) {
-    const aside = asideName.exec(name);
-    if (aside?.[1] !== undefined) {
-      const dest = join(dir, aside[1]);
-      if (existsSync(dest))
-        rmSync(join(dir, name), { recursive: true, force: true });
-      else renameSync(join(dir, name), dest);
-      continue;
-    }
-    const pid = Number(stageName.exec(name)?.[1]);
-    if (pid > 0 && pid !== process.pid && !alive(pid))
-      rmSync(join(dir, name), { recursive: true, force: true });
+/** Deletes `path`; one that will not go is left for the next `recover`. */
+function discard(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Its name keeps it out of every release.
   }
 }
 
 /**
- * Deletes every installed release but the two newest, the one that is
- * running and the one `current` names. Only finished copies are named
- * `<version>`, so a folder another installer stages into is never touched.
+ * What a stopped installer left, cleared under the update lock. Only a
+ * rename puts a tree at `versions/<version>`, so one there is whole: a copy
+ * set aside goes when one is there and goes back when none is. A copy to
+ * discard goes, and a staging folder goes once the process that made it is
+ * gone.
  */
-function pruneVersions(dir: string, keep: (string | undefined)[]): void {
+function recover(dir: string): void {
+  const names = readdirSync(dir);
+  for (const name of names) {
+    const aside = asideName.exec(name);
+    if (aside?.[1] === undefined) continue;
+    const dest = join(dir, aside[1]);
+    if (existsSync(dest)) discard(join(dir, name));
+    else renameSync(join(dir, name), dest);
+  }
+  for (const name of names) {
+    if (discardName.test(name)) {
+      discard(join(dir, name));
+      continue;
+    }
+    const pid = Number(stageName.exec(name)?.[1]);
+    if (pid > 0 && pid !== process.pid && !alive(pid)) discard(join(dir, name));
+  }
+}
+
+/**
+ * Deletes every installed release but the two newest, the one `current`
+ * names, the ones in `keep` and the one a live `run` holds `run.lock` for.
+ * Only finished copies are named `<version>`, so a folder another installer
+ * stages into is never touched.
+ */
+function pruneVersions(root: string, keep: (string | undefined)[]): void {
+  const dir = join(root, "versions");
   const names = readdirSync(dir).filter((name) => semver.test(name));
   const kept = new Set<string | undefined>([
     ...[...names]
       .sort((left, right) => compareVersions(right, left))
       .slice(0, 2),
     ...keep,
+    currentVersion(root),
+    heldVersion(new Home(root).lock),
   ]);
   for (const name of names)
     if (!kept.has(name))
@@ -280,8 +301,9 @@ interface Placing {
 /**
  * Moves a finished staged copy to `versions/<version>` and points `current`
  * at it, under the update lock. A copy already there is moved aside first
- * and put back if anything after fails. Answers the release `current`
- * names afterwards.
+ * and put back if anything after fails. Each step that changes the tree at
+ * `versions/<version>` is one rename, so a stop at any point leaves a whole
+ * copy there or none. Answers the release `current` names afterwards.
  */
 async function placeRelease(placing: Placing): Promise<string> {
   const { root, version, stage } = placing;
@@ -316,12 +338,14 @@ async function placeRelease(placing: Placing): Promise<string> {
     try {
       switchCurrent(root, version);
     } catch (error) {
-      rmSync(dest, { recursive: true, force: true });
+      const failed = join(dir, `.${version}.discard`);
+      renameSync(dest, failed);
       if (had) renameSync(aside, dest);
+      discard(failed);
       throw refuse(`Could not switch to ${version}: ${said(error)}.`);
     }
-    if (had) rmSync(aside, { recursive: true, force: true });
-    pruneVersions(dir, [placing.running, version]);
+    if (had) discard(aside);
+    pruneVersions(root, [placing.running, version]);
     return version;
   } finally {
     lock.release();
