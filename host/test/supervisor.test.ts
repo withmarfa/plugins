@@ -275,7 +275,7 @@ describe("the connector host's supervisor", () => {
     clock.advance(30_000);
     await step();
     const polls = api.polls;
-    clock.advance(2 * minute + 1);
+    clock.set(2 * minute + 1);
     await step();
     expect(api.polls).toBe(polls + 1);
     await until(() => logOf(home, "rss").includes("WOKEN"));
@@ -482,5 +482,125 @@ describe("the connector host's supervisor", () => {
       lines.filter((line) => line.includes("carries no code")),
     ).toHaveLength(1);
     expect(existsSync(home.pluginLog("rss"))).toBe(false);
+  });
+  it("keeps polling and restarting on time, and asks Marfa at once, when the wall clock is set back an hour", async () => {
+    const { api, server, step, starts, home, clock, lines, supervisor } =
+      supervised();
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+      assigned(
+        "news",
+        "0.0.1",
+        server.serve("news-1", connectorCode({ exit: 1 })),
+      ),
+    ];
+    await step();
+    await until(
+      () => starts("rss").length === 1 && starts("news").length === 1,
+    );
+    await until(
+      () => supervisor.status().connectors[1]?.nextStart !== undefined,
+    );
+    clock.advance(10_000);
+    const polls = api.polls;
+    clock.set(-60 * minute);
+    await step();
+    expect(api.polls).toBe(polls + 1);
+    expect(lines.join("\n")).toContain("the clock moved");
+    await until(() => logOf(home, "rss").includes("WOKEN"));
+    await until(() => starts("news").length === 2);
+    // The minute between polls is kept by the clock that does not jump.
+    clock.advance(minute);
+    await step();
+    expect(api.polls).toBe(polls + 2);
+    // The next start it shows is on the wall clock as it now reads.
+    await until(
+      () => supervisor.status().connectors[1]?.nextStart !== undefined,
+    );
+    const next = Date.parse(supervisor.status().connectors[1]?.nextStart ?? "");
+    expect([5_000, 10_000, 20_000, 40_000]).toContain(next - clock.at);
+  });
+
+  it("wakes the running connector for a run asked for while new code waits to be fetched again", async () => {
+    const { api, server, step, poll, starts, home, lines } = supervised();
+    const code = server.serve("rss-1", connectorCode());
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    const missing = {
+      url: "https://code.example.com/missing",
+      sha256: sha256("missing"),
+      size: 10,
+    };
+    api.connectors = [assigned("rss", "0.0.2", missing)];
+    await poll();
+    await poll();
+    expect(lines.join("\n")).toContain("trying again in 2 min");
+    api.connectors = [
+      assigned("rss", "0.0.2", missing, {
+        run_requested_at: "2026-11-23T09:01:30Z",
+      }),
+    ];
+    // Due for a poll, and inside the wait before the code is fetched again.
+    await poll();
+    await until(() => logOf(home, "rss").includes("WOKEN"));
+  });
+
+  it("does not signal a connector in its first moments, and still acts on the run asked for then", async () => {
+    const { api, server, step, starts, home, clock, supervisor } = supervised();
+    const code = server.serve("rss-1", connectorCode("slow-to-listen"));
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    const pid = supervisor.status().connectors[0]?.pid;
+    api.connectors = [
+      assigned("rss", "0.0.1", code, {
+        run_requested_at: "2026-11-23T09:00:01Z",
+      }),
+    ];
+    // A poll forced by a jump of the wall clock, one second after the start.
+    clock.advance(1000);
+    clock.set(10 * minute);
+    await step();
+    await until(() => logOf(home, "rss").includes("LISTENING"));
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "running",
+      pid,
+    });
+    expect(logOf(home, "rss")).not.toContain("WOKEN");
+    // The request was acted on: the connector reads it as its first run
+    // starts, so it is not signalled again for it.
+    clock.advance(minute);
+    await step();
+    expect(logOf(home, "rss")).not.toContain("WOKEN");
+    // The witness: a request once it has settled wakes it.
+    api.connectors = [
+      assigned("rss", "0.0.1", code, {
+        run_requested_at: "2026-11-23T09:02:00Z",
+      }),
+    ];
+    clock.advance(minute);
+    await step();
+    await until(() => logOf(home, "rss").includes("WOKEN"));
+  });
+
+  it("reports only the types it brings in as read only for a connector that failed before it registered", async () => {
+    const { api, server, step, starts, clock } = supervised();
+    const failing = server.serve("rss-1", connectorCode({ exit: 1 }));
+    const entry = assigned("rss", "0.0.1", failing);
+    entry.connector.kinds = [
+      { name: "entry", type: "rss.entry", direction: "in" },
+      { name: "task", type: "rss.task", direction: "both" },
+      { name: "note", type: "rss.note", direction: "out" },
+      { name: "again", type: "rss.entry", direction: "in" },
+    ];
+    api.connectors = [entry];
+    await step();
+    await until(() => starts("rss").length === 1);
+    clock.advance(minute);
+    await step();
+    clock.advance(minute);
+    await step();
+    expect(api.reports[0]?.readOnlyTypes).toEqual(["rss.entry"]);
   });
 });

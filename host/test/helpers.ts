@@ -42,10 +42,17 @@ export function sha256(text: string | Buffer): string {
  * `error` to standard error.
  */
 export function connectorCode(
-  behavior: { exit: number; error?: string } | "serve" = "serve",
+  behavior:
+    { exit: number; error?: string } | "serve" | "slow-to-listen" = "serve",
 ): string {
+  // A connector built on the kit listens for the wake signal only once it
+  // has loaded, and until then the signal ends it.
+  const listen =
+    behavior === "slow-to-listen"
+      ? `setTimeout(() => { process.on("SIGUSR2", () => console.log("WOKEN")); console.log("LISTENING"); }, 500);`
+      : `process.on("SIGUSR2", () => console.log("WOKEN"));`;
   const start = `import { createHash } from "node:crypto";
-process.on("SIGUSR2", () => console.log("WOKEN"));
+${listen}
 process.on("SIGTERM", () => { console.log("TERM"); process.exit(0); });
 const env = process.env;
 console.log("START " + JSON.stringify({
@@ -57,7 +64,7 @@ console.log("START " + JSON.stringify({
   execArgv: process.execArgv,
 }));
 `;
-  if (behavior === "serve")
+  if (behavior === "serve" || behavior === "slow-to-listen")
     return `${start}setInterval(() => {}, 60_000);
 `;
   return `${start}console.error(${JSON.stringify(behavior.error ?? "it failed")});
@@ -176,10 +183,19 @@ export class ScriptedApi implements HostApi {
   }
 }
 
+/** The wall clock and the monotonic clock, which move together unless the
+ *  wall clock is set or the machine sleeps. */
 export class FakeClock {
   at = Date.parse("2026-11-23T09:00:00Z");
+  ticks = 1_000_000;
   now = (): number => this.at;
+  monotonic = (): number => this.ticks;
   advance(ms: number): void {
+    this.at += ms;
+    this.ticks += ms;
+  }
+  /** The wall clock alone moves, as when it is set. */
+  set(ms: number): void {
     this.at += ms;
   }
 }
@@ -205,6 +221,7 @@ export function supervised(
     origin: "https://marfa.example.com",
     env,
     now: clock.now,
+    monotonic: clock.monotonic,
     stopGraceMs: 5000,
   });
   cleanups.push(() => supervisor.stop());

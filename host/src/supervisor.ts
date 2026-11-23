@@ -37,6 +37,16 @@ const settingsRetryMs = 30 * minute;
 const codeRetryMs = minute;
 const longestCodeRetryMs = 60 * minute;
 
+/** How far the wall clock may part from the monotonic clock between two
+ *  looks before the host takes it as sleep or a clock that was set. */
+const jumpMs = 30 * second;
+
+/** How long after its start a connector is not signalled: until the kit
+ *  listens for the wake signal, the signal ends the process. A run asked for
+ *  then is still run, since the kit reads the request as its first run
+ *  starts. */
+const settlingMs = 5 * second;
+
 /** How long a connector has to stop after `SIGTERM` before `SIGKILL`. */
 export const stopGraceMs = 30 * second;
 
@@ -58,6 +68,18 @@ const exitMeaning: Record<number, string> = {
   3: "Marfa or the kit refused its key",
   4: "a setting is missing or not one it can use",
 };
+
+/** The types a connector brings in and takes no edits back for, which the
+ *  kit registers as read only: those of its `in` kinds. */
+function readOnlyTypes(entry: Assigned): string[] {
+  return [
+    ...new Set(
+      entry.connector.kinds
+        .filter((kind) => kind.direction === "in")
+        .map((kind) => kind.type),
+    ),
+  ];
+}
 
 function describeExit(exit: Exit): string {
   if (exit.signal !== null) return `was ended by ${exit.signal}`;
@@ -87,11 +109,16 @@ type Hold =
    *  wait is over. */
   | { kind: "settings"; version: string; until: number };
 
+// Every wait below is timed on the monotonic clock, which no setting of the
+// wall clock moves; the wall clock only dates what `status` shows.
+
 interface Running {
   child: Child;
   version: string;
   sha256: string;
   startedAt: number;
+  /** The wall clock at the start, for `status`. */
+  startedOn: number;
   stopping: boolean;
 }
 
@@ -105,7 +132,8 @@ interface Slot {
   hold?: Hold | undefined;
   restartAt?: number | undefined;
   crashes: number;
-  lastExit?: (Exit & { at: number }) | undefined;
+  /** The wall clock at the last exit, for `status`. */
+  lastExit?: (Exit & { on: number }) | undefined;
   /** The next start mints, since the last child exited `3`. */
   mintFor3: boolean;
   /** The key on disk was minted because a child exited `3`. */
@@ -118,7 +146,8 @@ interface Slot {
   /** The version whose missing code the log already named. */
   noCodeVersion?: string | undefined;
   /** A non-zero exit not yet weighed against `registration_id`. */
-  pending?: (Exit & { at: number; line: string | undefined }) | undefined;
+  pending?:
+    (Exit & { at: number; on: number; line: string | undefined }) | undefined;
   /** The last failure the host reported for the connector. */
   reported?: string | undefined;
   busy: boolean;
@@ -154,7 +183,11 @@ export interface SupervisorOptions {
   origin: string;
   /** The host's own environment, which a connector's is drawn from. */
   env: NodeJS.ProcessEnv;
+  /** The wall clock. */
   now?: () => number;
+  /** A clock in milliseconds that only moves forward, at the pace of time
+   *  awake. */
+  monotonic?: () => number;
   pollMs?: number;
   stopGraceMs?: number;
 }
@@ -167,12 +200,14 @@ export interface SupervisorOptions {
  */
 export class Supervisor {
   private readonly slots = new Map<string, Slot>();
+  private readonly wall: () => number;
   private readonly now: () => number;
   private readonly pollEvery: number;
   private readonly grace: number;
   private nextPollAt = 0;
   private pollFailures = 0;
-  private lastStep: number | undefined;
+  private lastStep: { wall: number; monotonic: number } | undefined;
+  /** The wall clock at the last answer, for `status`. */
   private polledAt: number | undefined;
   private pollError: string | undefined;
   private firstPoll = true;
@@ -181,7 +216,8 @@ export class Supervisor {
   private readonly skipped = new Set<string>();
 
   constructor(private readonly options: SupervisorOptions) {
-    this.now = options.now ?? Date.now;
+    this.wall = options.now ?? Date.now;
+    this.now = options.monotonic ?? (() => performance.now());
     this.pollEvery = options.pollMs ?? pollMs;
     this.grace = options.stopGraceMs ?? stopGraceMs;
   }
@@ -191,26 +227,27 @@ export class Supervisor {
   }
 
   /**
-   * One turn of the loop: notices a jump of the wall clock, polls when due,
-   * and moves each connector on. Answers `unlinked` once Marfa refused the
-   * host's key and every connector is stopped.
+   * One turn of the loop: notices a jump of the wall clock either way, as
+   * after sleep or when the clock is set, polls when due, and moves each
+   * connector on. Answers `unlinked` once Marfa refused the host's key and
+   * every connector is stopped.
    */
   async step(): Promise<"running" | "unlinked"> {
     if (this.unlinked) return "unlinked";
     const now = this.now();
-    if (
-      this.lastStep !== undefined &&
-      now - this.lastStep > 2 * this.pollEvery
-    ) {
-      this.log(
-        `the clock moved ${duration(now - this.lastStep)} since the last look, as after sleep: asking Marfa now and waking every connector`,
-      );
-      for (const slot of this.slots.values())
-        if (slot.running !== undefined && !slot.running.stopping)
-          slot.running.child.signal(wakeSignal);
-      this.nextPollAt = now;
+    const wall = this.wall();
+    if (this.lastStep !== undefined) {
+      const parted =
+        wall - this.lastStep.wall - (now - this.lastStep.monotonic);
+      if (Math.abs(parted) > jumpMs) {
+        this.log(
+          `the clock moved ${parted < 0 ? "back " : ""}${duration(Math.abs(parted))} more than time passed, as after sleep or when it is set: asking Marfa now and waking every connector`,
+        );
+        for (const slot of this.slots.values()) this.wake(slot, now);
+        this.nextPollAt = now;
+      }
     }
-    this.lastStep = now;
+    this.lastStep = { wall, monotonic: now };
     if (now >= this.nextPollAt && !this.stopping) {
       if ((await this.poll()) === "unlinked") return "unlinked";
     }
@@ -230,6 +267,7 @@ export class Supervisor {
   private async poll(): Promise<"ok" | "unlinked"> {
     const answer = await this.options.api.self();
     const now = this.now();
+    const wall = this.wall();
     if (answer.kind === "unlinked") {
       await this.unlink();
       return "unlinked";
@@ -246,7 +284,7 @@ export class Supervisor {
     }
     this.pollFailures = 0;
     this.pollError = undefined;
-    this.polledAt = now;
+    this.polledAt = wall;
     this.nextPollAt = now + this.pollEvery;
     const seen = new Set<string>();
     for (const entry of answer.self.connectors) {
@@ -390,11 +428,7 @@ export class Supervisor {
       return;
     }
     const request = entry.run_requested_at;
-    let asked = false;
-    if (request !== null && request !== slot.actedRequest) {
-      slot.actedRequest = request;
-      asked = true;
-    }
+    const asked = request !== null && request !== slot.actedRequest;
     if (slot.hold !== undefined) {
       if (!this.lifted(slot.hold, entry, code, now, asked)) return;
       if (slot.hold.kind === "key") slot.mintedFor3 = false;
@@ -405,23 +439,34 @@ export class Supervisor {
     const running = slot.running;
     if (running !== undefined) {
       if (running.stopping) return;
-      if (running.sha256 === code.sha256 && running.version === entry.version) {
+      const current =
+        running.sha256 === code.sha256 && running.version === entry.version;
+      const waiting =
+        !current && slot.codeRetryAt !== undefined && now < slot.codeRetryAt;
+      if (current || waiting) {
         if (asked) {
-          running.child.signal(wakeSignal);
-          this.log(`${plugin}: the owner asked for a run, so it was woken`);
+          slot.actedRequest = request;
+          if (this.wake(slot, now))
+            this.log(`${plugin}: the owner asked for a run, so it was woken`);
         }
         return;
       }
-      if (slot.codeRetryAt !== undefined && now < slot.codeRetryAt) return;
       const file = await this.fetchCode(slot, code);
-      if (file === undefined) return;
+      if (file === undefined) {
+        if (asked && slot.running === running && !running.stopping) {
+          slot.actedRequest = request;
+          if (this.wake(slot, this.now()))
+            this.log(`${plugin}: the owner asked for a run, so it was woken`);
+        }
+        return;
+      }
       await this.stopChild(
         slot,
         `version ${entry.version} replaces ${running.version}`,
       );
       slot.crashes = 0;
       slot.restartAt = undefined;
-      await this.start(slot, file, code);
+      await this.start(slot, file, code, request);
       return;
     }
     if (asked && slot.restartAt !== undefined) {
@@ -432,7 +477,19 @@ export class Supervisor {
     if (slot.codeRetryAt !== undefined && now < slot.codeRetryAt) return;
     const file = await this.fetchCode(slot, code);
     if (file === undefined) return;
-    await this.start(slot, file, code);
+    await this.start(slot, file, code, request);
+  }
+
+  /**
+   * Sends the wake signal to a running connector past its first moments, and
+   * answers whether it was sent or the connector will read the request as
+   * its first run starts.
+   */
+  private wake(slot: Slot, now: number): boolean {
+    const running = slot.running;
+    if (running === undefined || running.stopping) return false;
+    if (now - running.startedAt >= settlingMs) running.child.signal(wakeSignal);
+    return true;
   }
 
   private lifted(
@@ -485,7 +542,12 @@ export class Supervisor {
 
   /** Mints a key when one of the three causes calls for it, then starts the
    *  connector's process. */
-  private async start(slot: Slot, file: string, code: Code): Promise<void> {
+  private async start(
+    slot: Slot,
+    file: string,
+    code: Code,
+    request: string | null,
+  ): Promise<void> {
     const { plugin, entry } = slot;
     const home = this.options.home;
     let key = readIfThere(home.key(plugin));
@@ -535,9 +597,12 @@ export class Supervisor {
       version: entry.version,
       sha256: code.sha256,
       startedAt: this.now(),
+      startedOn: this.wall(),
       stopping: false,
     };
     slot.running = running;
+    // The connector reads the request as its first run starts.
+    if (request !== null) slot.actedRequest = request;
     this.log(
       `${plugin}: started version ${entry.version}${child.pid === undefined ? "" : ` as process ${String(child.pid)}`}`,
     );
@@ -549,8 +614,9 @@ export class Supervisor {
 
   private exited(slot: Slot, running: Running, exit: Exit): void {
     const now = this.now();
+    const wall = this.wall();
     if (slot.running === running) slot.running = undefined;
-    slot.lastExit = { ...exit, at: now };
+    slot.lastExit = { ...exit, on: wall };
     const { plugin } = slot;
     if (running.stopping) {
       this.log(`${plugin}: stopped, ${describeExit(exit)}`);
@@ -601,7 +667,12 @@ export class Supervisor {
       this.log(`${said}; it starts again in ${duration(wait)}`);
     }
     if (exit.code !== 0)
-      slot.pending = { ...exit, at: now, line: running.child.lastError() };
+      slot.pending = {
+        ...exit,
+        at: now,
+        on: wall,
+        line: running.child.lastError(),
+      };
     this.kick(slot);
   }
 
@@ -632,8 +703,8 @@ export class Supervisor {
       await this.options.api.reportStartFailure({
         plugin: slot.plugin,
         key,
-        readOnlyTypes: slot.entry.connector.kinds.map((kind) => kind.type),
-        at: new Date(pending.at),
+        readOnlyTypes: readOnlyTypes(slot.entry),
+        at: new Date(pending.on),
         error:
           error.length > reportCap
             ? `${error.slice(0, reportCap - 1)}…`
@@ -670,6 +741,10 @@ export class Supervisor {
   /** What `status` shows: no key, ever. */
   status(): HostStatus {
     const iso = (ms: number): string => new Date(ms).toISOString();
+    const now = this.now();
+    const wall = this.wall();
+    /** A deadline on the monotonic clock, dated on the wall clock. */
+    const dated = (deadline: number): number => wall + (deadline - now);
     const connectors = [...this.slots.values()]
       .filter((slot) => !slot.removed)
       .map((slot): ConnectorStatus => {
@@ -679,7 +754,7 @@ export class Supervisor {
           plugin: slot.plugin,
           version: entry.version,
           ...(exit !== undefined && {
-            lastExit: `${describeExit(exit)} at ${iso(exit.at)}`,
+            lastExit: `${describeExit(exit)} at ${iso(exit.on)}`,
           }),
         };
         if (running !== undefined)
@@ -688,13 +763,13 @@ export class Supervisor {
             state: "running",
             detail: running.stopping ? "stopping" : "running",
             ...(running.child.pid !== undefined && { pid: running.child.pid }),
-            since: iso(running.startedAt),
+            since: iso(running.startedOn),
           };
         const stopped = (detail: string, next?: number): ConnectorStatus => ({
           ...base,
           state: "stopped",
           detail,
-          ...(next !== undefined && { nextStart: iso(next) }),
+          ...(next !== undefined && { nextStart: iso(dated(next)) }),
         });
         if (entry.connector.code === undefined)
           return stopped("its plugin carries no code");
