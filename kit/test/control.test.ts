@@ -53,7 +53,7 @@ describe("a connector the owner paused", () => {
     expect(held.runs).toBe(0);
     harness.server.control.paused = false;
     await harness.clock.wake(15 * minute);
-    await until(() => held.runs === 1);
+    await until(() => held.runs === 1 && harness.server.runs.length === 1);
     harness.stop();
     expect(await exit).toBe(exitCode.stopped);
     expect(harness.server.runs.map((run) => run.outcome)).toEqual([
