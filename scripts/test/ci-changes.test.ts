@@ -41,22 +41,22 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "a fixture under agent files, which a test could read",
       [".agents/skills/x/fixtures/input.json"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a file that only looks like an agent directory",
       ["kit/src/.agents/helper.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "agent files beside a kit change",
       [".agents/skills/x/helper.py", "kit/src/main.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a connector's source",
       ["connectors/todoist/src/main.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a connector's test",
@@ -66,18 +66,18 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "a fixture the proof reads",
       ["connectors/rss/test/fixtures/atom.xml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the kit",
       ["kit/src/main.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     ["the kit's tests", ["kit/test/scripted-server.ts"], ["code", "tests"]],
     [
       "a shared package's source",
       ["shared/google/src/google.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a shared package's test",
@@ -87,7 +87,7 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "the template",
       ["template/connector/src/main.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     ["the template's image", ["template/Dockerfile"], ["image"]],
     ["the LaunchAgent example", ["template/launchd.plist.example"], ["image"]],
@@ -101,32 +101,73 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "a workflow no job of ci.yml reads",
       [".github/workflows/audit.yml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
-      "a scenario of the proof, which no unit test imports",
-      ["scripts/proof/rss.ts"],
+      "a scenario of the proof, which no unit test imports and no bundle runs",
+      ["scripts/proof/todoist.ts"],
       ["code", "proof"],
+    ],
+    [
+      "the RSS scenario, which the bundles job runs from the RSS bundle",
+      ["scripts/proof/rss.ts"],
+      ["code", "proof", "bundles"],
+    ],
+    [
+      "the proof's entry, which the bundles job runs",
+      ["scripts/proof/main.ts"],
+      ["code", "proof", "bundles"],
     ],
     [
       "the list of the proof's groups, which a unit test imports",
       ["scripts/proof/shards.ts"],
-      ["code", "tests", "proof"],
+      ["code", "tests", "proof", "bundles"],
     ],
     [
       "a stub the proof shares with the unit tests",
       ["scripts/proof/github-stub.ts"],
-      ["code", "tests", "proof"],
+      ["code", "tests", "proof", "bundles"],
     ],
+    [
+      "what starts a connector for the proof, from its build or from its bundle",
+      ["scripts/proof/connector.ts"],
+      ["code", "tests", "proof", "bundles"],
+    ],
+    [
+      "the script that makes a connector's bundle",
+      ["scripts/bundle-connectors.ts"],
+      ["code", "tests", "bundles"],
+    ],
+    [
+      "the script that runs each bundle's help",
+      ["scripts/check-bundles.ts"],
+      ["code", "tests", "bundles"],
+    ],
+    [
+      "the script that fetches the pinned Node",
+      ["scripts/node-pin.ts"],
+      ["code", "tests", "bundles"],
+    ],
+    [
+      "the flags a bundle is run under",
+      ["scripts/permission-flags.ts"],
+      ["code", "tests", "bundles"],
+    ],
+    [
+      "the Node the host carries, which the tests run on and the bundles are made for",
+      ["host/node.json"],
+      ["tests", "bundles"],
+    ],
+
     [
       "one connector's source",
       ["connectors/rss/src/main.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the monorepo pin",
       ["scripts/monorepo.commit"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a plugin's type definition",
@@ -157,7 +198,7 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "the manifest of a connector's generated plugin, which a connector's own change can reach",
       ["connectors/todoist/plugin/plugin.json"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the script that checks the plugins",
@@ -182,7 +223,7 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "the release workflow",
       [".github/workflows/release.yml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the proof's plugins group",
@@ -199,22 +240,22 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "a dependency",
       ["pnpm-lock.yaml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the workflow",
       [".github/workflows/ci.yml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the CodeQL workflow, which a test reads",
       [".github/workflows/codeql.yml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the description check's workflow, which a test reads",
       [".github/workflows/pr-description.yml"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "the description check",
@@ -224,19 +265,23 @@ describe("what a change runs beyond formatting and the scan", () => {
     [
       "the classifier",
       ["scripts/ci-changes.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "a path no rule names",
       ["tools/new.ts"],
-      ["code", "tests", "proof", "image", "plugins"],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
     ],
     [
       "documentation beside a test",
       ["README.md", "kit/test/main.test.ts"],
       ["code", "tests"],
     ],
-    ["an empty change", [], ["code", "tests", "proof", "image", "plugins"]],
+    [
+      "an empty change",
+      [],
+      ["code", "tests", "proof", "image", "plugins", "bundles"],
+    ],
   ])("%s", (_, paths, expected) => {
     expect(runs(paths)).toEqual(expected);
   });
@@ -277,7 +322,14 @@ interface Workflow {
       if?: string;
       outputs?: Record<string, string>;
       permissions?: Record<string, string>;
-      steps: { run?: string; if?: string; env?: Record<string, string> }[];
+      steps: {
+        id?: string;
+        uses?: string;
+        with?: Record<string, string>;
+        run?: string;
+        if?: string;
+        env?: Record<string, string>;
+      }[];
     }
   >;
 }
@@ -435,6 +487,7 @@ describe("what a draft runs", () => {
         proof: false,
         image: false,
         plugins: false,
+        bundles: false,
       });
     }
   });
@@ -458,13 +511,76 @@ describe("each job reads its answer", () => {
     expect(classify?.env).toEqual({ GH_TOKEN: "${{ github.token }}" });
   });
 
-  it("publishes every answer the classifier gives", () => {
-    expect(jobs["changes"]?.outputs).toEqual(
-      Object.fromEntries(
-        ["code", "tests", "proof", "image", "plugins", "full", "scope"].map(
-          (name) => [name, `\${{ steps.classify.outputs.${name} }}`],
-        ),
+  it("publishes every answer the classifier gives, and the Node the host carries", () => {
+    expect(jobs["changes"]?.outputs).toEqual({
+      ...Object.fromEntries(
+        [
+          "code",
+          "tests",
+          "proof",
+          "image",
+          "plugins",
+          "bundles",
+          "full",
+          "scope",
+        ].map((name) => [name, `\${{ steps.classify.outputs.${name} }}`]),
       ),
+      node: "${{ steps.pin.outputs.version }}",
+    });
+    const pin = (jobs["changes"]?.steps ?? []).find(
+      (step) => step.id === "pin",
+    );
+    expect(pin?.run).toBe(
+      'echo "version=$(node -p "require(\'./host/node.json\').version")" >> "${GITHUB_OUTPUT}"',
+    );
+  });
+
+  it("reads the pinned Node from the pin and never writes its version in a workflow", () => {
+    const workflows = join(root, ".github", "workflows");
+    for (const name of readdirSync(workflows)) {
+      const text = readFileSync(join(workflows, name), "utf8");
+      expect(text, name).not.toMatch(/node-version:\s*['"]?2[6-9]/);
+    }
+  });
+
+  it("runs Bundles only when the classifier says so, and when it cannot tell, on the pinned Node, from the build to the RSS group", () => {
+    expect(jobs["bundles"]?.needs).toBe("changes");
+    expect(jobs["bundles"]?.if).toBe(
+      "${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bundles != 'false') }}",
+    );
+    const setup = (jobs["bundles"]?.steps ?? []).find((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
+    );
+    expect(setup?.with?.["node-version"]).toBe(
+      "${{ needs.changes.outputs.node }}",
+    );
+    expect(commands("bundles")).toEqual([
+      "scripts/monorepo.sh",
+      "pnpm install --frozen-lockfile",
+      "pnpm build",
+      'node --experimental-strip-types scripts/bundle-connectors.ts --version 0.0.0 --out "${RUNNER_TEMP}/bundles"',
+      'node --experimental-strip-types scripts/check-bundles.ts "${RUNNER_TEMP}/bundles"',
+      "pnpm proof --group rss",
+    ]);
+    const proof = (jobs["bundles"]?.steps ?? []).find(
+      (step) => step.run === "pnpm proof --group rss",
+    );
+    expect(proof?.env).toEqual({
+      PROOF_BUNDLES: "${{ runner.temp }}/bundles",
+    });
+  });
+
+  it("runs the tests on the oldest Node the runtime supports and on the pinned one", () => {
+    const tests = jobs["tests"];
+    expect(parseJobs()["tests"]?.strategy?.matrix).toEqual({
+      shard: [1, 2, 3],
+      node: [22, "pinned"],
+    });
+    const setup = (tests?.steps ?? []).find((step) =>
+      step.uses?.startsWith("actions/setup-node@"),
+    );
+    expect(setup?.with?.["node-version"]).toBe(
+      "${{ matrix.node == 'pinned' && needs.changes.outputs.node || matrix.node }}",
     );
   });
 
@@ -574,9 +690,12 @@ describe("each job reads its answer", () => {
     const test = (jobs["tests"]?.steps ?? []).find((step) =>
       step.run?.includes("vitest run"),
     );
+    // The tests also fan out over the Node versions, so `job-total` is not
+    // the number of shards: the matrix says how many there are.
+    expect(parseJobs()["tests"]?.strategy?.matrix?.shard).toHaveLength(3);
     expect(test?.env).toEqual({
       SCOPE: "${{ needs.changes.outputs.scope }}",
-      SHARD: "${{ matrix.shard }}/${{ strategy.job-total }}",
+      SHARD: "${{ matrix.shard }}/3",
     });
     expect(test?.run).toContain('--shard "${SHARD}"');
     expect(test?.run).toContain("--passWithNoTests");
@@ -604,6 +723,7 @@ describe("each job reads its answer", () => {
       proof: 35,
       image: 10,
       plugins: 10,
+      bundles: 15,
       stop: 5,
       gate: 5,
     });
@@ -671,7 +791,7 @@ function parseJobs() {
           "timeout-minutes"?: number;
           strategy?: {
             "fail-fast"?: boolean;
-            matrix?: { shard?: number[] };
+            matrix?: { shard?: number[]; node?: (number | string)[] };
           };
         }
       >;
@@ -897,9 +1017,9 @@ describe("the classifier as CI runs it", () => {
   }
 
   const skipped =
-    "code=false\ntests=false\nproof=false\nimage=false\nplugins=false\nfull=true\nscope=all\n";
+    "code=false\ntests=false\nproof=false\nimage=false\nplugins=false\nbundles=false\nfull=true\nscope=all\n";
   const everything =
-    "code=true\ntests=true\nproof=true\nimage=true\nplugins=true\nfull=true\nscope=all\n";
+    "code=true\ntests=true\nproof=true\nimage=true\nplugins=true\nbundles=true\nfull=true\nscope=all\n";
 
   it("skips the code checks and the proof for documentation", () => {
     expect(outputs("pull_request", base, docs)).toBe(skipped);
@@ -918,10 +1038,10 @@ describe("the classifier as CI runs it", () => {
 
   it("runs only the quick checks for a draft, whatever the diff, and all of them once it is ready", () => {
     expect(outputs("pull_request", base, docs, { draft: true })).toBe(
-      "code=false\ntests=false\nproof=false\nimage=false\nplugins=false\nfull=false\nscope=all\n",
+      "code=false\ntests=false\nproof=false\nimage=false\nplugins=false\nbundles=false\nfull=false\nscope=all\n",
     );
     expect(outputs("pull_request", "invalid", docs, { draft: true })).toBe(
-      "code=true\ntests=false\nproof=false\nimage=false\nplugins=false\nfull=false\nscope=all\n",
+      "code=true\ntests=false\nproof=false\nimage=false\nplugins=false\nbundles=false\nfull=false\nscope=all\n",
     );
     expect(outputs("pull_request", base, docs, { draft: false })).toBe(skipped);
   });
