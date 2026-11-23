@@ -242,7 +242,23 @@ export function supervised(
       .split("\n")
       .filter((line) => line.startsWith("START "))
       .map((line) => JSON.parse(line.slice(6)) as StartLine);
-  return { home, api, server, clock, lines, supervisor, step, poll, starts };
+  /** How many times `plugin` was started, counted as it is spawned, so a
+   *  start not yet seen by `starts` still counts. */
+  const spawned = (plugin: string): number =>
+    lines.filter((line) => line.startsWith(`${plugin}: started version`))
+      .length;
+  return {
+    home,
+    api,
+    server,
+    clock,
+    lines,
+    supervisor,
+    step,
+    poll,
+    starts,
+    spawned,
+  };
 }
 
 export interface StartLine {
