@@ -453,7 +453,7 @@ export class Supervisor {
       }
       const file = await this.fetchCode(slot, code);
       if (file === undefined) {
-        if (asked && slot.running === running && !running.stopping) {
+        if (asked && slot.running === running) {
           slot.actedRequest = request;
           if (this.wake(slot, this.now()))
             this.log(`${plugin}: the owner asked for a run, so it was woken`);
