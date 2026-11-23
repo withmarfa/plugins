@@ -334,11 +334,12 @@ describe("the connector host's supervisor", () => {
   });
 
   it("does not restart after exit 2 until Marfa holds another version", async () => {
-    const { api, server, step, starts, clock } = supervised();
+    const { api, server, step, starts, clock, supervisor } = supervised();
     const wrong = server.serve("rss-1", connectorCode({ exit: 2 }));
     api.connectors = [assigned("rss", "0.0.1", wrong)];
     await step();
     await until(() => starts("rss").length === 1);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
     for (let at = 0; at < 5; at++) {
       clock.advance(30 * minute);
       await step();
