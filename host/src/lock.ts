@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
   closeSync,
@@ -23,21 +24,36 @@ export function alive(pid: number): boolean {
   }
 }
 
-/**
- * What tells this boot from another: Linux's boot ID, else the time the
- * system started, in milliseconds. The boot ID is used where there is one,
- * since a step of the wall clock moves the start time worked out from it.
- */
-export function thisBoot(): string | number {
-  if (process.platform === "linux") {
-    try {
-      const id = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
-      if (id !== "") return id;
-    } catch {
-      // No procfs: the start time serves.
-    }
+/** The system's own name for this boot, read once: it holds for as long as
+ *  the process does. */
+let bootId: string | undefined | null = null;
+
+function systemBootId(): string | undefined {
+  try {
+    const id =
+      process.platform === "linux"
+        ? readFileSync("/proc/sys/kernel/random/boot_id", "utf8")
+        : process.platform === "darwin"
+          ? execFileSync("/usr/sbin/sysctl", ["-n", "kern.bootsessionuuid"], {
+              encoding: "utf8",
+              stdio: ["ignore", "pipe", "ignore"],
+            })
+          : "";
+    return id.trim() === "" ? undefined : id.trim();
+  } catch {
+    return undefined;
   }
-  return Math.round(Date.now() - uptime() * 1000);
+}
+
+/**
+ * What tells this boot from another: the boot ID on Linux and the boot
+ * session UUID on macOS, which no step of the wall clock moves. Elsewhere,
+ * or when the system will not say, the time the system started, worked out
+ * from `wall`, serves as a fallback that a step of the clock moves.
+ */
+export function thisBoot(wall: () => number = Date.now): string | number {
+  if (bootId === null) bootId = systemBootId();
+  return bootId ?? Math.round(wall() - uptime() * 1000);
 }
 
 /** Two start times this close are one boot: they differ by rounding and drift. */
@@ -82,7 +98,7 @@ type Seen =
   | { kind: "starting"; ino: number }
   | { kind: "stale"; ino: number };
 
-function look(path: string, now: number): Seen {
+function look(path: string, wall: () => number): Seen {
   let text: string;
   let ino: number;
   let mtime: number;
@@ -98,17 +114,20 @@ function look(path: string, now: number): Seen {
   }
   const written = parse(text);
   if (written === undefined)
-    return now - mtime < unreadableHeldMs
+    return wall() - mtime < unreadableHeldMs
       ? { kind: "starting", ino }
       : { kind: "stale", ino };
-  if (sameBoot(written.boot, thisBoot()) && alive(written.pid))
+  if (sameBoot(written.boot, thisBoot(wall)) && alive(written.pid))
     return { kind: "live", pid: written.pid, ino };
   return { kind: "stale", ino };
 }
 
 /** The process that holds the lock at `path`, if one does and is alive. */
-export function holder(path: string): number | undefined {
-  const seen = look(path, Date.now());
+export function holder(
+  path: string,
+  wall: () => number = Date.now,
+): number | undefined {
+  const seen = look(path, wall);
   return seen.kind === "live" ? seen.pid : undefined;
 }
 
@@ -155,9 +174,10 @@ export interface Lock {
  */
 export function takeLock(
   path: string,
+  wall: () => number = Date.now,
 ): { lock: Lock } | { holder: number | undefined } {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const mine = `${JSON.stringify({ pid: process.pid, boot: thisBoot() })}\n`;
+  const mine = `${JSON.stringify({ pid: process.pid, boot: thisBoot(wall) })}\n`;
   const lock: Lock = {
     release: () => {
       try {
@@ -170,13 +190,13 @@ export function takeLock(
   const takeover = `${path}.takeover`;
   for (let tries = 0; tries < 200; tries++) {
     if (place(path, mine)) return { lock };
-    const seen = look(path, Date.now());
+    const seen = look(path, wall);
     if (seen.kind === "live") return { holder: seen.pid };
     if (seen.kind === "starting") return { holder: undefined };
     if (seen.kind === "none") continue;
     if (!place(takeover, `${String(process.pid)}\n`)) {
       try {
-        if (Date.now() - statSync(takeover).mtimeMs > takeoverHeldMs)
+        if (wall() - statSync(takeover).mtimeMs > takeoverHeldMs)
           rmSync(takeover, { force: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
@@ -188,7 +208,7 @@ export function takeLock(
       // Only a takeover removes a lock it did not write, so while this one
       // holds `takeover`, a lock still stale and still the same file is safe
       // to remove.
-      const again = look(path, Date.now());
+      const again = look(path, wall);
       if (again.kind === "stale" && again.ino === seen.ino)
         rmSync(path, { force: true });
     } finally {

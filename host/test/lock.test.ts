@@ -111,6 +111,21 @@ describe("the connector host's run lock", () => {
     expect(takeLock(other)).toEqual({ holder: process.pid });
   });
 
+  it("stays held by a live process of this boot when the wall clock is stepped by minutes", () => {
+    const path = join(scratch(), "run.lock");
+    const taken = takeLock(path);
+    if (!("lock" in taken)) throw new Error("not taken");
+    for (const step of [-30 * 60_000, -2 * 60_000, 2 * 60_000, 30 * 60_000]) {
+      const stepped = (): number => Date.now() + step;
+      expect([step, holder(path, stepped)]).toEqual([step, process.pid]);
+      expect([step, takeLock(path, stepped)]).toEqual([
+        step,
+        { holder: process.pid },
+      ]);
+    }
+    taken.lock.release();
+  });
+
   it("treats an empty or partial lock as held for a few seconds, then takes it over", () => {
     for (const text of ["", '{"pid":'])
       for (const age of [0, 60]) {
