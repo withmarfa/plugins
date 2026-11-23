@@ -249,9 +249,19 @@ function pruneVersions(root: string, keep: (string | undefined)[]): void {
     currentVersion(root),
     heldVersion(new Home(root).lock),
   ]);
-  for (const name of names)
-    if (!kept.has(name))
-      rmSync(join(dir, name), { recursive: true, force: true });
+  for (const name of names) {
+    if (kept.has(name)) continue;
+    // One rename takes the copy out of `versions/<name>`, so a stop part way
+    // through the delete never leaves a partial copy there.
+    const going = join(dir, `.${name}.discard`);
+    discard(going);
+    try {
+      renameSync(join(dir, name), going);
+    } catch {
+      continue;
+    }
+    discard(going);
+  }
 }
 
 function refuse(message: string): UpdateRefused {

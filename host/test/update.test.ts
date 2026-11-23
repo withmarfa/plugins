@@ -842,6 +842,26 @@ describe("a placement that stopped part way", () => {
   });
 });
 
+describe("what pruning deletes", () => {
+  it("never leaves a partial copy at a release's name when a delete stops part way", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1", "0.0.2"], "0.0.2");
+    const stuck = join(root, "versions", "0.0.1", "stuck");
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, "file"), "x");
+    chmodSync(stuck, 0o500);
+    try {
+      await activate(root, "0.0.3", stageRelease(root, ".stage-1-a", "3"));
+      await activate(root, "0.0.4", stageRelease(root, ".stage-1-b", "4"));
+      expect(versionsOf(root)).toEqual(["0.0.3", "0.0.4"]);
+    } finally {
+      for (const name of readdirSync(join(root, "versions")))
+        if (existsSync(join(root, "versions", name, "stuck")))
+          chmodSync(join(root, "versions", name, "stuck"), 0o700);
+    }
+  });
+});
+
 describe("what pruning keeps", () => {
   it("keeps the release a live run uses, whatever current names", async () => {
     const root = scratch();
