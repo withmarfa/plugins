@@ -5,7 +5,11 @@ import { launchAgent, serviceFor, systemdService } from "../src/service.js";
 import { scratch } from "./helpers.js";
 
 const program = {
-  args: ["/opt/Marfa Host/node", "--disable-sigusr1", "/opt/Marfa Host/main.js"],
+  args: [
+    "/opt/Marfa Host/node",
+    "--disable-sigusr1",
+    "/opt/Marfa Host/main.js",
+  ],
   home: undefined,
 };
 
@@ -39,7 +43,8 @@ describe("the connector host's service", () => {
   });
 
   it("names a chosen folder in the LaunchAgent, escaped", () => {
-    expect(launchAgent({ ...program, home: "/srv/a&b" })).toContain(`  <key>EnvironmentVariables</key>
+    expect(launchAgent({ ...program, home: "/srv/a&b" }))
+      .toContain(`  <key>EnvironmentVariables</key>
   <dict>
     <key>MARFA_CONNECTOR_HOST_HOME</key>
     <string>/srv/a&amp;b</string>
@@ -67,7 +72,12 @@ WantedBy=default.target
     const service = serviceFor("darwin", {}, home, 501, (file, args) => {
       ran.push([file, ...args].join(" "));
     });
-    const file = join(home, "Library", "LaunchAgents", "so.marfa.connector-host.plist");
+    const file = join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "so.marfa.connector-host.plist",
+    );
     expect(service?.file).toBe(file);
     expect(service?.install(program)).toEqual([]);
     expect(readFileSync(file, "utf8")).toBe(launchAgent(program));
@@ -85,7 +95,13 @@ WantedBy=default.target
     const service = serviceFor("linux", {}, home, 1000, (file, args) => {
       ran.push([file, ...args].join(" "));
     });
-    const file = join(home, ".config", "systemd", "user", "marfa-connector-host.service");
+    const file = join(
+      home,
+      ".config",
+      "systemd",
+      "user",
+      "marfa-connector-host.service",
+    );
     expect(service?.file).toBe(file);
     expect(service?.install(program)).toEqual([
       "To keep the host running while you are logged out, run:",

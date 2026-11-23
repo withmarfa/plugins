@@ -145,7 +145,9 @@ export async function run(options: RunOptions): Promise<number> {
       // Status is a convenience, and stops nothing.
     }
   };
-  log(`running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`);
+  log(
+    `running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`,
+  );
   try {
     while (!stop) {
       if ((await supervisor.step()) === "unlinked") {
@@ -227,13 +229,18 @@ export function logs(home: Home, plugin: string | undefined, io: Io): void {
  * What `uninstall` removes, said before it removes anything: the service
  * and the host's folder, keys and logs included.
  */
-export function uninstallPlan(home: Home, service: Service | undefined): string[] {
+export function uninstallPlan(
+  home: Home,
+  service: Service | undefined,
+): string[] {
   return [
     ...(service !== undefined && existsSync(service.file)
       ? [`the service, ${service.file}`]
       : []),
     ...(existsSync(home.root)
-      ? [`the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`]
+      ? [
+          `the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`,
+        ]
       : []),
   ];
 }

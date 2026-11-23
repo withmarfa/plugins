@@ -236,11 +236,7 @@ export class Supervisor {
     }
     if (answer.kind === "failed") {
       this.pollFailures += 1;
-      const wait = doubling(
-        pollRetryMs,
-        longestPollRetryMs,
-        this.pollFailures,
-      );
+      const wait = doubling(pollRetryMs, longestPollRetryMs, this.pollFailures);
       this.nextPollAt = now + wait;
       this.pollError = answer.reason;
       this.log(
@@ -475,11 +471,7 @@ export class Supervisor {
           ? error.message
           : `could not keep its code: ${error instanceof Error ? error.message : String(error)}`;
       slot.codeFailures += 1;
-      const wait = doubling(
-        codeRetryMs,
-        longestCodeRetryMs,
-        slot.codeFailures,
-      );
+      const wait = doubling(codeRetryMs, longestCodeRetryMs, slot.codeFailures);
       slot.codeRetryAt = this.now() + wait;
       slot.codeError = message;
       this.log(
@@ -641,7 +633,9 @@ export class Supervisor {
         readOnlyTypes: slot.entry.connector.kinds.map((kind) => kind.type),
         at: new Date(pending.at),
         error:
-          error.length > reportCap ? `${error.slice(0, reportCap - 1)}…` : error,
+          error.length > reportCap
+            ? `${error.slice(0, reportCap - 1)}…`
+            : error,
       });
       slot.reported = signature;
       this.log(`${slot.plugin}: reported the failure to Marfa as a failed run`);
@@ -694,10 +688,7 @@ export class Supervisor {
             ...(running.child.pid !== undefined && { pid: running.child.pid }),
             since: iso(running.startedAt),
           };
-        const stopped = (
-          detail: string,
-          next?: number,
-        ): ConnectorStatus => ({
+        const stopped = (detail: string, next?: number): ConnectorStatus => ({
           ...base,
           state: "stopped",
           detail,

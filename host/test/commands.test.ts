@@ -1,4 +1,11 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -69,7 +76,9 @@ describe("installing the connector host", () => {
       asked += 1;
       return Promise.resolve(redeemed());
     };
-    await expect(install(home, link, printed(), undefined, send)).rejects.toThrow(refusal);
+    await expect(
+      install(home, link, printed(), undefined, send),
+    ).rejects.toThrow(refusal);
     expect(asked).toBe(0);
     expect(existsSync(home.root)).toBe(false);
   });
@@ -79,7 +88,13 @@ describe("installing the connector host", () => {
     const send: typeof fetch = () =>
       Promise.resolve(marfaAnswer(404, { code: "connector_link_not_found" }));
     await expect(
-      install(home, "https://marfa.example.com/connect#old", printed(), undefined, send),
+      install(
+        home,
+        "https://marfa.example.com/connect#old",
+        printed(),
+        undefined,
+        send,
+      ),
     ).rejects.toThrow(RedeemRefused);
     expect(existsSync(home.root)).toBe(false);
   });
@@ -92,7 +107,13 @@ describe("installing the connector host", () => {
       home,
       "https://marfa.example.com/connect#code",
       io,
-      { service, program: { args: ["/node", "--disable-sigusr1", "/main.js"], home: undefined } },
+      {
+        service,
+        program: {
+          args: ["/node", "--disable-sigusr1", "/main.js"],
+          home: undefined,
+        },
+      },
       () => Promise.resolve(redeemed()),
     );
     expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
@@ -102,21 +123,31 @@ describe("installing the connector host", () => {
     });
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_host_secret");
     expect(statSync(home.hostKey).mode & 0o777).toBe(0o600);
-    expect(readFileSync(home.hostJson, "utf8")).not.toContain("marfa_k1_host_secret");
+    expect(readFileSync(home.hostJson, "utf8")).not.toContain(
+      "marfa_k1_host_secret",
+    );
     expect(io.lines.join("\n")).not.toContain("marfa_k1_host_secret");
     expect(service.calls).toEqual(["install /node --disable-sigusr1 /main.js"]);
   });
 
   it("replaces the identity on a new link and deletes every connector's key and code", async () => {
     const home = freshHome();
-    await install(home, "https://marfa.example.com/connect#one", printed(), undefined, () =>
-      Promise.resolve(redeemed("marfa_k1_first")),
+    await install(
+      home,
+      "https://marfa.example.com/connect#one",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed("marfa_k1_first")),
     );
     writeSecret(home.key("rss"), "marfa_k1_rss");
     mkdirSync(home.code("rss"), { recursive: true });
     writeFileSync(home.codeFile("rss", "a".repeat(64)), "code");
-    await install(home, "https://marfa.example.com/connect#two", printed(), undefined, () =>
-      Promise.resolve(redeemed("marfa_k1_second")),
+    await install(
+      home,
+      "https://marfa.example.com/connect#two",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed("marfa_k1_second")),
     );
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_second");
     expect(existsSync(home.connectors)).toBe(false);
@@ -124,13 +155,24 @@ describe("installing the connector host", () => {
 
   it("keeps the old identity and connectors when a new link is refused", async () => {
     const home = freshHome();
-    await install(home, "https://marfa.example.com/connect#one", printed(), undefined, () =>
-      Promise.resolve(redeemed("marfa_k1_first")),
+    await install(
+      home,
+      "https://marfa.example.com/connect#one",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed("marfa_k1_first")),
     );
     writeSecret(home.key("rss"), "marfa_k1_rss");
     await expect(
-      install(home, "https://marfa.example.com/connect#two", printed(), undefined, () =>
-        Promise.resolve(marfaAnswer(404, { code: "connector_link_not_found" })),
+      install(
+        home,
+        "https://marfa.example.com/connect#two",
+        printed(),
+        undefined,
+        () =>
+          Promise.resolve(
+            marfaAnswer(404, { code: "connector_link_not_found" }),
+          ),
       ),
     ).rejects.toThrow(RedeemRefused);
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_first");
@@ -141,8 +183,12 @@ describe("installing the connector host", () => {
 /** A linked host's folder. */
 async function linked(): Promise<Home> {
   const home = freshHome();
-  await install(home, "https://marfa.example.com/connect#code", printed(), undefined, () =>
-    Promise.resolve(redeemed()),
+  await install(
+    home,
+    "https://marfa.example.com/connect#code",
+    printed(),
+    undefined,
+    () => Promise.resolve(redeemed()),
   );
   return home;
 }
@@ -170,7 +216,13 @@ describe("running the connector host", () => {
         stop = done;
       }),
       send: () =>
-        Promise.resolve(marfaAnswer(200, { id: "host-1", name: "Studio Mac", connectors: [] })),
+        Promise.resolve(
+          marfaAnswer(200, {
+            id: "host-1",
+            name: "Studio Mac",
+            connectors: [],
+          }),
+        ),
       tickMs: 10,
     });
     await until(() => existsSync(home.status));

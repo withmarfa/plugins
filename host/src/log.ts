@@ -1,9 +1,4 @@
-import {
-  appendFileSync,
-  mkdirSync,
-  renameSync,
-  statSync,
-} from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname } from "node:path";
 
 /** The most a log file holds before it becomes the one older file. */

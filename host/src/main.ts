@@ -86,7 +86,9 @@ async function main(args: string[]): Promise<number> {
         io.err(usage);
         return 2;
       }
-      const service = flags.includes("--no-service") ? undefined : serviceHere();
+      const service = flags.includes("--no-service")
+        ? undefined
+        : serviceHere();
       if (!flags.includes("--no-service") && service === undefined) {
         io.err(
           `This system (${process.platform}) has no service the host can install. Install with --no-service and run \`marfa-connector-host run\` under your own supervisor.`,
@@ -105,7 +107,8 @@ async function main(args: string[]): Promise<number> {
               service,
               program: {
                 args: [process.execPath, "--disable-sigusr1", script],
-                home: chosen === undefined || chosen === "" ? undefined : home.root,
+                home:
+                  chosen === undefined || chosen === "" ? undefined : home.root,
               },
             },
       );

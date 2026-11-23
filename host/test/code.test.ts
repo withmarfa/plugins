@@ -1,4 +1,11 @@
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync, mkdirSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+  mkdirSync,
+} from "node:fs";
 import { describe, expect, it } from "vitest";
 import { CodeRefused, CodeStore } from "../src/code.js";
 import { Home } from "../src/home.js";
@@ -69,7 +76,10 @@ describe("the connector host's code store", () => {
   it("refuses a redirect to http, and follows one to https", async () => {
     const { home, server, code } = store();
     const served = server.serve("rss", text);
-    server.redirects.set("https://code.example.com/moved", "http://code.example.com/rss");
+    server.redirects.set(
+      "https://code.example.com/moved",
+      "http://code.example.com/rss",
+    );
     await expect(
       code.ensure("rss", { ...served, url: "https://code.example.com/moved" }),
     ).rejects.toThrow("is not https");

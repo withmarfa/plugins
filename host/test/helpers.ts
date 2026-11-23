@@ -74,7 +74,10 @@ export class CodeServer {
   handedOut = 0;
 
   /** Serves `text` at an address, answering the `code` a plugin names. */
-  serve(name: string, text: string): { url: string; sha256: string; size: number } {
+  serve(
+    name: string,
+    text: string,
+  ): { url: string; sha256: string; size: number } {
     const url = `https://code.example.com/${name}`;
     const bytes = Buffer.from(text);
     this.files.set(url, bytes);
@@ -181,7 +184,9 @@ export class FakeClock {
 }
 
 /** A supervisor over a fresh folder, running real processes. */
-export function supervised(env: NodeJS.ProcessEnv = { PATH: process.env["PATH"] }) {
+export function supervised(
+  env: NodeJS.ProcessEnv = { PATH: process.env["PATH"] },
+) {
   const home = new Home(scratch());
   const api = new ScriptedApi();
   const server = new CodeServer();
@@ -191,7 +196,10 @@ export function supervised(env: NodeJS.ProcessEnv = { PATH: process.env["PATH"] 
     api,
     code: new CodeStore(home, server.transport),
     home,
-    spawn: spawnConnector(process.execPath, (plugin) => new CappedLog(home.pluginLog(plugin))),
+    spawn: spawnConnector(
+      process.execPath,
+      (plugin) => new CappedLog(home.pluginLog(plugin)),
+    ),
     log: (line) => lines.push(line),
     origin: "https://marfa.example.com",
     env,

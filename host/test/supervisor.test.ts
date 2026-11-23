@@ -15,7 +15,9 @@ const minute = 60_000;
 describe("the connector host's supervisor", () => {
   it("mints a key it holds as mode 600 and starts the connector on it, with the key in no argument, log line or status", async () => {
     const { api, server, step, starts, home, supervisor, lines } = supervised();
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     const [started] = starts("rss");
@@ -65,12 +67,22 @@ describe("the connector host's supervisor", () => {
       NODE_OPTIONS: "--inspect",
     };
     const { api, server, step, starts } = supervised(env);
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     const [started] = starts("rss");
     expect(started?.names).toEqual(
-      ["HOME", "LANG", "LC_TIME", "MARFA_API_KEY", "MARFA_API_URL", "PATH", "TZ"].sort(),
+      [
+        "HOME",
+        "LANG",
+        "LC_TIME",
+        "MARFA_API_KEY",
+        "MARFA_API_URL",
+        "PATH",
+        "TZ",
+      ].sort(),
     );
     expect(started?.env["MARFA_API_URL"]).toBe("https://marfa.example.com");
     expect(started?.env["TZ"]).toBe("Europe/London");
@@ -82,7 +94,9 @@ describe("the connector host's supervisor", () => {
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
       OTEL_SERVICE_NAME: "a-connector",
     });
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     expect(starts("rss")[0]?.names).toEqual(
@@ -97,7 +111,8 @@ describe("the connector host's supervisor", () => {
   });
 
   it("keeps no code whose SHA-256 differs, and the running version stays", async () => {
-    const { api, server, step, poll, starts, home, supervisor, lines } = supervised();
+    const { api, server, step, poll, starts, home, supervisor, lines } =
+      supervised();
     const first = server.serve("rss-1", connectorCode());
     api.connectors = [assigned("rss", "0.0.1", first)];
     await step();
@@ -140,21 +155,32 @@ describe("the connector host's supervisor", () => {
       "stopped",
       "stopped",
     ]);
-    expect(supervisor.status().connectors[0]?.detail).toBe("paused by the owner");
+    expect(supervisor.status().connectors[0]?.detail).toBe(
+      "paused by the owner",
+    );
   });
 
   it("wakes a running connector with SIGUSR2 for a run request, and starts a waiting one at once", async () => {
     const { api, server, step, starts, home, clock } = supervised();
     const code = server.serve("rss-1", connectorCode());
     const failing = server.serve("news-1", connectorCode({ exit: 1 }));
-    api.connectors = [assigned("rss", "0.0.1", code), assigned("news", "0.0.1", failing)];
+    api.connectors = [
+      assigned("rss", "0.0.1", code),
+      assigned("news", "0.0.1", failing),
+    ];
     await step();
-    await until(() => starts("rss").length === 1 && starts("news").length === 1);
+    await until(
+      () => starts("rss").length === 1 && starts("news").length === 1,
+    );
     await step();
     clock.advance(1000);
     api.connectors = [
-      assigned("rss", "0.0.1", code, { run_requested_at: "2026-11-23T09:00:01Z" }),
-      assigned("news", "0.0.1", failing, { run_requested_at: "2026-11-23T09:00:01Z" }),
+      assigned("rss", "0.0.1", code, {
+        run_requested_at: "2026-11-23T09:00:01Z",
+      }),
+      assigned("news", "0.0.1", failing, {
+        run_requested_at: "2026-11-23T09:00:01Z",
+      }),
     ];
     // Not yet due for its regular poll, so the clock moves to it.
     clock.advance(minute);
@@ -169,7 +195,9 @@ describe("the connector host's supervisor", () => {
 
   it("stops a connector that leaves the host, and deletes its key and code", async () => {
     const { api, server, step, poll, starts, home, supervisor } = supervised();
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     expect(existsSync(home.key("rss"))).toBe(true);
@@ -187,7 +215,9 @@ describe("the connector host's supervisor", () => {
       assigned("news", "0.0.1", server.serve("news-1", connectorCode())),
     ];
     await step();
-    await until(() => starts("rss").length === 1 && starts("news").length === 1);
+    await until(
+      () => starts("rss").length === 1 && starts("news").length === 1,
+    );
     api.answer = { kind: "unlinked" };
     expect(await poll()).toBe("unlinked");
     expect(logOf(home, "rss")).toContain("TERM");
@@ -198,7 +228,9 @@ describe("the connector host's supervisor", () => {
 
   it("keeps the connectors running when Marfa cannot be reached, asking again after growing waits", async () => {
     const { api, server, step, poll, starts, supervisor, clock } = supervised();
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     const pid = supervisor.status().connectors[0]?.pid;
@@ -211,11 +243,16 @@ describe("the connector host's supervisor", () => {
       await step();
       if (api.polls > before) polledAt.push(clock.at);
     }
-    const waits = polledAt.slice(1).map((at, index) => at - (polledAt[index] ?? 0));
+    const waits = polledAt
+      .slice(1)
+      .map((at, index) => at - (polledAt[index] ?? 0));
     expect(waits.slice(0, 7)).toEqual(
       [10, 20, 40, 80, 160, 300, 300].map((seconds) => seconds * 1000),
     );
-    expect(supervisor.status().connectors[0]).toMatchObject({ state: "running", pid });
+    expect(supervisor.status().connectors[0]).toMatchObject({
+      state: "running",
+      pid,
+    });
     expect(supervisor.status().pollError).toBe("connect ECONNREFUSED");
     // Marfa answering again puts the poll back on its minute.
     api.answer = undefined;
@@ -230,7 +267,9 @@ describe("the connector host's supervisor", () => {
 
   it("asks Marfa at once and wakes every connector when the clock jumps, as after sleep", async () => {
     const { api, server, step, starts, home, clock, lines } = supervised();
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     clock.advance(30_000);
@@ -272,7 +311,9 @@ describe("the connector host's supervisor", () => {
     await step();
     expect(starts("rss")).toHaveLength(4);
     expect(api.keys).toHaveLength(3);
-    expect(supervisor.status().connectors[0]?.detail).toContain("refused its key twice");
+    expect(supervisor.status().connectors[0]?.detail).toContain(
+      "refused its key twice",
+    );
     // Marfa answering another key for it lets it start again on the key it
     // holds, and a refusal of that is answered by one more mint, as at first.
     api.connectors = [assigned("rss", "0.0.2", refused, { key_minted: true })];
@@ -284,9 +325,11 @@ describe("the connector host's supervisor", () => {
     await step();
     expect(starts("rss")).toHaveLength(6);
     expect(api.keys).toHaveLength(4);
-    expect(starts("rss").slice(4).map((one) => one.key)).toEqual(
-      [2, 3].map((at) => sha256(api.keys[at] ?? "")),
-    );
+    expect(
+      starts("rss")
+        .slice(4)
+        .map((one) => one.key),
+    ).toEqual([2, 3].map((at) => sha256(api.keys[at] ?? "")));
   });
 
   it("does not restart after exit 2 until Marfa holds another version", async () => {
@@ -300,7 +343,9 @@ describe("the connector host's supervisor", () => {
       await step();
     }
     expect(starts("rss")).toHaveLength(1);
-    api.connectors = [assigned("rss", "0.0.2", server.serve("rss-2", connectorCode()))];
+    api.connectors = [
+      assigned("rss", "0.0.2", server.serve("rss-2", connectorCode())),
+    ];
     clock.advance(minute);
     await step();
     await until(() => starts("rss").length === 2);
@@ -317,7 +362,9 @@ describe("the connector host's supervisor", () => {
     await step();
     expect(starts("rss")).toHaveLength(1);
     api.connectors = [
-      assigned("rss", "0.0.1", settings, { run_requested_at: "2026-11-23T09:10:00Z" }),
+      assigned("rss", "0.0.1", settings, {
+        run_requested_at: "2026-11-23T09:10:00Z",
+      }),
     ];
     clock.advance(minute);
     await step();
@@ -333,13 +380,23 @@ describe("the connector host's supervisor", () => {
 
   it("restarts after exit 1, and a crash loop waits longer each time", async () => {
     const { api, server, step, starts, clock, supervisor } = supervised();
-    api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode({ exit: 1 })))];
+    api.connectors = [
+      assigned(
+        "rss",
+        "0.0.1",
+        server.serve("rss-1", connectorCode({ exit: 1 })),
+      ),
+    ];
     await step();
     const waits: number[] = [];
     for (let crash = 1; crash <= 4; crash++) {
       await until(() => starts("rss").length === crash);
-      await until(() => supervisor.status().connectors[0]?.nextStart !== undefined);
-      const next = Date.parse(supervisor.status().connectors[0]?.nextStart ?? "");
+      await until(
+        () => supervisor.status().connectors[0]?.nextStart !== undefined,
+      );
+      const next = Date.parse(
+        supervisor.status().connectors[0]?.nextStart ?? "",
+      );
       waits.push(next - clock.at);
       clock.advance(next - clock.at - 1);
       await step();
@@ -375,7 +432,10 @@ describe("the connector host's supervisor", () => {
     const { api, server, step, starts, clock } = supervised();
     const failing = server.serve(
       "rss-1",
-      connectorCode({ exit: 1, error: "could not start: the definition names no types" }),
+      connectorCode({
+        exit: 1,
+        error: "could not start: the definition names no types",
+      }),
     );
     api.connectors = [assigned("rss", "0.0.1", failing)];
     await step();
@@ -399,7 +459,9 @@ describe("the connector host's supervisor", () => {
   it("reports nothing for a connector whose key registered", async () => {
     const { api, server, step, starts, clock } = supervised();
     const failing = server.serve("rss-1", connectorCode({ exit: 1 }));
-    api.connectors = [assigned("rss", "0.0.1", failing, { registration_id: "reg-1" })];
+    api.connectors = [
+      assigned("rss", "0.0.1", failing, { registration_id: "reg-1" }),
+    ];
     await step();
     await until(() => starts("rss").length === 1);
     clock.advance(minute);
@@ -416,7 +478,9 @@ describe("the connector host's supervisor", () => {
     clock.advance(minute);
     await step();
     expect(api.keys).toHaveLength(0);
-    expect(lines.filter((line) => line.includes("carries no code"))).toHaveLength(1);
+    expect(
+      lines.filter((line) => line.includes("carries no code")),
+    ).toHaveLength(1);
     expect(existsSync(home.pluginLog("rss"))).toBe(false);
   });
 });

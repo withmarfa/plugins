@@ -36,7 +36,7 @@ interface Feed {
   hang?: () => void;
 }
 
-async function serveFeeds(): Promise<{
+export async function serveFeeds(): Promise<{
   url: string;
   feeds: Record<string, Feed>;
   answers: number[];

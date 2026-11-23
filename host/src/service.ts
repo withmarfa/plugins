@@ -119,7 +119,12 @@ export function serviceFor(
   run: Exec = exec,
 ): Service | undefined {
   if (platform === "darwin") {
-    const file = join(userHome, "Library", "LaunchAgents", `${launchdLabel}.plist`);
+    const file = join(
+      userHome,
+      "Library",
+      "LaunchAgents",
+      `${launchdLabel}.plist`,
+    );
     const domain = `gui/${String(uid)}`;
     return {
       file,
@@ -151,7 +156,7 @@ export function serviceFor(
         run("systemctl", ["--user", "restart", systemdUnit]);
         return [
           "To keep the host running while you are logged out, run:",
-          "  loginctl enable-linger \"$USER\"",
+          '  loginctl enable-linger "$USER"',
         ];
       },
       remove() {

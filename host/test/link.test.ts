@@ -25,7 +25,10 @@ describe("a connector host link", () => {
     ["https://marfa.example.com/connect#", "with the code after the #"],
     ["https://marfa.example.com/other#code", "with the code after the #"],
     ["https://marfa.example.com/connect?x=1#code", "with the code after the #"],
-    ["https://user:pass@marfa.example.com/connect#code", "with the code after the #"],
+    [
+      "https://user:pass@marfa.example.com/connect#code",
+      "with the code after the #",
+    ],
     ["ftp://marfa.example.com/connect#code", "with the code after the #"],
     ["http://marfa.example.com/connect#code", "which is not https"],
     ["http://192.168.1.4/connect#code", "which is not https"],

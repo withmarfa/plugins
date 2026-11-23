@@ -19,6 +19,7 @@ import { proveInboundRetry } from "./inbound-retry.js";
 import { proveWatchCheckpoint, proveOutbound } from "./watch-checkpoint.js";
 import { proveCheckpoint } from "./checkpoint.js";
 import { proveControl } from "./control.js";
+import { proveConnectorHost } from "./connector-host.js";
 import { proveConnectionEvolution } from "./connection-evolution.js";
 import { proveGitHub, proveGitHubCoverage } from "./github.js";
 import { proveGitHubRelations } from "./github-relations.js";
@@ -77,6 +78,7 @@ const runners: Record<GroupName, (c: Context) => Promise<void>> = {
   plugins: (c) => provePlugins(c.url, c.mintKey),
   "google-sign-in": (c) => proveGoogleSignIn(c.url, c.armFault),
   control: (c) => proveControl(c.url),
+  "connector-host": (c) => proveConnectorHost(c.url, c.marfa, c.manager),
   "todoist-mapping": (c) => proveTodoistMapping(c.marfa, c.url, c.manager),
   "readwise-with-reader": (c) =>
     proveReadwiseWithReader(c.marfa, c.url, c.mintKey),

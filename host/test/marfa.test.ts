@@ -4,7 +4,12 @@ import { assigned, marfaAnswer } from "./helpers.js";
 
 /** A fetch that records each request and answers from `answers` in turn. */
 function recorder(...answers: Response[]) {
-  const sent: { method: string; url: string; auth: string | null; body: unknown }[] = [];
+  const sent: {
+    method: string;
+    url: string;
+    auth: string | null;
+    body: unknown;
+  }[] = [];
   const send: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
     const text = await request.text();
@@ -30,7 +35,9 @@ describe("the connector host's calls to Marfa", () => {
         key_id: "key-1",
       }),
     );
-    await expect(redeem("https://marfa.example.com", "the-code", send)).resolves.toEqual({
+    await expect(
+      redeem("https://marfa.example.com", "the-code", send),
+    ).resolves.toEqual({
       host: { id: "host-1", name: "Studio Mac" },
       key: "marfa_k1_host",
     });
@@ -45,7 +52,10 @@ describe("the connector host's calls to Marfa", () => {
   });
 
   it.each([
-    [404, "it was used already, it is more than 15 minutes old, or a newer link replaced it"],
+    [
+      404,
+      "it was used already, it is more than 15 minutes old, or a newer link replaced it",
+    ],
     [429, "too many tries from this address"],
     [400, "did not take the link's code"],
     [500, "answered 500 internal to the link"],
@@ -53,16 +63,21 @@ describe("the connector host's calls to Marfa", () => {
     const { send } = recorder(
       marfaAnswer(status, { code: status === 500 ? "internal" : "x" }),
     );
-    const refused = await redeem("https://marfa.example.com", "code", send).catch(
-      (error: unknown) => error,
-    );
+    const refused = await redeem(
+      "https://marfa.example.com",
+      "code",
+      send,
+    ).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(RedeemRefused);
     expect((refused as Error).message).toContain(said);
   });
 
   it("explains a redeem that reached no server", async () => {
-    const send: typeof fetch = () => Promise.reject(new TypeError("fetch failed"));
-    await expect(redeem("https://marfa.example.com", "code", send)).rejects.toThrow(
+    const send: typeof fetch = () =>
+      Promise.reject(new TypeError("fetch failed"));
+    await expect(
+      redeem("https://marfa.example.com", "code", send),
+    ).rejects.toThrow(
       "Could not reach Marfa at https://marfa.example.com: fetch failed",
     );
   });
@@ -81,7 +96,10 @@ describe("the connector host's calls to Marfa", () => {
     const api = hostApi("https://marfa.example.com", "marfa_k1_host", send);
     await expect(api.self()).resolves.toEqual({ kind: "ok", self });
     await expect(api.self()).resolves.toEqual({ kind: "unlinked" });
-    await expect(api.self()).resolves.toEqual({ kind: "failed", reason: "503 unavailable" });
+    await expect(api.self()).resolves.toEqual({
+      kind: "failed",
+      reason: "503 unavailable",
+    });
     expect(sent.map((one) => [one.method, one.url, one.auth])).toEqual(
       Array.from({ length: 3 }, () => [
         "GET",
@@ -102,7 +120,10 @@ describe("the connector host's calls to Marfa", () => {
       marfaAnswer(404, { code: "plugin_not_found" }),
     );
     const api = hostApi("https://marfa.example.com", "marfa_k1_host", send);
-    await expect(api.mint("rss")).resolves.toEqual({ kind: "ok", key: "marfa_k1_rss" });
+    await expect(api.mint("rss")).resolves.toEqual({
+      kind: "ok",
+      key: "marfa_k1_rss",
+    });
     await expect(api.mint("rss")).resolves.toEqual({ kind: "unassigned" });
     expect(sent[0]).toMatchObject({
       method: "POST",
@@ -122,7 +143,8 @@ describe("the connector host's calls to Marfa", () => {
       key: "marfa_k1_rss",
       readOnlyTypes: ["rss.entry"],
       at: new Date("2026-11-23T09:00:00Z"),
-      error: "The connector's process exited 1 (it failed) before it registered",
+      error:
+        "The connector's process exited 1 (it failed) before it registered",
     });
     expect(sent).toEqual([
       {
@@ -139,7 +161,8 @@ describe("the connector host's calls to Marfa", () => {
           outcome: "failed",
           started_at: "2026-11-23T09:00:00.000Z",
           finished_at: "2026-11-23T09:00:00.000Z",
-          error: "The connector's process exited 1 (it failed) before it registered",
+          error:
+            "The connector's process exited 1 (it failed) before it registered",
         },
       },
     ]);

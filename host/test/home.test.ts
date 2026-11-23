@@ -13,14 +13,18 @@ describe("where the connector host keeps its files", () => {
     expect(homeFolder({}, "linux", "/home/someone")).toBe(
       "/home/someone/.local/share/marfa/connector-host",
     );
-    expect(homeFolder({ XDG_DATA_HOME: "/data" }, "linux", "/home/someone")).toBe(
-      "/data/marfa/connector-host",
-    );
-    expect(homeFolder({ XDG_DATA_HOME: "relative" }, "linux", "/home/someone")).toBe(
-      "/home/someone/.local/share/marfa/connector-host",
-    );
     expect(
-      homeFolder({ MARFA_CONNECTOR_HOST_HOME: "/tmp/host" }, "darwin", "/Users/someone"),
+      homeFolder({ XDG_DATA_HOME: "/data" }, "linux", "/home/someone"),
+    ).toBe("/data/marfa/connector-host");
+    expect(
+      homeFolder({ XDG_DATA_HOME: "relative" }, "linux", "/home/someone"),
+    ).toBe("/home/someone/.local/share/marfa/connector-host");
+    expect(
+      homeFolder(
+        { MARFA_CONNECTOR_HOST_HOME: "/tmp/host" },
+        "darwin",
+        "/Users/someone",
+      ),
     ).toBe("/tmp/host");
   });
 
