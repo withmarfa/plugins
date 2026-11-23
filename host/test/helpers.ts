@@ -15,7 +15,7 @@ import type {
   SelfAnswer,
   StartFailure,
 } from "../src/marfa.js";
-import { Supervisor } from "../src/supervisor.js";
+import { pollMs, Supervisor } from "../src/supervisor.js";
 
 const folders: string[] = [];
 const cleanups: (() => Promise<void>)[] = [];
@@ -45,9 +45,12 @@ export function connectorCode(
   behavior: { exit: number; error?: string } | "serve" = "serve",
 ): string {
   const start = `import { createHash } from "node:crypto";
+process.on("SIGUSR2", () => console.log("WOKEN"));
+process.on("SIGTERM", () => { console.log("TERM"); process.exit(0); });
 const env = process.env;
 console.log("START " + JSON.stringify({
-  names: Object.keys(env).sort(),
+  // macOS adds this one to every process it starts.
+  names: Object.keys(env).filter((name) => name !== "__CF_USER_TEXT_ENCODING").sort(),
   env: Object.fromEntries(Object.entries(env).filter(([name]) => name !== "MARFA_API_KEY")),
   key: createHash("sha256").update(env.MARFA_API_KEY ?? "").digest("hex"),
   args: process.argv.slice(2),
@@ -55,9 +58,7 @@ console.log("START " + JSON.stringify({
 }));
 `;
   if (behavior === "serve")
-    return `${start}process.on("SIGUSR1", () => console.log("WOKEN"));
-process.on("SIGTERM", () => { console.log("TERM"); process.exit(0); });
-setInterval(() => {}, 60_000);
+    return `${start}setInterval(() => {}, 60_000);
 `;
   return `${start}console.error(${JSON.stringify(behavior.error ?? "it failed")});
 process.exit(${String(behavior.exit)});
@@ -204,13 +205,18 @@ export function supervised(env: NodeJS.ProcessEnv = { PATH: process.env["PATH"] 
     await supervisor.settled();
     return result;
   };
+  /** The clock moved to the next poll, then one step. */
+  const poll = async (): Promise<"running" | "unlinked"> => {
+    clock.advance(pollMs);
+    return step();
+  };
   /** What each start of `plugin` printed, in order. */
   const starts = (plugin: string): StartLine[] =>
     logOf(home, plugin)
       .split("\n")
       .filter((line) => line.startsWith("START "))
       .map((line) => JSON.parse(line.slice(6)) as StartLine);
-  return { home, api, server, clock, lines, supervisor, step, starts };
+  return { home, api, server, clock, lines, supervisor, step, poll, starts };
 }
 
 export interface StartLine {

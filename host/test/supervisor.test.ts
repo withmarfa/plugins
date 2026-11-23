@@ -1,4 +1,4 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   assigned,
@@ -42,12 +42,13 @@ describe("the connector host's supervisor", () => {
     api.connectors = [assigned("rss", "0.0.1", code)];
     await step();
     await until(() => starts("rss").length === 1);
-    const file = home.codeFile("rss", code.sha256);
+    const file = realpathSync(home.codeFile("rss", code.sha256));
     const [started] = starts("rss");
-    expect(started?.execArgv.slice(0, 3)).toEqual([
+    expect(started?.execArgv).toEqual([
       "--permission",
       `--allow-fs-read=${file}`,
       "--allow-net",
+      "--allow-worker",
     ]);
     expect(started?.args).toEqual(["--every", "15m"]);
   });
@@ -96,7 +97,7 @@ describe("the connector host's supervisor", () => {
   });
 
   it("keeps no code whose SHA-256 differs, and the running version stays", async () => {
-    const { api, server, step, starts, home, supervisor, lines } = supervised();
+    const { api, server, step, poll, starts, home, supervisor, lines } = supervised();
     const first = server.serve("rss-1", connectorCode());
     api.connectors = [assigned("rss", "0.0.1", first)];
     await step();
@@ -105,7 +106,7 @@ describe("the connector host's supervisor", () => {
     const second = server.serve("rss-2", `${connectorCode()}// two\n`);
     const wrong = { ...second, sha256: sha256("something else") };
     api.connectors = [assigned("rss", "0.0.2", wrong)];
-    await step();
+    await poll();
     expect(lines.join("\n")).toContain(
       `has SHA-256 ${second.sha256} where the plugin names ${wrong.sha256}, so it was not kept`,
     );
@@ -120,7 +121,7 @@ describe("the connector host's supervisor", () => {
   });
 
   it("does not start a paused connector, and stops a running one when it is paused", async () => {
-    const { api, server, step, starts, supervisor } = supervised();
+    const { api, server, step, poll, starts, supervisor } = supervised();
     const code = server.serve("rss-1", connectorCode());
     const news = server.serve("news-1", connectorCode());
     api.connectors = [
@@ -134,7 +135,7 @@ describe("the connector host's supervisor", () => {
       assigned("rss", "0.0.1", code, { paused: true }),
       assigned("news", "0.0.1", news, { paused: true }),
     ];
-    await step();
+    await poll();
     expect(supervisor.status().connectors.map((one) => one.state)).toEqual([
       "stopped",
       "stopped",
@@ -142,7 +143,7 @@ describe("the connector host's supervisor", () => {
     expect(supervisor.status().connectors[0]?.detail).toBe("paused by the owner");
   });
 
-  it("wakes a running connector with SIGUSR1 for a run request, and starts a waiting one at once", async () => {
+  it("wakes a running connector with SIGUSR2 for a run request, and starts a waiting one at once", async () => {
     const { api, server, step, starts, home, clock } = supervised();
     const code = server.serve("rss-1", connectorCode());
     const failing = server.serve("news-1", connectorCode({ exit: 1 }));
@@ -167,21 +168,20 @@ describe("the connector host's supervisor", () => {
   });
 
   it("stops a connector that leaves the host, and deletes its key and code", async () => {
-    const { api, server, step, starts, home, supervisor } = supervised();
+    const { api, server, step, poll, starts, home, supervisor } = supervised();
     api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
     await step();
     await until(() => starts("rss").length === 1);
     expect(existsSync(home.key("rss"))).toBe(true);
     api.connectors = [];
-    await supervisor.step();
-    await supervisor.settled();
+    await poll();
     await until(() => logOf(home, "rss").includes("TERM"));
     expect(existsSync(home.connector("rss"))).toBe(false);
     expect(supervisor.status().connectors).toEqual([]);
   });
 
   it("stops every connector and deletes their keys and code when Marfa refuses the host's key", async () => {
-    const { api, server, step, starts, home, lines } = supervised();
+    const { api, server, step, poll, starts, home, lines } = supervised();
     api.connectors = [
       assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
       assigned("news", "0.0.1", server.serve("news-1", connectorCode())),
@@ -189,7 +189,7 @@ describe("the connector host's supervisor", () => {
     await step();
     await until(() => starts("rss").length === 1 && starts("news").length === 1);
     api.answer = { kind: "unlinked" };
-    expect(await step()).toBe("unlinked");
+    expect(await poll()).toBe("unlinked");
     expect(logOf(home, "rss")).toContain("TERM");
     expect(logOf(home, "news")).toContain("TERM");
     expect(existsSync(home.connectors)).toBe(false);
@@ -197,28 +197,35 @@ describe("the connector host's supervisor", () => {
   });
 
   it("keeps the connectors running when Marfa cannot be reached, asking again after growing waits", async () => {
-    const { api, server, step, starts, supervisor, clock } = supervised();
+    const { api, server, step, poll, starts, supervisor, clock } = supervised();
     api.connectors = [assigned("rss", "0.0.1", server.serve("rss-1", connectorCode()))];
     await step();
     await until(() => starts("rss").length === 1);
     const pid = supervisor.status().connectors[0]?.pid;
     api.answer = { kind: "failed", reason: "connect ECONNREFUSED" };
-    const polledAfter: number[] = [];
-    for (let at = 0; at < 4; at++) {
-      clock.advance(minute);
+    await poll();
+    const polledAt: number[] = [clock.at];
+    for (let second = 0; second < 20 * 60; second++) {
+      clock.advance(1000);
       const before = api.polls;
       await step();
-      let waited = 0;
-      while (api.polls === before + 1 && waited < 10 * minute) {
-        clock.advance(1000);
-        waited += 1000;
-        await step();
-      }
-      polledAfter.push(waited);
+      if (api.polls > before) polledAt.push(clock.at);
     }
-    expect(polledAfter).toEqual([10_000, 20_000, 40_000, 60_000].map((ms) => ms + 1000));
+    const waits = polledAt.slice(1).map((at, index) => at - (polledAt[index] ?? 0));
+    expect(waits.slice(0, 7)).toEqual(
+      [10, 20, 40, 80, 160, 300, 300].map((seconds) => seconds * 1000),
+    );
     expect(supervisor.status().connectors[0]).toMatchObject({ state: "running", pid });
     expect(supervisor.status().pollError).toBe("connect ECONNREFUSED");
+    // Marfa answering again puts the poll back on its minute.
+    api.answer = undefined;
+    clock.advance(5 * minute);
+    await step();
+    const back = api.polls;
+    clock.advance(minute);
+    await step();
+    expect(api.polls).toBe(back + 1);
+    expect(supervisor.status().pollError).toBeUndefined();
   });
 
   it("asks Marfa at once and wakes every connector when the clock jumps, as after sleep", async () => {
@@ -253,10 +260,11 @@ describe("the connector host's supervisor", () => {
     api.connectors = [assigned("rss", "0.0.2", refused)];
     clock.advance(minute);
     await step();
-    await until(() => starts("rss").length === 3);
-    expect(api.keys).toHaveLength(2);
     await until(() => starts("rss").length === 4);
     expect(api.keys).toHaveLength(3);
+    expect(starts("rss").map((one) => one.key)).toEqual(
+      [0, 0, 1, 2].map((at) => sha256(api.keys[at] ?? "")),
+    );
     // A second exit 3 on the key just minted for one holds it.
     await until(() => supervisor.status().connectors[0]?.state === "stopped");
     await step();
@@ -265,12 +273,20 @@ describe("the connector host's supervisor", () => {
     expect(starts("rss")).toHaveLength(4);
     expect(api.keys).toHaveLength(3);
     expect(supervisor.status().connectors[0]?.detail).toContain("refused its key twice");
-    // Marfa answering another key for it lets it start once more.
+    // Marfa answering another key for it lets it start again on the key it
+    // holds, and a refusal of that is answered by one more mint, as at first.
     api.connectors = [assigned("rss", "0.0.2", refused, { key_minted: true })];
     clock.advance(minute);
     await step();
-    await until(() => starts("rss").length === 5);
-    expect(api.keys).toHaveLength(3);
+    await until(() => starts("rss").length === 6);
+    await until(() => supervisor.status().connectors[0]?.state === "stopped");
+    clock.advance(60 * minute);
+    await step();
+    expect(starts("rss")).toHaveLength(6);
+    expect(api.keys).toHaveLength(4);
+    expect(starts("rss").slice(4).map((one) => one.key)).toEqual(
+      [2, 3].map((at) => sha256(api.keys[at] ?? "")),
+    );
   });
 
   it("does not restart after exit 2 until Marfa holds another version", async () => {
@@ -335,15 +351,14 @@ describe("the connector host's supervisor", () => {
   });
 
   it("swaps the code and mints once for a new version, deleting the old code", async () => {
-    const { api, server, step, starts, home, supervisor } = supervised();
+    const { api, server, step, poll, starts, home, supervisor } = supervised();
     const first = server.serve("rss-1", connectorCode());
     api.connectors = [assigned("rss", "0.0.1", first)];
     await step();
     await until(() => starts("rss").length === 1);
     const second = server.serve("rss-2", `${connectorCode()}// two\n`);
     api.connectors = [assigned("rss", "0.0.2", second)];
-    await supervisor.step();
-    await supervisor.settled();
+    await poll();
     await until(() => starts("rss").length === 2);
     expect(logOf(home, "rss")).toContain("TERM");
     expect(api.keys).toHaveLength(2);

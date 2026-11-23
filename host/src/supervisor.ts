@@ -1,6 +1,12 @@
 import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { childEnvironment, type Child, type Exit, type Spawn } from "./child.js";
+import {
+  childEnvironment,
+  wakeSignal,
+  type Child,
+  type Exit,
+  type Spawn,
+} from "./child.js";
 import { CodeRefused, type CodeStore } from "./code.js";
 import { readIfThere, writeSecret, writeWhole } from "./files.js";
 import { safePluginName, type Home } from "./home.js";
@@ -201,7 +207,7 @@ export class Supervisor {
       );
       for (const slot of this.slots.values())
         if (slot.running !== undefined && !slot.running.stopping)
-          slot.running.child.signal("SIGUSR1");
+          slot.running.child.signal(wakeSignal);
       this.nextPollAt = now;
     }
     this.lastStep = now;
@@ -403,7 +409,7 @@ export class Supervisor {
       if (running.stopping) return;
       if (running.sha256 === code.sha256 && running.version === entry.version) {
         if (asked) {
-          running.child.signal("SIGUSR1");
+          running.child.signal(wakeSignal);
           this.log(`${plugin}: the owner asked for a run, so it was woken`);
         }
         return;

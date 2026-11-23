@@ -11,11 +11,19 @@ export function childArguments(file: string): string[] {
     "--permission",
     `--allow-fs-read=${file}`,
     "--allow-net",
+    // The RSS connector parses a feed in a worker with a capped heap.
+    "--allow-worker",
     file,
     "--every",
     "15m",
   ];
 }
+
+/**
+ * The signal that wakes a connector for a run now. Not `SIGUSR1`: under the
+ * permission model Node creates no listener for it, so it never arrives.
+ */
+export const wakeSignal = "SIGUSR2";
 
 const passed = ["PATH", "HOME", "TZ", "LANG"];
 

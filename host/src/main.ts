@@ -104,7 +104,7 @@ async function main(args: string[]): Promise<number> {
           : {
               service,
               program: {
-                args: [process.execPath, script],
+                args: [process.execPath, "--disable-sigusr1", script],
                 home: chosen === undefined || chosen === "" ? undefined : home.root,
               },
             },
@@ -113,6 +113,9 @@ async function main(args: string[]): Promise<number> {
     }
     case "run": {
       if (!known([], 0)) return 2;
+      // Any process of this user, a connector included, can open a Node
+      // process's inspector with SIGUSR1; a listener of its own stops that.
+      process.on("SIGUSR1", () => undefined);
       const stopped = new Promise<void>((done) => {
         process.once("SIGTERM", () => done());
         process.once("SIGINT", () => done());
