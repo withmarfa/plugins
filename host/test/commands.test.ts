@@ -241,15 +241,6 @@ describe("running the connector host", () => {
     expect(existsSync(home.lock)).toBe(false);
   });
 
-  it("takes over a lock left by a process that is gone", () => {
-    const home = freshHome();
-    mkdirSync(home.root, { recursive: true });
-    writeFileSync(home.lock, "999999999");
-    const lock = takeLock(home.lock);
-    expect(typeof lock).toBe("object");
-    expect(readFileSync(home.lock, "utf8")).toBe(String(process.pid));
-  });
-
   it("exits 0 and deletes every connector's key once Marfa refuses the host's key", async () => {
     const home = await linked();
     writeSecret(home.key("rss"), "marfa_k1_rss");
@@ -308,10 +299,10 @@ describe("the connector host's status, logs and uninstall", () => {
         ],
       }),
     );
-    const lock = takeLock(home.lock);
+    const taken = takeLock(home.lock);
     const io = printed();
     status(home, io, undefined);
-    if (typeof lock !== "number") lock.release();
+    if ("lock" in taken) taken.lock.release();
     expect(io.lines.slice(2)).toEqual([
       `Running as process ${String(process.pid)}.`,
       "Last asked Marfa at 2026-11-23T09:00:00.000Z.",

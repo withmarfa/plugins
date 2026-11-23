@@ -107,11 +107,12 @@ export async function run(options: RunOptions): Promise<number> {
     throw new Refused(
       `This host is not linked yet. Run: marfa-connector-host install '<link>'`,
     );
-  const lock = takeLock(home.lock);
-  if (typeof lock === "number")
+  const taken = takeLock(home.lock);
+  if (!("lock" in taken))
     throw new Refused(
-      `Another marfa-connector-host run, process ${String(lock)}, already uses ${home.root}.`,
+      `Another marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} already uses ${home.root}.`,
     );
+  const { lock } = taken;
   const log = hostLog(new CappedLog(home.hostLog), options.echo);
   const logs = new Map<string, CappedLog>();
   const supervisor = new Supervisor({
