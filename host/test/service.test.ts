@@ -183,6 +183,61 @@ WantedBy=default.target
     );
   });
 
+  it("starts a stopped service again from its file, naming the command when it cannot", () => {
+    const home = scratch();
+    const ran: string[] = [];
+    const failing = { darwin: 1, linux: 0 };
+    const exec =
+      (platform: "darwin" | "linux") =>
+      (file: string, args: string[]): string => {
+        ran.push(`${file} ${args.join(" ")}`);
+        if (failing[platform]-- > 0) throw new Error("failed");
+        return "";
+      };
+    serviceFor(
+      "darwin",
+      {},
+      home,
+      501,
+      exec("darwin"),
+      () => undefined,
+    )?.start();
+    const file = join(
+      home,
+      "Library",
+      "LaunchAgents",
+      "so.marfa.connector-host.plist",
+    );
+    expect(ran).toEqual([
+      `launchctl bootstrap gui/501 ${file}`,
+      `launchctl bootstrap gui/501 ${file}`,
+    ]);
+    ran.length = 0;
+    serviceFor("linux", {}, home, 1000, exec("linux"))?.start();
+    expect(ran).toEqual([
+      "systemctl --user start marfa-connector-host.service",
+    ]);
+    failing.linux = 1;
+    expect(() =>
+      serviceFor("linux", {}, home, 1000, exec("linux"))?.start(),
+    ).toThrow(
+      "systemd did not start the service again. Run: systemctl --user start marfa-connector-host.service",
+    );
+    failing.darwin = 5;
+    expect(() =>
+      serviceFor(
+        "darwin",
+        {},
+        home,
+        501,
+        exec("darwin"),
+        () => undefined,
+      )?.start(),
+    ).toThrow(
+      `launchd did not load the service again. Run: launchctl bootstrap gui/501 '${file}'`,
+    );
+  });
+
   it("names the process the service runs, or none", () => {
     const home = scratch();
     const answers: Record<string, string> = {

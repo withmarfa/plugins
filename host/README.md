@@ -32,7 +32,10 @@ Installing again with a new link replaces the host's identity and deletes
 every connector's key and code. `"updates": false` in `host.json` is kept.
 While a `run` the service doesn't own uses the host's folder, `install`
 and `uninstall` refuse with "Stop the running host first"; the service's own
-`run` they stop themselves.
+`run` they stop themselves. Either one waits for that `run` to stop before it
+uses the link or removes anything. If it doesn't stop within 75 seconds,
+nothing changes: the link stays unused, `install` starts the service again,
+and the message says what to run once the `run` has stopped.
 
 ## Updates
 
@@ -72,8 +75,8 @@ on macOS, `$XDG_DATA_HOME/marfa/connector-host/` (by default
 - `host.json`: the Marfa address, the host's name and ID, and `"updates": false`
   when the daily check is off.
 - `host.key`: the host's own key, mode 600.
-- `run.lock`: the process ID of the `run` that uses the folder, so only one
-  does.
+- `run.lock`: the process ID of the `run` that uses the folder and the boot
+  it started in, so only one does.
 - `status.json`: what `status` prints, mode 600, present only while `run` is
   going.
 - `connectors/<plugin>/key`: each connector's key, mode 600.
@@ -104,7 +107,7 @@ Each connector runs in a process of its own under Node's permission model: it
 can read only its own code file and reach the network. It can't write files,
 start child processes or workers, or load native add-ons. It gets only
 `MARFA_API_URL`, `MARFA_API_KEY`, `PATH`, `HOME`, the locale and time zone,
-and the `OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
+and the `OTEL_*` and `MARFA_OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
 
 Node doesn't treat its permission model as a security boundary against code
 written to escape it. For example, it doesn't stop a connector from sending

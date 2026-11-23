@@ -44,11 +44,12 @@ export class TooManyAttributes extends Error {
 /**
  * A cheap refusal before the parse: counts each `<` that opens an element or a
  * `<!` declaration, and as entries those whose local name is `item` or
- * `entry` in any case, and as attributes each run of space in a tag that is
- * followed by something other than its end, quoted or not, with a value or
- * without, so a name beside `=` counts once more than it is: the count only
- * has to be no lower than what the parser builds. Comments, CDATA, the
- * doctype, processing instructions and end tags are passed over.
+ * `entry` in any case, and as the attributes of a tag the more of its quoted
+ * values and its runs of space followed by something other than its end, so
+ * that a name with no value, one with no quotes and values with no space
+ * between them each count: the count only has to be no lower than what the
+ * parser builds. Comments, CDATA, the doctype, processing instructions and
+ * end tags are passed over.
  */
 function countTags(text: string): void {
   const name = /[^\s/>]*/y;
@@ -57,13 +58,20 @@ function countTags(text: string): void {
   let elements = 0;
   let entries = 0;
   let attributes = 0;
+  let spaced = 0;
+  let quoted = 0;
+  const over = (): void => {
+    if (attributes + Math.max(spaced, quoted) > maxFeedAttributes) {
+      throw new TooManyAttributes();
+    }
+  };
   const counted = (from: number, to: number): void => {
     if (to <= from) return;
     const tag = text.slice(from, to);
     attribute.lastIndex = 0;
     while (attribute.exec(tag) !== null) {
-      attributes += 1;
-      if (attributes > maxFeedAttributes) throw new TooManyAttributes();
+      spaced += 1;
+      over();
     }
   };
   for (let at = text.indexOf("<"); at !== -1; at = text.indexOf("<", at)) {
@@ -93,17 +101,22 @@ function countTags(text: string): void {
       if (entries > maxFeedEntries) throw new TooManyEntries();
     }
     tagEnd.lastIndex = name.lastIndex;
+    spaced = 0;
+    quoted = 0;
     let from = name.lastIndex;
     for (;;) {
       const mark = tagEnd.exec(text);
       if (mark === null) return;
       counted(from, mark.index);
       if (mark[0] === ">") {
+        attributes += Math.max(spaced, quoted);
         at = mark.index + 1;
         break;
       }
       const close = text.indexOf(mark[0], mark.index + 1);
       if (close === -1) return;
+      quoted += 1;
+      over();
       tagEnd.lastIndex = close + 1;
       from = close + 1;
     }

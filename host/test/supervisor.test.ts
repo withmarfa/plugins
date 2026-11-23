@@ -63,6 +63,7 @@ describe("the connector host's supervisor", () => {
       LANG: "en_GB.UTF-8",
       LC_TIME: "en_GB.UTF-8",
       OTEL_SERVICE_NAME: "not-sent",
+      MARFA_OTEL_SAMPLE_RATIO: "0.1",
       SECRET_OF_THE_HOST: "kept",
       NODE_OPTIONS: "--inspect",
     };
@@ -93,6 +94,7 @@ describe("the connector host's supervisor", () => {
       PATH: process.env["PATH"],
       OTEL_EXPORTER_OTLP_ENDPOINT: "https://collector.example.com",
       OTEL_SERVICE_NAME: "a-connector",
+      MARFA_OTEL_SAMPLE_RATIO: "0.1",
     });
     api.connectors = [
       assigned("rss", "0.0.1", server.serve("rss-1", connectorCode())),
@@ -103,6 +105,7 @@ describe("the connector host's supervisor", () => {
       [
         "MARFA_API_KEY",
         "MARFA_API_URL",
+        "MARFA_OTEL_SAMPLE_RATIO",
         "OTEL_EXPORTER_OTLP_ENDPOINT",
         "OTEL_SERVICE_NAME",
         "PATH",
@@ -572,8 +575,43 @@ describe("the connector host's supervisor", () => {
     await until(() => logOf(home, "rss").includes("WOKEN"));
   });
 
-  it("does not signal a connector in its first moments, and still acts on the run asked for then", async () => {
-    const { api, server, step, starts, home, clock, supervisor } = supervised();
+  it("does not signal a connector in its first moments, and wakes it for a run asked for then once it has settled", async () => {
+    const { api, server, step, starts, home, clock, lines } = supervised();
+    const code = server.serve("rss-1", connectorCode("slow-to-listen"));
+    api.connectors = [assigned("rss", "0.0.1", code)];
+    await step();
+    await until(() => starts("rss").length === 1);
+    await until(() => logOf(home, "rss").includes("LISTENING"));
+    api.connectors = [
+      assigned("rss", "0.0.1", code, {
+        run_requested_at: "2026-11-23T09:00:01Z",
+      }),
+    ];
+    const woken = (): number =>
+      lines.filter((line) => line.endsWith("so it was woken")).length;
+    // One second after the start, a sleep moves the wall clock ten minutes
+    // and the monotonic clock not at all, which forces a poll.
+    clock.advance(1000);
+    clock.set(10 * minute);
+    await step();
+    expect(woken()).toBe(0);
+    clock.advance(3000);
+    await step();
+    expect(woken()).toBe(0);
+    // Five seconds after the start on the monotonic clock, it is signalled.
+    clock.advance(1000);
+    await step();
+    expect(woken()).toBe(1);
+    await until(() => logOf(home, "rss").includes("WOKEN"));
+    // The request is acted on once.
+    clock.advance(minute);
+    await step();
+    expect(woken()).toBe(1);
+  });
+
+  it("starts the next process at once for a run asked for in its first moments, when the connector exits first", async () => {
+    const { api, server, step, starts, clock, lines, supervisor } =
+      supervised();
     const code = server.serve("rss-1", connectorCode("slow-to-listen"));
     api.connectors = [assigned("rss", "0.0.1", code)];
     await step();
@@ -584,30 +622,17 @@ describe("the connector host's supervisor", () => {
         run_requested_at: "2026-11-23T09:00:01Z",
       }),
     ];
-    // A poll forced by a jump of the wall clock, one second after the start.
     clock.advance(1000);
     clock.set(10 * minute);
     await step();
-    await until(() => logOf(home, "rss").includes("LISTENING"));
-    expect(supervisor.status().connectors[0]).toMatchObject({
-      state: "running",
-      pid,
-    });
-    expect(logOf(home, "rss")).not.toContain("WOKEN");
-    // The request was acted on: the connector reads it as its first run
-    // starts, so it is not signalled again for it.
-    clock.advance(minute);
-    await step();
-    expect(logOf(home, "rss")).not.toContain("WOKEN");
-    // The witness: a request once it has settled wakes it.
-    api.connectors = [
-      assigned("rss", "0.0.1", code, {
-        run_requested_at: "2026-11-23T09:02:00Z",
-      }),
-    ];
-    clock.advance(minute);
-    await step();
-    await until(() => logOf(home, "rss").includes("WOKEN"));
+    if (pid === undefined) throw new Error("no process");
+    process.kill(pid, "SIGKILL");
+    // The clock does not move: well inside the wait after a crash, which the
+    // request cuts short.
+    await until(() => starts("rss").length === 2);
+    expect(lines.join("\n")).toContain(
+      "the owner asked for a run, so it starts now",
+    );
   });
 
   it("reports only the types it brings in as read only for a connector that failed before it registered", async () => {

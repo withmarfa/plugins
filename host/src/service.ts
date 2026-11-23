@@ -160,6 +160,8 @@ export interface Service {
   install(program: Program): string[];
   /** Stops the service, keeping its file. */
   stop(): void;
+  /** Starts the service again from its file, after `stop`. */
+  start(): void;
   /** Stops the service and removes its file. */
   remove(): void;
   /** The process the service runs now, if it runs one. */
@@ -188,22 +190,29 @@ export function serviceFor(
     );
     const domain = `gui/${String(uid)}`;
     const target = `${domain}/${launchdLabel}`;
+    const load = (refusal: string): void => {
+      for (let attempt = 1; ; attempt++) {
+        if (tried(run, "launchctl", ["bootstrap", domain, file])) return;
+        if (attempt === bootstrapTries)
+          throw new ServiceRefused(
+            `${refusal} Run: launchctl bootstrap ${domain} ${shellQuoted(file)}`,
+          );
+        wait(bootstrapWaitMs);
+      }
+    };
     return {
       file,
       install(program) {
         writeWhole(file, launchAgent(program));
         tried(run, "launchctl", ["bootout", target]);
-        for (let attempt = 1; ; attempt++) {
-          if (tried(run, "launchctl", ["bootstrap", domain, file])) return [];
-          if (attempt === bootstrapTries)
-            throw new ServiceRefused(
-              `The service is written but launchd did not load it. Run: launchctl bootstrap ${domain} ${shellQuoted(file)}`,
-            );
-          wait(bootstrapWaitMs);
-        }
+        load("The service is written but launchd did not load it.");
+        return [];
       },
       stop() {
         tried(run, "launchctl", ["bootout", target]);
+      },
+      start() {
+        load("launchd did not load the service again.");
       },
       remove() {
         tried(run, "launchctl", ["bootout", target]);
@@ -238,6 +247,12 @@ export function serviceFor(
       },
       stop() {
         tried(run, "systemctl", ["--user", "stop", systemdUnit]);
+      },
+      start() {
+        if (!tried(run, "systemctl", ["--user", "start", systemdUnit]))
+          throw new ServiceRefused(
+            `systemd did not start the service again. Run: systemctl --user start ${systemdUnit}`,
+          );
       },
       remove() {
         tried(run, "systemctl", ["--user", "disable", "--now", systemdUnit]);
