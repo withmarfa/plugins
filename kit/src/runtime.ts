@@ -15,6 +15,8 @@ export interface Runtime {
   /** A number from 0 up to, not including, 1. */
   readonly random: () => number;
   onStop(listener: () => void): void;
+  /** Calls `listener` each time the host asks the connector to run now. */
+  onWake(listener: () => void): void;
 }
 
 /** The longest delay a timer holds; a longer one fires at once. */
@@ -70,6 +72,14 @@ export function nodeRuntime(): Runtime {
       };
       process.once("SIGTERM", once);
       process.once("SIGINT", once);
+    },
+    onWake: (listener) => {
+      // A platform without the signal has no host that sends it.
+      try {
+        process.on("SIGUSR1", listener);
+      } catch {
+        return;
+      }
     },
   };
 }

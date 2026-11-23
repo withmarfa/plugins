@@ -867,6 +867,41 @@ export interface PreviewKind {
   readonly fields: readonly string[];
 }
 
+/** How a kind's fields land on a target type, under the kind's entry of a
+ *  mapping, as a preview and a write both read it. */
+export function fieldMapOf(input: {
+  readonly kind: PreviewKind;
+  readonly mapping: KindMapping;
+  readonly own: ResolvedType;
+  readonly target: ResolvedType;
+}): FieldMap {
+  const { kind, mapping, own, target } = input;
+  const targetType = mapping.target_type ?? own.id;
+  const link = kind.type.link_field;
+  const heldLink =
+    targetType !== own.id && link !== undefined && target.link !== link
+      ? link
+      : undefined;
+  const fields =
+    mapping.fields ??
+    Object.fromEntries(
+      kind.fields
+        .filter((field) => target.fields.has(field))
+        .map((field) => [field, { from: field }]),
+    );
+  return new FieldMap({
+    label: kind.name ?? own.id,
+    own: own.id,
+    target: targetType,
+    kindFields: kind.fields,
+    fields,
+    overrides: mapping.status_overrides ?? {},
+    ownStatus: own.status,
+    targetStatus: target.status,
+    heldLink,
+  });
+}
+
 /**
  * What the kit would write for one entry of a kind, or one of the kind's
  * stored items, under the kind's entry of a mapping: the item as it would
@@ -885,31 +920,9 @@ export async function previewOf(input: {
   readonly target: ResolvedType;
   readonly from: { readonly entry: Entry } | { readonly item: Item };
 }): Promise<{ result: PreviewResult; conditions: FieldFaults }> {
-  const { kind, mapping, own, target } = input;
+  const { mapping, own, target } = input;
   const targetType = mapping.target_type ?? own.id;
-  const link = kind.type.link_field;
-  const heldLink =
-    targetType !== own.id && link !== undefined && target.link !== link
-      ? link
-      : undefined;
-  const fields =
-    mapping.fields ??
-    Object.fromEntries(
-      kind.fields
-        .filter((field) => target.fields.has(field))
-        .map((field) => [field, { from: field }]),
-    );
-  const map = new FieldMap({
-    label: kind.name ?? own.id,
-    own: own.id,
-    target: targetType,
-    kindFields: kind.fields,
-    fields,
-    overrides: mapping.status_overrides ?? {},
-    ownStatus: own.status,
-    targetStatus: target.status,
-    heldLink,
-  });
+  const map = fieldMapOf(input);
   let properties: Record<string, unknown>;
   let conditions: FieldFaults;
   let sourceItem: string | null = null;

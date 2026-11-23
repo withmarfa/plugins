@@ -469,6 +469,7 @@ export class Harness {
   requestTimeoutMs = 5000;
   random = (): number => 0;
   private stopListener: (() => void) | undefined;
+  private wakeListener: (() => void) | undefined;
 
   constructor(readonly server: ScriptedServer) {
     server.settings = { test_token: secretToken };
@@ -523,11 +524,19 @@ export class Harness {
       onStop: (listener) => {
         this.stopListener = listener;
       },
+      onWake: (listener) => {
+        this.wakeListener = listener;
+      },
     };
   }
 
   stop(): void {
     this.stopListener?.();
+  }
+
+  /** The host's `SIGUSR1`: a run now. */
+  wake(): void {
+    this.wakeListener?.();
   }
 
   once(

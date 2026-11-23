@@ -426,6 +426,15 @@ A run cut short by SIGTERM or SIGINT is not reported, since a run's outcome is o
 - **A registration the server no longer holds,** which any door can say (the settings door included, once it has answered for the registration), is made again. So is the check of the connector's types after one of them is deleted from the instance while it runs, which stops the process with exit code 1 naming the type unless the plugin has been installed again. A connector running without fields the installed type lacks checks its types again before each scheduled run, and a second loss within five minutes stops it with exit code 1.
 - **A connector that receives webhooks or carries changes back** also looks between runs, every ten seconds unless `--look-every` says otherwise, as in `--every 15m --look-every 30s`.
 
+### Pause, run now and previews
+
+At the start of every run the connector reads what the owner chose for it, once, from `GET /plugins/{name}/connector`.
+
+- **Paused:** the host does not start a paused connector and stops a running one. The kit skips the run as a second guard, reports nothing as failed and logs one line. Under `--once` it exits 0 saying so.
+- **Run now:** the host wakes a sleeping connector with `SIGUSR1`. The run starts at once, as on its schedule, and a signal that arrives during a run makes one more run follow, never two. A run that read a run request reports it as `run_requested_at`, which clears it; a run that read none names none.
+- **Previews:** the connector answers each pending mapping preview with the item as the mapping would write it, from the item the preview names or from a recent entry it reads from its vendor, and writes nothing to Marfa or the vendor for it. A preview it cannot render, because the item is gone, a template fails, the vendor is down or the result is over 65,536 bytes, is answered with an error. A paused connector answers no preview.
+- **A door that does not answer** lets the run go ahead as scheduled, with one warning. A key that is no plugin connector's skips the read.
+
 ### Hold
 
 One process runs a connector at a time. Each run is made under a hold on the connector's registration, renewed a third of the instance's window apart, beside the heartbeat, and let go when the process ends.
