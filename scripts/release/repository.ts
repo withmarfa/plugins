@@ -1,7 +1,9 @@
 /**
- * The repository a release is published to. One place, so a connector's code
- * address, the install script and the host's update all name it the same way.
- * `GH_REPO` overrides it where `gh` has no checkout, and must be `owner/name`.
+ * The repository a release is published to. A connector's code address and
+ * the install script are written from it, and the build writes it into the
+ * host's bundle, which updates from it, so a fork's release updates from the
+ * fork. `GH_REPO` overrides it where `gh` has no checkout, and must be
+ * `owner/name`.
  */
 const ownerAndName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 

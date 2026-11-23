@@ -79,8 +79,11 @@ export async function nodeFor(
   return { node: fetched.node, license: fetched.license };
 }
 
-/** The host as one ECMAScript module, with its dependencies inside. */
-export async function bundleHost(file: string): Promise<void> {
+/**
+ * The host as one ECMAScript module, with its dependencies inside, and the
+ * repository it updates from written in.
+ */
+export async function bundleHost(file: string, repo: string): Promise<void> {
   const pin = await readPin();
   await mkdir(dirname(file), { recursive: true });
   await build({
@@ -92,6 +95,7 @@ export async function bundleHost(file: string): Promise<void> {
     outfile: file,
     logLevel: "silent",
     legalComments: "none",
+    define: { MARFA_PLUGINS_REPOSITORY: JSON.stringify(repo) },
     plugins: [
       {
         name: "resolve-typescript",
@@ -142,7 +146,7 @@ export async function renderInstallHost(
 /** What a test hands `build` instead of fetching Node and bundling the host. */
 export interface ReleaseParts {
   node?: (platform: Platform) => Promise<{ node: string; license: string }>;
-  bundleHost?: (file: string) => Promise<void>;
+  bundleHost?: (file: string, repo: string) => Promise<void>;
 }
 
 /**
@@ -157,7 +161,7 @@ export async function writeHostRelease(
   const scratch = await mkdtemp(join(tmpdir(), "host-bundle-"));
   try {
     const bundled = join(scratch, "host.mjs");
-    await (parts.bundleHost ?? bundleHost)(bundled);
+    await (parts.bundleHost ?? bundleHost)(bundled, repo);
     const hostBytes = await readFile(bundled);
     const license = await readFile(join(root, "LICENSE"));
     const wrapper = Buffer.from(wrapperScript);

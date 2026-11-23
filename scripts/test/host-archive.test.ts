@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   hostPlatforms,
   hostArchiveName as hostNamesIt,
-  pluginsRepository,
 } from "../../host/src/update.js";
 import { bundleName } from "../bundle-files.js";
 import {
@@ -145,8 +144,7 @@ describe("a connector's code in the release", () => {
 });
 
 describe("the host archives", () => {
-  it("uses the same repository and archive names the host updates from", () => {
-    expect(pluginsRepository).toBe(defaultRepository);
+  it("uses the same archive names the host updates from", () => {
     expect([...hostPlatforms]).toEqual([...platforms]);
     expect(hostNamesIt("1.2.3", "linux-x64")).toBe(
       hostArchiveName("1.2.3", "linux-x64"),
@@ -221,9 +219,18 @@ describe("bundling the host", () => {
   it("writes one module", async () => {
     const file = join(await emptyTree(), "host.mjs");
     made.push(join(file, ".."));
-    await bundleHost(file);
+    await bundleHost(file, defaultRepository);
     const text = await readFile(file, "utf8");
     expect(text.length).toBeGreaterThan(100);
     expect(text).not.toMatch(/\/Users\/[A-Za-z0-9._-]+/);
+  });
+
+  it("updates from the repository the release names, so a fork's build updates from the fork", async () => {
+    const file = join(await emptyTree(), "host.mjs");
+    made.push(join(file, ".."));
+    await bundleHost(file, "example/plugins");
+    const text = await readFile(file, "utf8");
+    expect(text).toContain('"example/plugins"');
+    expect(text).not.toContain(defaultRepository);
   });
 });
