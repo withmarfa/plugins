@@ -24,10 +24,20 @@ import {
   refusals,
 } from "../bundle-connectors.js";
 import { bundlesIn, helpOf } from "../check-bundles.js";
-import { readPin, type Pin } from "../node-pin.js";
+import { majorOf, readPin, type Pin } from "../node-pin.js";
 import { bundleName, permissionFlags } from "../permission-flags.js";
 
 const run = promisify(execFile);
+
+/**
+ * The permission flags a bundle runs under, `--allow-net` among them, exist
+ * from Node 25, so a test that starts a bundle under them runs on the Node the
+ * host carries, which the `Tests` job also runs on, and not on Node 22.
+ */
+const onPinnedNode =
+  Number(process.versions.node.split(".")[0]) >=
+  majorOf((await readPin()).version);
+
 const root = resolve(import.meta.dirname, "..", "..");
 const made: string[] = [];
 
@@ -129,34 +139,43 @@ describe("which folders are connectors", () => {
 });
 
 describe("a bundle", () => {
-  it("is one file named for the plugin and the version, and runs from an empty folder under the permission flags", async () => {
-    const { file, text } = await bundled({
-      "connectors/c/dist/main.js": 'console.log("hello from the bundle");',
-    });
-    expect(file.endsWith(bundleName("c", "1.2.3"))).toBe(true);
-    expect(await started(file)).toBe("hello from the bundle\n");
-    // The witness for the flags: they deny a read of any other file.
-    const folder = await scratch();
-    const reader = join(folder, "reader.mjs");
-    const secret = join(folder, "secret.txt");
-    await writeFile(secret, "secret");
-    await writeFile(
-      reader,
-      'import { readFileSync } from "node:fs"; readFileSync(process.argv[2]);',
-    );
-    await expect(
-      run(process.execPath, [...permissionFlags(file), reader, secret], {
-        env: {},
-      }),
-    ).rejects.toThrow(/ERR_ACCESS_DENIED/);
-    // The same read is allowed for the file the flags name.
-    await run(process.execPath, [...permissionFlags(secret), reader, secret], {
-      env: {},
-    });
-    expect(importsOf(text)).toEqual([]);
-    // The witness: an import of a package is found as one.
-    expect(importsOf('import x from "left-pad";\nx();')).toEqual(["left-pad"]);
-  });
+  it.skipIf(!onPinnedNode)(
+    "is one file named for the plugin and the version, and runs from an empty folder under the permission flags",
+    async () => {
+      const { file, text } = await bundled({
+        "connectors/c/dist/main.js": 'console.log("hello from the bundle");',
+      });
+      expect(file.endsWith(bundleName("c", "1.2.3"))).toBe(true);
+      expect(await started(file)).toBe("hello from the bundle\n");
+      // The witness for the flags: they deny a read of any other file.
+      const folder = await scratch();
+      const reader = join(folder, "reader.mjs");
+      const secret = join(folder, "secret.txt");
+      await writeFile(secret, "secret");
+      await writeFile(
+        reader,
+        'import { readFileSync } from "node:fs"; readFileSync(process.argv[2]);',
+      );
+      await expect(
+        run(process.execPath, [...permissionFlags(file), reader, secret], {
+          env: {},
+        }),
+      ).rejects.toThrow(/ERR_ACCESS_DENIED/);
+      // The same read is allowed for the file the flags name.
+      await run(
+        process.execPath,
+        [...permissionFlags(secret), reader, secret],
+        {
+          env: {},
+        },
+      );
+      expect(importsOf(text)).toEqual([]);
+      // The witness: an import of a package is found as one.
+      expect(importsOf('import x from "left-pad";\nx();')).toEqual([
+        "left-pad",
+      ]);
+    },
+  );
 
   it("refuses a version that is not x.y.z", async () => {
     const base = await repository({ "connectors/c/dist/main.js": "" });
@@ -186,10 +205,13 @@ describe("MiniJinja's WebAssembly", () => {
     ].join("\n"),
   };
 
-  it("is carried in the bundle: a template renders with no file beside it to read", async () => {
-    const { file } = await bundled(source);
-    expect(await started(file)).toBe("Hello bundle\n");
-  });
+  it.skipIf(!onPinnedNode)(
+    "is carried in the bundle: a template renders with no file beside it to read",
+    async () => {
+      const { file } = await bundled(source);
+      expect(await started(file)).toBe("Hello bundle\n");
+    },
+  );
 
   it("is read from a file beside the entry when the entry is not bundled", async () => {
     // The witness for the test above: left as it ships, the entry looks for
@@ -224,15 +246,18 @@ describe("the kit's telemetry", () => {
     "connectors/c/dist/telemetry.js": 'globalThis.telemetry = "loaded";',
   };
 
-  it("is inside the bundle, and loads only when an endpoint is set", async () => {
-    const { file } = await bundled(source);
-    expect(await started(file)).toBe("not loaded\n");
-    expect(
-      await started(file, {
-        env: { OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:1" },
-      }),
-    ).toBe("loaded\n");
-  });
+  it.skipIf(!onPinnedNode)(
+    "is inside the bundle, and loads only when an endpoint is set",
+    async () => {
+      const { file } = await bundled(source);
+      expect(await started(file)).toBe("not loaded\n");
+      expect(
+        await started(file, {
+          env: { OTEL_EXPORTER_OTLP_ENDPOINT: "http://127.0.0.1:1" },
+        }),
+      ).toBe("loaded\n");
+    },
+  );
 });
 
 describe("a worker", () => {
@@ -250,18 +275,21 @@ describe("a worker", () => {
     ].join("\n"),
   };
 
-  it("is embedded and started from the bundle, which needs the flag that allows workers and nothing else", async () => {
-    const { file } = await bundled(worker);
-    expect(await started(file)).toBe("42\n");
-    // The witness: the flag is the one that lets it start.
-    await expect(
-      started(file, {
-        flags: permissionFlags(file).filter(
-          (flag) => flag !== "--allow-worker",
-        ),
-      }),
-    ).rejects.toThrow();
-  });
+  it.skipIf(!onPinnedNode)(
+    "is embedded and started from the bundle, which needs the flag that allows workers and nothing else",
+    async () => {
+      const { file } = await bundled(worker);
+      expect(await started(file)).toBe("42\n");
+      // The witness: the flag is the one that lets it start.
+      await expect(
+        started(file, {
+          flags: permissionFlags(file).filter(
+            (flag) => flag !== "--allow-worker",
+          ),
+        }),
+      ).rejects.toThrow();
+    },
+  );
 
   it("is refused when the code starts it in a form the bundle cannot embed", async () => {
     const base = await repository({
@@ -349,26 +377,29 @@ describe("what a bundle cannot carry", () => {
 });
 
 describe("the connectors of this repository, built", () => {
-  it("each bundle is one file that answers --help under the permission flags, from an empty folder", async () => {
-    const out = join(await scratch(), "bundles");
-    const names = await connectorsOf();
-    const pin = await readPin();
-    for (const name of names) {
-      const made = await bundleConnector(name, "0.0.0", out, pin);
-      expect(made.bytes, name).toBeGreaterThan(0);
-    }
-    const bundles = await bundlesIn(out);
-    expect(bundles).toHaveLength(names.length);
-    for (const bundle of bundles) {
-      const { printed } = await helpOf(bundle);
-      expect(printed, bundle).toContain("MARFA_API_URL");
-      expect(importsOf(await readFile(bundle, "utf8")), bundle).toEqual([]);
-    }
-    // The kit's telemetry is in each bundle, behind its dynamic import.
-    expect(await readFile(bundles[0] ?? "", "utf8")).toContain(
-      "OTEL_EXPORTER_OTLP_ENDPOINT",
-    );
-  });
+  it.skipIf(!onPinnedNode)(
+    "each bundle is one file that answers --help under the permission flags, from an empty folder",
+    async () => {
+      const out = join(await scratch(), "bundles");
+      const names = await connectorsOf();
+      const pin = await readPin();
+      for (const name of names) {
+        const made = await bundleConnector(name, "0.0.0", out, pin);
+        expect(made.bytes, name).toBeGreaterThan(0);
+      }
+      const bundles = await bundlesIn(out);
+      expect(bundles).toHaveLength(names.length);
+      for (const bundle of bundles) {
+        const { printed } = await helpOf(bundle);
+        expect(printed, bundle).toContain("MARFA_API_URL");
+        expect(importsOf(await readFile(bundle, "utf8")), bundle).toEqual([]);
+      }
+      // The kit's telemetry is in each bundle, behind its dynamic import.
+      expect(await readFile(bundles[0] ?? "", "utf8")).toContain(
+        "OTEL_EXPORTER_OTLP_ENDPOINT",
+      );
+    },
+  );
 
   it("refuses to run when the help cannot be had", async () => {
     const folder = await scratch();
