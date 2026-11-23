@@ -2,7 +2,7 @@
  * The Node release the connector host carries, pinned in `host/node.json` by
  * version and, for each platform, the SHA-256 of the official archive. This
  * module reads the pin, fetches an archive and refuses it unless its SHA-256
- * matches, keeps only `bin/node` and the licence, and on macOS checks the
+ * matches, keeps only `bin/node` and the license, and on macOS checks the
  * signature the Node.js Foundation gave `node`. It also writes a pin for a
  * newer release from that release's `SHASUMS256.txt`, after checking the
  * signature on it against the Node.js release keys.

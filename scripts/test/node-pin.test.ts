@@ -125,7 +125,7 @@ describe("host/node.json", () => {
 });
 
 describe("fetching an archive", () => {
-  it("keeps bin/node and the licence of an archive that matches the pin, and nothing else", async () => {
+  it("keeps bin/node and the license of an archive that matches the pin, and nothing else", async () => {
     const archive = await archiveOf("linux-x64", "26.13.1");
     const pin = pinFor("26.13.1", archive, "linux-x64");
     const out = join(await scratch(), "node");
