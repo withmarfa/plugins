@@ -128,7 +128,7 @@ export async function renderInstallHost(
   repo: string,
 ): Promise<string> {
   const template = await readFile(
-    join(import.meta.dirname, "install-host.sh"),
+    join(root, "scripts", "release", "install-host.sh"),
     "utf8",
   );
   if (!template.includes("@VERSION@") || !template.includes("@REPOSITORY@")) {
