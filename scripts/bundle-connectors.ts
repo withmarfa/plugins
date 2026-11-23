@@ -11,14 +11,15 @@
  * that hold a generated `plugin/plugin.json`, so a folder of leftover build
  * output is none. The target is the Node release `host/node.json` pins.
  *
- * Three things a bundle cannot leave to the disk are carried in it:
- * MiniJinja's WebAssembly, which its Node entry reads from a file beside
- * itself; the RSS connector's worker, whose source is embedded and started
- * from a string; and the kit's telemetry, which stays behind its dynamic
- * `import()` and runs only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. A build
- * is refused, naming what it found, when a dependency is a native add-on,
- * calls `require` with an argument esbuild cannot resolve, or finds files by
- * its own location unless that use is listed in `reviewedReads`.
+ * Two things a bundle cannot leave to the disk are carried in it: MiniJinja's
+ * WebAssembly, which its Node entry reads from a file beside itself, and the
+ * kit's telemetry, which stays behind its dynamic `import()` and runs only
+ * when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. A build is refused, naming what
+ * it found, when a dependency is a native add-on, calls `require` with an
+ * argument esbuild cannot resolve, or finds files by its own location unless
+ * that use is listed in `reviewedReads`, and when the code of the repository
+ * itself imports a module the permission flags refuse a connector: the file
+ * system, the operating system's folders, a child process or a worker.
  */
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -49,13 +50,18 @@ export const reviewedReads: readonly { input: RegExp; why: string }[] = [
 const besideItself =
   /__dirname|__filename|import\.meta\.(?:url|dirname|filename)/;
 
+/** The modules the permission flags leave a connector no use of: it writes no
+ *  file, starts no process and no worker. */
+const refusedModules = new Set([
+  "node:fs",
+  "node:fs/promises",
+  "node:os",
+  "node:child_process",
+  "node:worker_threads",
+]);
+
 const nativeAddOns =
   /\bprocess\.dlopen\b|\/node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?(?:bindings|node-gyp-build|prebuild-install|node-pre-gyp)\//;
-
-/** The `new Worker(new URL("./file.js", import.meta.url), {` of a connector's
- *  own code, which a bundle has no file to start. */
-const workerStart =
-  /new Worker\(\s*new URL\(\s*"(\.\/[^"]+)"\s*,\s*import\.meta\.url\s*\)\s*,\s*\{/g;
 
 /**
  * MiniJinja's Node entry reads its WebAssembly from a file beside it. The
@@ -99,36 +105,6 @@ function noAddOns(): Plugin {
   };
 }
 
-/**
- * Embeds the worker a connector's own code starts from a file. The worker is
- * bundled as a script and started from its source, with `eval: true`.
- */
-function workers(inner: (entry: string) => Promise<string>): Plugin {
-  return {
-    name: "embedded-workers",
-    setup(esbuild) {
-      esbuild.onLoad({ filter: /\.js$/ }, async (args) => {
-        if (args.path.includes("/node_modules/")) return undefined;
-        const text = await readFile(args.path, "utf8");
-        if (!text.includes("new Worker(")) return undefined;
-        const starts = [...text.matchAll(workerStart)];
-        if (starts.length !== text.split("new Worker(").length - 1) {
-          throw new Error(
-            `${args.path} starts a worker in a form the bundle cannot embed: use \`new Worker(new URL("./file.js", import.meta.url), { ... })\``,
-          );
-        }
-        let contents = text;
-        for (const start of starts) {
-          const file = resolve(args.path, "..", start[1] ?? "");
-          const embedded = `new Worker(${JSON.stringify(await inner(file))}, { eval: true,`;
-          contents = contents.replace(start[0], () => embedded);
-        }
-        return { contents, loader: "js", resolveDir: resolve(args.path, "..") };
-      });
-    },
-  };
-}
-
 interface Built {
   code: string;
   inputs: Metafile["inputs"];
@@ -136,36 +112,21 @@ interface Built {
 
 async function bundle(
   entry: string,
-  format: "esm" | "cjs",
   target: string,
   base: string,
-  inWorker = false,
 ): Promise<Built> {
   const result = await build({
     entryPoints: [entry],
     absWorkingDir: base,
     bundle: true,
     platform: "node",
-    format,
+    format: "esm",
     target,
     write: false,
     metafile: true,
     logLevel: "silent",
     loader: { ".wasm": "binary" },
-    plugins: [
-      minijinja(),
-      noAddOns(),
-      // A worker's own bundle starts no worker: it is refused as any
-      // `import.meta` is in a script.
-      ...(inWorker
-        ? []
-        : [
-            workers(
-              async (file) =>
-                (await bundle(file, "cjs", target, base, true)).code,
-            ),
-          ]),
-    ],
+    plugins: [minijinja(), noAddOns()],
   });
   if (result.warnings.length > 0) {
     throw new Error(
@@ -198,8 +159,17 @@ export async function refusals(
   base = root,
 ): Promise<string[]> {
   const found: string[] = [];
-  for (const input of Object.keys(inputs)) {
-    if (!input.includes("node_modules/")) continue;
+  for (const [input, { imports }] of Object.entries(inputs)) {
+    if (!input.includes("node_modules/")) {
+      for (const { path } of imports) {
+        if (refusedModules.has(path)) {
+          found.push(
+            `${input} imports ${path}, which a connector is given no use of under the permission flags`,
+          );
+        }
+      }
+      continue;
+    }
     const text = await readFile(join(base, input), "utf8");
     const path = `/${input}`;
     if (nativeAddOns.test(path) || nativeAddOns.test(text)) {
@@ -249,7 +219,7 @@ export async function bundleConnector(
     throw new Error(`${version} is not a version such as 1.2.3`);
   }
   const entry = join("connectors", plugin, "dist", "main.js");
-  const built = await bundle(entry, "esm", nodeTarget(pin), base).catch(
+  const built = await bundle(entry, nodeTarget(pin), base).catch(
     (error: unknown) => {
       throw new Error(
         `${plugin}: ${error instanceof Error ? error.message : String(error)}`,
