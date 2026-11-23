@@ -436,7 +436,6 @@ async function preserve(
       row.updated_at ?? job.revision,
       { content_key: file.key },
     );
-    let staged: Awaited<ReturnType<typeof stageContent>> | undefined;
     try {
       if (file.text !== undefined) {
         value.file = {
@@ -477,8 +476,10 @@ async function preserve(
             });
           prepared = await download(renewed.url, context.signal, options);
         }
-        staged = await stageContent(prepared, context.signal);
-        value.file = { key: file.key, load: staged.load };
+        value.file = {
+          key: file.key,
+          load: await stageContent(prepared, context.signal),
+        };
       }
       await commit(context, value);
       resource.status = "kept";
@@ -511,8 +512,6 @@ async function preserve(
           ? `Reader content exceeds readwise_content_max_bytes (${String(exceededLimit)} bytes); the last acknowledged file is retained`
           : "Reader content remains pending; the last acknowledged file is retained",
       );
-    } finally {
-      await staged?.dispose();
     }
   }
   if (
