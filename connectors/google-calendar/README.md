@@ -24,5 +24,5 @@ Until you sign in, the connector stops with the condition `google:sign-in`.
 
 ## Read more
 
-- Marfa's docs: [Google Calendar](https://docs.marfa.so/catalog/connectors/google-calendar), [Create a Google Cloud project for Google connectors](https://docs.marfa.so/use/google-project) and [Give a plugin's connector access to your Google account](https://docs.marfa.so/use/connector-google-access).
+- Marfa's docs: [Google Calendar](https://docs.marfa.so/catalog/connectors/google-calendar) and [Give a plugin's connector access to your Google account](https://docs.marfa.so/use/connector-google-access).
 - Every setting, with its default: [`plugin/plugin.json`](./plugin/plugin.json).
