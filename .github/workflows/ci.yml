@@ -177,7 +177,7 @@ jobs:
   # Bundles each connector into the one file the connector host runs, then runs
   # them on the Node the host carries (`host/node.json`) as the host will:
   # under the permission flags, with `--help` from an empty folder, and the RSS
-  # group of the proof from its bundle, which reaches the network, a worker and
+  # group of the proof from its bundle, which reaches the network and
   # the server. The build and the bundles run on that Node, so the bundles are
   # checked on the runtime they are made for.
   bundles:
