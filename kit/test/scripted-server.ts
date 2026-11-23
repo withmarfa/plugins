@@ -119,6 +119,7 @@ interface Refusal {
  */
 interface Snapshot {
   version: number;
+  type: string;
   properties: Record<string, unknown>;
   occurred_at: string;
   created_at: string;
@@ -937,6 +938,13 @@ export class ScriptedServer {
     this.write(row, properties, occurredAt);
   }
 
+  /** A person moves a row to another type, keeping its properties. */
+  retype(id: string, type: string): Row {
+    const row = this.byId(id);
+    this.write(row, { ...row.properties }, undefined, type);
+    return row;
+  }
+
   edit(id: string, properties: Record<string, unknown>): Row {
     const row = this.byId(id);
     this.write(row, { ...row.properties, ...properties });
@@ -1364,6 +1372,7 @@ export class ScriptedServer {
   private snapshot(row: Row): void {
     this.snapshots.get(row.id)?.push({
       version: row.version,
+      type: row.type,
       properties: row.properties,
       occurred_at: row.occurred_at,
       created_at: this.now(),
@@ -1374,8 +1383,10 @@ export class ScriptedServer {
     row: Row,
     properties: Record<string, unknown>,
     occurredAt?: string,
+    type?: string,
   ): void {
     this.snapshot(row);
+    if (type !== undefined) row.type = type;
     row.properties = properties;
     if (occurredAt !== undefined) row.occurred_at = occurredAt;
     row.version += 1;
@@ -2349,6 +2360,7 @@ export class ScriptedServer {
           id: `${id}-${String(at)}`,
           item_id: id,
           version: snapshot.version,
+          type: snapshot.type,
           properties: snapshot.properties,
           created_at: snapshot.created_at,
         }));
@@ -3375,8 +3387,7 @@ export class ScriptedServer {
       for (const name of (input["clear_properties"] ?? []) as string[]) {
         Reflect.deleteProperty(left, name);
       }
-      row.type = input["type"];
-      this.write(row, left);
+      this.write(row, left, undefined, input["type"]);
       send(200, {
         item: { ...this.wire(row), edges: this.hydrated(row.id) },
         metadata: this.metadata(row),

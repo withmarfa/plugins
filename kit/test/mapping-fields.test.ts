@@ -340,6 +340,46 @@ describe("a kind's fields mapped onto the target's", () => {
   });
 });
 
+describe("a rewrite back onto the kind's own type", () => {
+  it("leaves the row as the vendor holds it and carries nothing back", async () => {
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    mapFields(standard);
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T00:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).type).toBe(target);
+    harness.server.mapping.version = 2;
+    harness.server.mapping.kinds["entry"] = {
+      enabled: true,
+      target_type: ownType.id,
+    };
+    harness.server.mapping.rewrites = [
+      {
+        number: 2,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T01:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties).toEqual(one.properties);
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+});
+
 describe("status words carried back", () => {
   it("maps a target word back to the kind's word of its group", async () => {
     mapFields(standard);

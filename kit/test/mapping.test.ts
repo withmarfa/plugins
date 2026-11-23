@@ -372,7 +372,7 @@ describe("a rewrite back from a former target", () => {
     // Moved by a server that kept no record, as one upgraded from before
     // `from` was answered: the owner saves the mapping onto the type and
     // back, so that Marfa records it as one the kind was mapped onto.
-    for (const id of ids) harness.server.byId(id).type = target;
+    for (const id of ids) harness.server.retype(id, target);
     mapTo(target);
     harness.server.saveMapping();
     mapTo(linkedType.id, { version: 2 });
@@ -420,6 +420,30 @@ describe("a rewrite back from a former target", () => {
     for (const id of ids) expect(harness.server.byId(id).type).toBe(target);
     expect(harness.server.rewritesDone).toEqual([6]);
     expect(harness.lastRun().outcome).toBe("succeeded");
+  });
+
+  it("leaves a row that was never on the kind's own type, and keeps the request open saying why", async () => {
+    mapTo(target);
+    const held = vendor([one]);
+    expect(await harness.twoWay(held)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    expect(harness.server.byId(id).type).toBe(target);
+    mapTo(linkedType.id, { version: 2 });
+    harness.server.mapping.rewrites = [
+      {
+        number: 7,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T10:00:00.000Z",
+      },
+    ];
+    held.entries = [];
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([]);
+    expect(harness.problems()["rewrite:7"]).toContain(
+      `${id} is left on ${target}, since it was never on ${linkedType.id}`,
+    );
   });
 
   it("moves no row from a type another kind's rows were landed on too, and keeps the request open saying why", async () => {

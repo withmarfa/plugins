@@ -6,6 +6,7 @@ import {
   laterThan,
   mark,
   noteWaiting,
+  occurredKey,
   sideOf,
   stateKey,
   type Agreement,
@@ -486,27 +487,40 @@ function sameTypes(a: readonly string[], b: readonly string[]): boolean {
 
 const ending = new Set<Cause>(["key", "registration", "address"]);
 
-/** What a rewrite sends to move a row from the kind's own type to its
- *  target: its fields as the mapping lands them, and those to clear. */
+/** What a rewrite sends to move a row to the kind's target: the kind's own
+ *  fields, from the row or from `own` where it is on another type, as the
+ *  mapping lands them, and the row's fields to clear. */
 function movedProperties(
   planned: KindPlan,
   row: Item,
+  own: Readonly<Record<string, unknown>> = row.properties,
 ): {
   properties: Record<string, unknown>;
   clear: string[];
   faults: Map<string, string>;
 } {
   const fields = planned.fields;
-  if (fields === undefined)
+  if (fields === undefined) {
+    const properties =
+      own === row.properties
+        ? {}
+        : Object.fromEntries(
+            Object.entries(own).filter(
+              ([field]) => !planned.omitted.includes(field),
+            ),
+          );
     return {
-      properties: {},
+      properties,
       clear: Object.keys(row.properties).filter((field) =>
-        planned.omitted.includes(field),
+        own === row.properties
+          ? planned.omitted.includes(field)
+          : !Object.hasOwn(properties, field),
       ),
       faults: new Map(),
     };
+  }
   const shaped = fields.entry(
-    { source_id: row.source_id ?? row.id, properties: row.properties },
+    { source_id: row.source_id ?? row.id, properties: own },
     row.id,
   );
   const properties = fields.write(shaped.entry.properties);
@@ -517,6 +531,52 @@ function movedProperties(
     ),
     faults: shaped.faults,
   };
+}
+
+/** The kind's own fields of a row on another type: those of its newest
+ *  version on the kind's own type, or none where it was never there. */
+async function ownFields(
+  marfa: Marfa,
+  row: Item,
+  own: string,
+): Promise<Record<string, unknown> | undefined> {
+  let newest:
+    { version: number; properties: Record<string, unknown> } | undefined;
+  for (const version of await marfa.versions(row.id))
+    if (
+      version.type === own &&
+      (newest === undefined || version.version > newest.version)
+    )
+      newest = version;
+  return newest?.properties;
+}
+
+/** Agrees each moved row's fields as they now stand, so the move carries
+ *  nothing to the vendor: the vendor's next change to a row is written over
+ *  what the move took from the row's past. */
+async function agreeMoved<E extends SettingsDeclaration>(
+  setup: RunSetup<E>,
+  plan: Plan,
+  moved: readonly Item[],
+): Promise<void> {
+  const store = new Store(setup.marfa, setup.connectorId, setup.process);
+  await store.fetch(moved.map((row) => row.id));
+  for (const row of moved) {
+    const agreement = store.get(row.id);
+    if (agreement === undefined) continue;
+    const view = plan.map.item(row).properties;
+    const side = sideOf(Object.keys(view), view);
+    const occurred = agreement.vendor[occurredKey];
+    store.set(row.id, {
+      ...agreement,
+      vendor: {
+        ...side,
+        ...(occurred !== undefined && { [occurredKey]: occurred }),
+      },
+      marfa: side,
+    });
+  }
+  await store.flush();
 }
 
 /** What the rewrites a run carried out leave behind. */
@@ -573,7 +633,10 @@ function landedAfter<E extends SettingsDeclaration>(
  * Carries out each rewrite the owner asked for: every row a kind wrote, on
  * each type the request's `from` names for the kind, under the connector's
  * source and outside the bin, is moved to the kind's target, its fields the
- * target lacks cleared. A request is cleared only once each of its kinds is
+ * target lacks cleared. A row on a type the kind was mapped onto before
+ * holds that type's fields, so it is moved with the kind's own fields from
+ * its newest version on the kind's own type, and one never there is left. A
+ * request is cleared only once each of its kinds is
  * done; one a row refused, whose target is gone or that is turned off waits
  * for a later run, and a condition says why. So does one whose rows are on a
  * type another kind's rows may be on too: Marfa does not say which kind
@@ -613,6 +676,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
   for (const rewrite of mapping.rewrites) {
     const unfinished: string[] = [];
     const unreached: string[] = [];
+    const agreeing: Item[] = [];
     let moved = 0;
     for (const name of rewrite.kinds) {
       const kind = connector.types.find((one) => one.name === name);
@@ -666,16 +730,28 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         for (const row of rows) {
           if (setup.signal.aborted) throw new Stopped();
           try {
-            const landing = movedProperties(planned, row);
+            const own =
+              former === planned.own
+                ? row.properties
+                : await ownFields(marfa, row, planned.own);
+            if (own === undefined) {
+              left = true;
+              unfinished.push(
+                `${row.id} is left on ${former}, since it was never on ${planned.own} to hold the kind ${name}'s own fields, which it would be moved with`,
+              );
+              continue;
+            }
+            const landing = movedProperties(planned, row, own);
             for (const [field, message] of landing.faults)
               conditions.set(field, message);
-            await marfa.retype(
+            const item = await marfa.retype(
               row.id,
               row.version,
               planned.target,
               landing.properties,
               landing.clear,
             );
+            if (former !== planned.own) agreeing.push(item);
             moved += 1;
           } catch (error) {
             if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
@@ -691,6 +767,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         }
       }
     }
+    if (agreeing.length > 0) await agreeMoved(setup, plan, agreeing);
     const conditionKey = `rewrite:${String(rewrite.number)}`;
     if (unreached.length > 0) {
       const message = `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} stays open and this run does not start: ${unreached.join("; ")}`;
