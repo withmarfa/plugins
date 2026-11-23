@@ -638,14 +638,16 @@ interface Return {
  * the former type held is read as the row held it just before the move:
  * where it differs from what the vendor last agreed, it is a change made in
  * Marfa and not yet carried, so it is kept, the agreement keeps both its
- * sides and the watch carries it. Since the vendor's side is all this reads
- * of the agreement, and it keeps it, a move that fails after its agreement
- * was written is judged the same way again. Any other field takes the newest value the row held
- * on the kind's own type that lands as the vendor last agreed, else the
- * value it held before the move where that is what the vendor agreed; where
- * neither is, the row keeps its own value, the agreement forgets the
+ * sides and the watch carries it. Any other field takes the newest value
+ * the row held on the kind's own type that lands as the vendor last agreed,
+ * and both sides of the agreement take that value, so they hold the vendor's
+ * own word and not the former mapping's reading of it; else the field takes
+ * the value it held before the move where that is what the vendor agreed.
+ * Where neither is, the row keeps its own value, the agreement forgets the
  * vendor's mark, and the vendor's value is taken when it next sends the
- * row. The vendor's side only ever keeps marks it held.
+ * row. The vendor's side only ever keeps marks it held or the vendor's own
+ * word for one, and a move that fails after its agreement was written is
+ * judged the same way again, since a value stored as that word matches it.
  */
 function returning(
   row: Item,
@@ -676,6 +678,7 @@ function returning(
     former === undefined ? [row.properties, ...versions] : versions;
   const edited = new Set<string>();
   const older: string[] = [];
+  const restored: Record<string, string> = {};
   const fields = new Set(
     Object.keys(agreement.vendor).filter((field) => !field.startsWith("@")),
   );
@@ -688,21 +691,28 @@ function returning(
       former?.carried.has(field) === true &&
       !unread.has(field);
     const value = readable ? held(before, field) : undefined;
-    if (readable && mark(value) !== wanted) {
+    // A restore agrees the vendor's own word, so a move tried again finds
+    // the agreed value stored as it is, not as the former mapping lands it.
+    const agreed = (properties: Readonly<Record<string, unknown>>): boolean =>
+      Object.hasOwn(properties, field) &&
+      (mark(held(properties, field)) === wanted ||
+        (readable && mark(held(landed(properties), field)) === wanted));
+    const found = wanted === "" ? undefined : candidates.find(agreed);
+    const landsAs =
+      found === undefined || !readable
+        ? wanted
+        : mark(held(landed(found), field));
+    if (readable && mark(value) !== wanted && mark(value) !== landsAs) {
       edited.add(field);
       if (value === undefined) Reflect.deleteProperty(own, field);
       else own[field] = value;
       continue;
     }
     if (wanted === "") continue;
-    const found = candidates.find(
-      (properties) =>
-        Object.hasOwn(properties, field) &&
-        mark(held(readable ? landed(properties) : properties, field)) ===
-          wanted,
-    );
-    if (found !== undefined) own[field] = held(found, field);
-    else if (readable && mark(value) === wanted) own[field] = value;
+    if (found !== undefined) {
+      own[field] = held(found, field);
+      restored[field] = mark(own[field]);
+    } else if (readable && mark(value) === wanted) own[field] = value;
     else older.push(field);
   }
   const vendor: Record<string, string> = {};
@@ -711,7 +721,7 @@ function returning(
       (!field.startsWith("@") || field === occurredKey) &&
       !older.includes(field)
     )
-      vendor[field] = mark;
+      vendor[field] = restored[field] ?? mark;
   return {
     own,
     older,
@@ -719,13 +729,16 @@ function returning(
     agreement: {
       ...agreement,
       vendor,
-      marfa: Object.fromEntries(
-        [...edited].flatMap((field) =>
-          Object.hasOwn(agreement.marfa, field)
-            ? [[field, agreement.marfa[field] ?? ""]]
-            : [],
+      marfa: {
+        ...Object.fromEntries(
+          [...edited].flatMap((field) =>
+            Object.hasOwn(agreement.marfa, field)
+              ? [[field, agreement.marfa[field] ?? ""]]
+              : [],
+          ),
         ),
-      ),
+        ...restored,
+      },
     },
   };
 }

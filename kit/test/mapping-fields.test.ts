@@ -467,6 +467,36 @@ describe("a rewrite back onto the kind's own type", () => {
     expect(harness.server.byId(id).properties["title"]).toBe("One, edited");
   });
 
+  it("agrees a restored status in the vendor's own word, so a later edit in Marfa is carried when the vendor next sends the word unchanged", async () => {
+    const given = held();
+    const id = await landed(given);
+    expect(harness.server.byId(id).properties["status"]).toBe("in_progress");
+    given.entries = [];
+    mapBack();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    expect(harness.server.byId(id).properties["status"]).toBe("waiting");
+    expect(given.changes).toEqual([]);
+    harness.server.edit(id, { status: "done" });
+    given.entries = [
+      {
+        ...one,
+        changed_at: "2099-01-01T00:00:00.000Z",
+        properties: { ...one.properties, note: "second" },
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const after = harness.server.byId(id);
+    expect(after.properties["status"]).toBe("done");
+    expect(after.properties["note"]).toBe("second");
+    expect(carried(given)).toEqual([["One", "done"]]);
+    expect(
+      Object.keys(harness.problems()).filter((key) =>
+        key.startsWith("conflict-lost"),
+      ),
+    ).toEqual([]);
+  });
+
   it("keeps an edit made on the target after one that was carried, and carries it once", async () => {
     const given = held();
     const id = await carriedOnTarget(given);
