@@ -2,10 +2,12 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readlinkSync,
   rmdirSync,
   rmSync,
 } from "node:fs";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { spawnConnector } from "./child.js";
 import { CodeStore, type Transport } from "./code.js";
 import { readIfThere, writeSecret, writeWhole } from "./files.js";
@@ -14,8 +16,17 @@ import { parseLink } from "./link.js";
 import { holder, takeLock, type Lock } from "./lock.js";
 import { CappedLog, hostLog } from "./log.js";
 import { hostApi, redeem } from "./marfa.js";
-import type { Program, Service } from "./service.js";
+import { updateExit, type Program, type Service } from "./service.js";
 import { Supervisor, type HostStatus } from "./supervisor.js";
+import {
+  currentPointsElsewhere,
+  dailyUpdate,
+  dayMs,
+  hostPlatform,
+  installedVersion,
+  updatesOff,
+  type UpdateOutcome,
+} from "./update.js";
 
 /** What `install` keeps of the host's identity. The key is kept apart. */
 export interface HostFile {
@@ -154,20 +165,16 @@ export async function install(
     throw error;
   }
   try {
+    const keepUpdatesOff = updatesOff(home.root);
     rmSync(home.connectors, { recursive: true, force: true });
     writeSecret(home.hostKey, redeemed.key);
-    writeWhole(
-      home.hostJson,
-      `${JSON.stringify(
-        {
-          origin,
-          id: redeemed.host.id,
-          name: redeemed.host.name,
-        } satisfies HostFile,
-        null,
-        2,
-      )}\n`,
-    );
+    const record: HostFile & { updates?: false } = {
+      origin,
+      id: redeemed.host.id,
+      name: redeemed.host.name,
+    };
+    if (keepUpdatesOff) record.updates = false;
+    writeWhole(home.hostJson, `${JSON.stringify(record, null, 2)}\n`);
   } finally {
     lock.release();
   }
@@ -193,13 +200,22 @@ export interface RunOptions {
   stopped: Promise<void>;
   transport?: Transport;
   send?: typeof fetch;
+  /** Fetches a release. Marfa is asked with `send`. */
+  fetch?: typeof fetch;
   tickMs?: number;
+  /** The release this process is, when it was installed as one. */
+  version?: string;
+  /** The daily check. A release uses `dailyUpdate`. */
+  maintain?: (version: string, signal: AbortSignal) => Promise<UpdateOutcome>;
+  /** How often `maintain` is started; a day unless a test says otherwise. */
+  checkEveryMs?: number;
 }
 
 /**
  * Runs every connector Marfa assigns to the host until it is asked to stop,
- * or until Marfa refuses its key, and answers the exit code: `0` either way,
- * so the service does not restart a host that was removed.
+ * or until Marfa refuses its key. The exit code is `0` either way, so the
+ * service does not restart a host that was removed, or `updateExit` when
+ * `current` names a newer release, so the service starts that one.
  */
 export async function run(options: RunOptions): Promise<number> {
   const { home } = options;
@@ -209,7 +225,10 @@ export async function run(options: RunOptions): Promise<number> {
     throw new Refused(
       `This host is not linked yet. Run: marfa-connector-host install '<link>'`,
     );
-  const taken = takeLock(home.lock);
+  const version =
+    options.version ?? installedVersion(home.root, import.meta.url);
+  // The lock names the release this process runs, so no update prunes it.
+  const taken = takeLock(home.lock, Date.now, version);
   if (!("lock" in taken))
     throw new Refused(
       `Another marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} already uses ${home.root}.`,
@@ -251,8 +270,65 @@ export async function run(options: RunOptions): Promise<number> {
   log(
     `running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`,
   );
+  const maintain =
+    options.maintain ??
+    ((running: string, signal: AbortSignal) => {
+      const request = {
+        root: home.root,
+        version: running,
+        platform: hostPlatform() ?? `${process.platform}-${process.arch}`,
+        env: options.env,
+        signal,
+      };
+      return dailyUpdate(
+        options.fetch === undefined
+          ? request
+          : { ...request, fetch: options.fetch },
+      );
+    });
+  // The check runs beside the loop, which keeps supervising while it
+  // downloads; one at a time, stopped when the host stops.
+  const checks = new AbortController();
+  void options.stopped.then(() => {
+    checks.abort();
+  });
+  let checking: Promise<void> | undefined;
+  let updatedTo: string | undefined;
+  let nextCheck = performance.now();
   try {
     while (!asked.stop) {
+      if (
+        version !== undefined &&
+        (updatedTo !== undefined || currentPointsElsewhere(home.root, version))
+      ) {
+        log(
+          `${updatedTo === undefined ? "current names another version" : `updated to ${updatedTo}`}, so this one is stopping for it`,
+        );
+        await supervisor.stop();
+        return updateExit;
+      }
+      if (
+        version !== undefined &&
+        checking === undefined &&
+        performance.now() >= nextCheck
+      ) {
+        nextCheck = performance.now() + (options.checkEveryMs ?? dayMs);
+        checking = maintain(version, checks.signal)
+          .then(
+            (outcome) => {
+              if (outcome.kind === "updated") updatedTo = outcome.version;
+            },
+            (error: unknown) => {
+              if (!checks.signal.aborted)
+                log(
+                  `could not check for an update: ${error instanceof Error ? error.message : String(error)}`,
+                );
+            },
+          )
+          .finally(() => {
+            checking = undefined;
+          });
+      }
       if ((await supervisor.step()) === "unlinked") {
         writeStatus();
         return 0;
@@ -268,9 +344,31 @@ export async function run(options: RunOptions): Promise<number> {
     log("stopped");
     return 0;
   } finally {
+    checks.abort();
+    await checking;
     rmSync(home.status, { force: true });
     lock.release();
   }
+}
+
+/**
+ * Turns the daily update check on or off in `host.json`, which `run` reads
+ * at each check, so the service follows it without a restart.
+ */
+export function setUpdates(home: Home, on: boolean, io: Io): void {
+  const text = readIfThere(home.hostJson);
+  if (text === undefined || readHost(home) === undefined)
+    throw new Refused(
+      `This host is not linked yet. Run: marfa-connector-host install '<link>'`,
+    );
+  const record = JSON.parse(text) as Record<string, unknown>;
+  record["updates"] = on;
+  writeWhole(home.hostJson, `${JSON.stringify(record, null, 2)}\n`);
+  io.out(
+    on
+      ? "The daily update check is on."
+      : "The daily update check is off. `marfa-connector-host update` still installs a newer release.",
+  );
 }
 
 function connectorLines(status: HostStatus): string[] {
@@ -294,6 +392,9 @@ export function status(home: Home, io: Io, service: Service | undefined): void {
   }
   io.out(`Host "${host.name}" (${host.id}) for ${host.origin}`);
   io.out(`Files: ${home.root}`);
+  const release = installedVersion(home.root, import.meta.url);
+  if (release !== undefined) io.out(`Release: ${release}`);
+  io.out(`Daily update check: ${updatesOff(home.root) ? "off" : "on"}`);
   if (service !== undefined)
     io.out(
       `Service: ${existsSync(service.file) ? service.file : "not installed"}`,
@@ -328,18 +429,39 @@ export function logs(home: Home, plugin: string | undefined, io: Io): void {
   io.out(readFileSync(path, "utf8").replace(/\n$/, ""));
 }
 
+/** `~/.local/bin/marfa-connector-host`, the command the installer links. */
+export function commandLink(userHome: string): string {
+  return join(userHome, ".local", "bin", "marfa-connector-host");
+}
+
+/** Whether `link` points at a file inside `root`, and not at another install. */
+function linkInside(link: string, root: string): boolean {
+  let target: string;
+  try {
+    target = readlinkSync(link);
+  } catch {
+    return false;
+  }
+  const resolved = isAbsolute(target) ? target : resolve(dirname(link), target);
+  const prefix = root.endsWith(sep) ? root : `${root}${sep}`;
+  return resolved === root || resolved.startsWith(prefix);
+}
+
 /**
- * What `uninstall` removes, said before it removes anything: the service
- * and the host's folder, keys and logs included.
+ * What `uninstall` removes, said before it removes anything: the service,
+ * the command when it points at this install, and the host's folder.
  */
 export function uninstallPlan(
   home: Home,
   service: Service | undefined,
+  userHome = homedir(),
 ): string[] {
+  const command = commandLink(userHome);
   return [
     ...(service !== undefined && existsSync(service.file)
       ? [`the service, ${service.file}`]
       : []),
+    ...(linkInside(command, home.root) ? [`the command, ${command}`] : []),
     ...(existsSync(home.root)
       ? [
           `the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`,
@@ -354,9 +476,11 @@ export async function uninstall(
   home: Home,
   service: Service | undefined,
   wait: FolderWait = {},
+  userHome = homedir(),
 ): Promise<void> {
   ownRun(home, service);
   service?.stop();
+  const command = commandLink(userHome);
   if (existsSync(home.root)) {
     const lock = await folderLock(
       home,
@@ -365,6 +489,7 @@ export async function uninstall(
     );
     try {
       service?.remove();
+      if (linkInside(command, home.root)) rmSync(command);
       rmSync(home.root, { recursive: true, force: true });
     } finally {
       lock.release();
@@ -372,4 +497,5 @@ export async function uninstall(
     return;
   }
   service?.remove();
+  if (linkInside(command, home.root)) rmSync(command);
 }

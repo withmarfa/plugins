@@ -74,6 +74,8 @@ const takeoverHeldMs = 10_000;
 interface Written {
   pid: number;
   boot: string | number;
+  /** The release the holder runs, when it is one. */
+  version?: string;
 }
 
 function parse(text: string): Written | undefined {
@@ -85,7 +87,13 @@ function parse(text: string): Written | undefined {
       value.pid > 0 &&
       (typeof value.boot === "number" || typeof value.boot === "string")
     )
-      return { pid: value.pid, boot: value.boot };
+      return {
+        pid: value.pid,
+        boot: value.boot,
+        ...(typeof value.version === "string"
+          ? { version: value.version }
+          : {}),
+      };
   } catch {
     // Not whole.
   }
@@ -94,7 +102,7 @@ function parse(text: string): Written | undefined {
 
 type Seen =
   | { kind: "none" }
-  | { kind: "live"; pid: number; ino: number }
+  | { kind: "live"; pid: number; version?: string; ino: number }
   | { kind: "starting"; ino: number }
   | { kind: "stale"; ino: number };
 
@@ -118,7 +126,12 @@ function look(path: string, wall: () => number): Seen {
       ? { kind: "starting", ino }
       : { kind: "stale", ino };
   if (sameBoot(written.boot, thisBoot(wall)) && alive(written.pid))
-    return { kind: "live", pid: written.pid, ino };
+    return {
+      kind: "live",
+      pid: written.pid,
+      ...(written.version === undefined ? {} : { version: written.version }),
+      ino,
+    };
   return { kind: "stale", ino };
 }
 
@@ -129,6 +142,16 @@ export function holder(
 ): number | undefined {
   const seen = look(path, wall);
   return seen.kind === "live" ? seen.pid : undefined;
+}
+
+/** The release the process that holds the lock at `path` runs, when it is
+ *  alive and wrote one. */
+export function heldVersion(
+  path: string,
+  wall: () => number = Date.now,
+): string | undefined {
+  const seen = look(path, wall);
+  return seen.kind === "live" ? seen.version : undefined;
 }
 
 /** Puts a file holding `text` at `path`, failing with `EEXIST` when one is
@@ -170,14 +193,20 @@ export interface Lock {
  * another boot, is taken over; only one process at a time may take one over,
  * under a lock of its own, so none removes a lock another just took. Answers
  * the process that holds it otherwise: `undefined` while its lock is still
- * being written.
+ * being written. `version`, the release this process runs, is written in the
+ * lock, so no update deletes it while the lock is held.
  */
 export function takeLock(
   path: string,
   wall: () => number = Date.now,
+  version?: string,
 ): { lock: Lock } | { holder: number | undefined } {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const mine = `${JSON.stringify({ pid: process.pid, boot: thisBoot(wall) })}\n`;
+  const mine = `${JSON.stringify({
+    pid: process.pid,
+    boot: thisBoot(wall),
+    ...(version === undefined ? {} : { version }),
+  })}\n`;
   const lock: Lock = {
     release: () => {
       try {

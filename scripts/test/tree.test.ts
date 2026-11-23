@@ -142,7 +142,7 @@ function offHosted(workflow: string): string[] {
   return Object.entries(document.jobs ?? {}).flatMap(([name, job]) => {
     if ("uses" in job) return [`${name}: uses ${String(job["uses"])}`];
     const runsOn = job["runs-on"];
-    return runsOn === "ubuntu-latest"
+    return runsOn === "ubuntu-latest" || runsOn === "macos-latest"
       ? []
       : [`${name}: ${JSON.stringify(runsOn)}`];
   });
@@ -248,7 +248,7 @@ describe("the tree", () => {
     expect(connectors.filter((dir) => !quiet(dir))).toEqual([]);
   });
 
-  it("runs every workflow job on standard hosted Linux", () => {
+  it("runs every workflow job on a standard GitHub-hosted runner", () => {
     expect(
       offHosted(
         [
@@ -261,13 +261,15 @@ describe("the tree", () => {
           "    runs-on: [self-hosted, linux]",
           "  e:",
           "    runs-on: self-hosted",
+          "  f:",
+          "    runs-on: windows-latest",
         ].join("\n"),
       ),
     ).toEqual([
-      'b: "macos-latest"',
       "c: uses someone/else/.github/workflows/ci.yml@main",
       'd: ["self-hosted","linux"]',
       'e: "self-hosted"',
+      'f: "windows-latest"',
     ]);
     const workflows = tree().filter((file) =>
       /^\.github\/workflows\/.+\.ya?ml$/.test(file.path),

@@ -134,7 +134,7 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
       /^scripts\/(check-plugins\.ts|release\/plugins\.ts)$/,
       ["code", "tests", "plugins", "proof"],
     ],
-    [/^scripts\/release\/(only-adds|release)\.ts$/, ["code", "tests", "proof"]],
+    [/^scripts\/release\//, ["code", "tests", "proof"]],
     // The proof is built and linted like the rest of the code. Its stubs and
     // helpers are also what the unit tests import; its scenarios are not. The
     // `Bundles` job runs the RSS group through the same helpers.

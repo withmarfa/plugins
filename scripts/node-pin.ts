@@ -23,6 +23,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { root } from "./release/plugins.ts";
 
 const execFile = promisify(execFileCallback);
 
@@ -40,7 +41,7 @@ export interface Pin {
   platforms: Record<Platform, { file: string; sha256: string }>;
 }
 
-export const pinPath = resolve(import.meta.dirname, "../host/node.json");
+export const pinPath = join(root, "host", "node.json");
 
 export const distribution = "https://nodejs.org/dist";
 

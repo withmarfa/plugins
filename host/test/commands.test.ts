@@ -3,8 +3,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { execFileSync, spawn } from "node:child_process";
@@ -14,10 +16,12 @@ import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  commandLink,
   install,
   logs,
   Refused,
   run,
+  setUpdates,
   status,
   uninstall,
   uninstallPlan,
@@ -29,6 +33,7 @@ import { LinkRefused } from "../src/link.js";
 import { takeLock } from "../src/lock.js";
 import { RedeemRefused } from "../src/marfa.js";
 import type { Service } from "../src/service.js";
+import { updatesOff } from "../src/update.js";
 import { assigned, marfaAnswer, scratch, until } from "./helpers.js";
 
 function printed(): Io & { lines: string[] } {
@@ -330,6 +335,75 @@ describe("installing the connector host", () => {
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_first");
     expect(readFileSync(home.key("rss"), "utf8")).toBe("marfa_k1_rss");
   });
+
+  it("keeps updates turned off when it links again", async () => {
+    const home = freshHome();
+    mkdirSync(home.root, { recursive: true });
+    writeFileSync(
+      home.hostJson,
+      `${JSON.stringify({ origin: "https://old.example", id: "old", name: "Old", updates: false }, null, 2)}\n`,
+    );
+    await install(
+      home,
+      "https://marfa.example.com/connect#code",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed()),
+    );
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      origin: "https://marfa.example.com",
+      id: "host-1",
+      name: "Studio Mac",
+      updates: false,
+    });
+  });
+
+  it("links again when host.json is not JSON, and leaves updates on", async () => {
+    const home = freshHome();
+    mkdirSync(home.root, { recursive: true });
+    writeFileSync(home.hostJson, "{");
+    await install(
+      home,
+      "https://marfa.example.com/connect#code",
+      printed(),
+      undefined,
+      () => Promise.resolve(redeemed()),
+    );
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      origin: "https://marfa.example.com",
+      id: "host-1",
+      name: "Studio Mac",
+    });
+  });
+});
+
+describe("turning the daily update check off and on", () => {
+  it("writes the choice into host.json, which the service reads at each check, keeping the rest", async () => {
+    const home = await linked();
+    const before = JSON.parse(readFileSync(home.hostJson, "utf8")) as object;
+    const io = printed();
+    setUpdates(home, false, io);
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      ...before,
+      updates: false,
+    });
+    expect(updatesOff(home.root)).toBe(true);
+    expect(io.lines.join("\n")).toContain("off");
+    setUpdates(home, true, io);
+    expect(JSON.parse(readFileSync(home.hostJson, "utf8"))).toEqual({
+      ...before,
+      updates: true,
+    });
+    expect(updatesOff(home.root)).toBe(false);
+  });
+
+  it("refuses on a host that is not linked", () => {
+    const home = freshHome();
+    expect(() => {
+      setUpdates(home, false, printed());
+    }).toThrow("not linked yet");
+    expect(existsSync(home.hostJson)).toBe(false);
+  });
 });
 
 /** A linked host's folder. */
@@ -525,6 +599,7 @@ describe("the connector host's status, logs and uninstall", () => {
     expect(io.lines).toEqual([
       'Host "Studio Mac" (host-1) for https://marfa.example.com',
       `Files: ${home.root}`,
+      "Daily update check: on",
       "Not running.",
     ]);
   });
@@ -560,7 +635,8 @@ describe("the connector host's status, logs and uninstall", () => {
     const io = printed();
     status(home, io, undefined);
     if ("lock" in taken) taken.lock.release();
-    expect(io.lines.slice(2)).toEqual([
+    expect(io.lines[2]).toBe("Daily update check: on");
+    expect(io.lines.slice(3)).toEqual([
       `Running as process ${String(process.pid)}.`,
       "Last asked Marfa at 2026-11-23T09:00:00.000Z.",
       "rss 0.0.1: running as process 4242 since 2026-11-23T08:59:00.000Z",
@@ -635,5 +711,29 @@ describe("the connector host's status, logs and uninstall", () => {
     expect(existsSync(home.root)).toBe(false);
     expect(uninstallPlan(home, undefined)).toEqual([]);
     expect(readdirSync(join(home.root, ".."))).toEqual([]);
+  });
+
+  it("removes the command only when it points inside this install", async () => {
+    const home = await linked();
+    const userHome = scratch();
+    mkdirSync(join(userHome, ".local", "bin"), { recursive: true });
+    const link = commandLink(userHome);
+    symlinkSync(join(home.root, "bin", "marfa-connector-host"), link);
+    expect(uninstallPlan(home, undefined, userHome)).toEqual([
+      `the command, ${link}`,
+      `the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`,
+    ]);
+    await uninstall(home, undefined, {}, userHome);
+    expect(() => readlinkSync(link)).toThrow();
+
+    const other = await linked();
+    const outside = join(scratch(), "marfa-connector-host");
+    symlinkSync(outside, link);
+    expect(uninstallPlan(other, undefined, userHome)).toEqual([
+      `the host's folder, with its key, its connectors' keys, their code and the logs: ${other.root}`,
+    ]);
+    await uninstall(other, undefined, {}, userHome);
+    expect(readlinkSync(link)).toBe(outside);
+    expect(existsSync(other.root)).toBe(false);
   });
 });

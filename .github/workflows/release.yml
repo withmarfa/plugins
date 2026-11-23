@@ -1,9 +1,10 @@
 name: Release
 
 # A pushed tag `v<version>` publishes a GitHub Release holding the bundle of
-# every plugin at that version, `plugins.json` listing them and a checksums
-# file, which `marfa plugins install <name>` reads. A manual run builds all of
-# it and publishes nothing.
+# every plugin at that version, each connector's code, the connector host
+# archives, install-host.sh, `plugins.json` and a checksums file. A manual run
+# builds all of it and publishes nothing. The macOS job checks the signature
+# on each darwin archive's `lib/node` before anything is published.
 on:
   push:
     tags: ["v*"]
@@ -73,9 +74,46 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # `codesign` checks the official Node binary: a strict verify, the Node.js
+  # Foundation team and the hardened runtime. Gatekeeper then assesses it with
+  # `spctl --assess --type open --context context:primary-signature`, the form
+  # for a command-line binary, which accepts it as Notarized Developer ID.
+  # `--type execute` rejects any bare Mach-O binary as not an app.
+  sign:
+    name: Sign
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: release-assets
+      - name: Check the macOS node signatures
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=0
+          for archive in release-assets/marfa-connector-host-*-darwin-*.tar.gz; do
+            found=$((found + 1))
+            dir=$(mktemp -d)
+            tar -xzf "$archive" -C "$dir" --strip-components=1
+            node="$dir/lib/node"
+            codesign --verify --strict "$node"
+            info=$(codesign -dvv "$node" 2>&1)
+            team=$(printf '%s\n' "$info" | awk -F= '/^TeamIdentifier=/{print $2}')
+            test "$team" = "HX7739G8FX"
+            printf '%s\n' "$info" | grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*\<runtime\>'
+            spctl --assess --type open --context context:primary-signature -v "$node"
+            rm -rf "$dir"
+          done
+          test "$found" = 2
+
   publish:
     name: Publish
-    needs: build
+    needs: [build, sign]
     if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

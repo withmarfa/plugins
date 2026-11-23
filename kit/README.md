@@ -497,7 +497,7 @@ Telemetry never fails or holds up a run. An export that takes longer than 1.5 se
 
 ### The connector host
 
-A connector runs under the connector host.
+A connector runs under the connector host. A release of this repository installs that host with one command. [host/README.md](../host/README.md) says how to install it, how it updates and how to turn updates off.
 
 ## Converting content
 

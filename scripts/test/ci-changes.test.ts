@@ -243,6 +243,11 @@ describe("what a change runs beyond formatting and the scan", () => {
       ["code", "tests", "proof"],
     ],
     [
+      "a host archive the release builds",
+      ["scripts/release/host-archive.ts", "scripts/release/install-host.sh"],
+      ["code", "tests", "proof"],
+    ],
+    [
       "the release workflow",
       [".github/workflows/release.yml"],
       ["code", "tests", "proof", "plugins", "bundles"],
