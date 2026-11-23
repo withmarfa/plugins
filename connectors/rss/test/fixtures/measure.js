@@ -5,8 +5,12 @@
 import { resolve } from "node:path";
 import {
   attributeDocument,
+  bareAttributesDocument,
   heavyDocument,
+  manyElementsDocument,
+  nestedElementsDocument,
   sharedDocument,
+  unquotedAttributesDocument,
   wideDocument,
 } from "./documents.js";
 
@@ -18,6 +22,10 @@ const text = {
   shared: sharedDocument,
   attributes: attributeDocument,
   wide: wideDocument,
+  bare: bareAttributesDocument,
+  unquoted: unquotedAttributesDocument,
+  many: manyElementsDocument,
+  nested: nestedElementsDocument,
 }[process.argv[2]]();
 const bytes = new TextEncoder().encode(text);
 const rss = process.resourceUsage().maxRSS;

@@ -39,3 +39,34 @@ export function attributeDocument() {
 export function wideDocument() {
   return rss(`<title>T</title>${'<x a="1" b="2" c="3"/>'.repeat(299_000)}`);
 }
+
+const names = (count) => Array.from({ length: count }, (_, at) => `a${at}`);
+
+/** Millions of attributes with no value, in one element. */
+export function bareAttributesDocument() {
+  return rss(`<title>T</title><x ${names(3_000_000).join(" ")}/>`);
+}
+
+/** Millions of attributes with an unquoted value, in one element. */
+export function unquotedAttributesDocument() {
+  return rss(
+    `<title>T</title><x ${names(3_000_000)
+      .map((name) => `${name}=1`)
+      .join(" ")}/>`,
+  );
+}
+
+const withDescription = (markup) =>
+  rss(
+    `<title>T</title><item><title>t</title><guid>g</guid><description><![CDATA[${markup}]]></description></item>`,
+  );
+
+/** One entry whose markup holds millions of elements. */
+export function manyElementsDocument() {
+  return withDescription("<b>x</b>".repeat(2_500_000));
+}
+
+/** One entry whose markup nests millions of elements deep. */
+export function nestedElementsDocument() {
+  return withDescription("<div>".repeat(3_000_000));
+}

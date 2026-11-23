@@ -27,7 +27,7 @@ function repository(files: Record<string, string>): string {
   const folder = mkdtempSync(join(tmpdir(), "staged-paths-"));
   folders.push(folder);
   git(folder, "init", "-q", ".");
-  git(folder, "config", "user.email", "test@example.invalid");
+  git(folder, "config", "user.email", "fixture@example.com");
   git(folder, "config", "user.name", "test");
   write(folder, files);
   git(folder, "add", "-A");
