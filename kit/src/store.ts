@@ -70,7 +70,8 @@ export interface Kept {
    *  not among them is compared whole once it is followed again. */
   watched?: string[];
   /** For each kind's own type, the other types the owner's mappings have
-   *  landed its rows on, which a rewrite moves them back from. */
+   *  landed its rows on: a rewrite moves no row from a type another kind's
+   *  rows may be on, since Marfa does not say which kind wrote it. */
   landed?: Record<string, string[]>;
 }
 

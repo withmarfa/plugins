@@ -42,10 +42,8 @@ import {
   causeOf,
   retryAfterOf,
   conflictedCopyTag,
-  typeLevel,
   type Cause,
   type Edge,
-  type Key,
   type Marfa,
 } from "./marfa.js";
 import {
@@ -530,27 +528,24 @@ interface Rewritten {
   readonly unreached: string | undefined;
 }
 
-/** The types each kind's rows may be on besides its target: its own type,
- *  every type the kept mappings landed it on, and the last kept mapping's
- *  target. */
-function formerTypes<E extends SettingsDeclaration>(
+/** The types the kept state says each kind's rows were landed on besides
+ *  its own, the last kept mapping's target among them. */
+function landedTypes<E extends SettingsDeclaration>(
   connector: RunSetup<E>["connector"],
   kept: Kept | undefined,
 ): Map<string, Set<string>> {
-  const formers = new Map<string, Set<string>>();
+  const landed = new Map<string, Set<string>>();
   for (const kind of connector.types) {
-    const held = new Set([
-      kind.type.id,
-      ...(kept?.landed?.[kind.type.id] ?? []),
-    ]);
+    const held = new Set(kept?.landed?.[kind.type.id] ?? []);
     const last =
       kind.name === undefined
         ? undefined
         : kept?.mapping?.kinds[kind.name]?.target_type;
     if (last !== undefined) held.add(last);
-    formers.set(kind.type.id, held);
+    held.delete(kind.type.id);
+    landed.set(kind.type.id, held);
   }
-  return formers;
+  return landed;
 }
 
 /** The types the kept state says each kind's rows were landed on, besides
@@ -563,7 +558,7 @@ function landedAfter<E extends SettingsDeclaration>(
   emptied: ReadonlyMap<string, ReadonlySet<string>> | undefined,
 ): Record<string, string[]> | undefined {
   const landed: Record<string, string[]> = {};
-  for (const [own, types] of formerTypes(connector, kept)) {
+  for (const [own, types] of landedTypes(connector, kept)) {
     const planned = plan?.kinds.get(own);
     if (planned !== undefined && planned.off === undefined)
       types.add(planned.target);
@@ -576,14 +571,15 @@ function landedAfter<E extends SettingsDeclaration>(
 
 /**
  * Carries out each rewrite the owner asked for: every row a kind wrote, on
- * its own type or on any type a kept mapping landed it on, under the
- * connector's source and outside the bin, is moved to the kind's target,
- * its fields the target lacks cleared. A request is cleared only once each
- * of its kinds is done; one a row refused, whose target is gone or that is
- * turned off waits for a later run, and a condition says why. A former type
- * the key is not shown to reach, by its type map, the mapping or a row
- * listed there, keeps the request open and the run from starting, since its
- * rows can be neither moved nor written.
+ * each type the request's `from` names for the kind, under the connector's
+ * source and outside the bin, is moved to the kind's target, its fields the
+ * target lacks cleared. A request is cleared only once each of its kinds is
+ * done; one a row refused, whose target is gone or that is turned off waits
+ * for a later run, and a condition says why. So does one whose rows are on a
+ * type another kind's rows may be on too: Marfa does not say which kind
+ * wrote an item, so the kit moves none it cannot tell apart. A type the key
+ * is refused listing keeps the request open and the run from starting,
+ * since its rows can be neither moved nor written.
  */
 async function carryOutRewrites<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
@@ -594,21 +590,26 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
   conditions: Map<string, string>,
 ): Promise<Rewritten> {
   const { connector, marfa, logger } = setup;
-  const formers = formerTypes(connector, kept);
+  const landed = landedTypes(connector, kept);
   const emptied = new Map<string, Set<string>>();
   const unreachedAll: string[] = [];
-  let key: Key | undefined;
-  const reaches = async (type: string): Promise<boolean> => {
-    if (
-      Object.values(mapping.kinds).some(
-        (kind) => kind.enabled !== false && kind.target_type === type,
+  /** The other kinds whose rows may be on a type, by what the kit knows. */
+  const sharing = (type: string, own: string): string[] =>
+    connector.types
+      .filter(
+        (kind) =>
+          kind.type.id !== own &&
+          (kind.type.id === type ||
+            landed.get(kind.type.id)?.has(type) === true ||
+            (kind.name !== undefined &&
+              (mapping.kinds[kind.name]?.target_type === type ||
+                mapping.rewrites.some(
+                  (rewrite) =>
+                    kind.name !== undefined &&
+                    rewrite.from[kind.name]?.includes(type) === true,
+                )))),
       )
-    )
-      return true;
-    key ??= await marfa.currentKey();
-    const level = typeLevel(key, type);
-    return level === "read" || level === "write";
-  };
+      .map((kind) => kind.name ?? kind.type.id);
   for (const rewrite of mapping.rewrites) {
     const unfinished: string[] = [];
     const unreached: string[] = [];
@@ -629,7 +630,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         );
         continue;
       }
-      for (const former of formers.get(planned.own) ?? []) {
+      for (const former of rewrite.from[name] ?? []) {
         if (former === planned.target) continue;
         let listed: Item[] | undefined;
         try {
@@ -642,18 +643,22 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
           ))
             throw error;
         }
-        const rows = (listed ?? []).filter(
+        if (listed === undefined) {
+          unreached.push(
+            `the kind ${name}'s rows on ${former} cannot be moved to ${planned.target}, since the key does not reach ${former}, and Marfa must let the connector reach its own rows there while the rewrite is open`,
+          );
+          continue;
+        }
+        const rows = listed.filter(
           (row) =>
             row.type === former &&
             row.source === connector.source &&
             row.state !== "trashed",
         );
-        if (
-          listed === undefined ||
-          (rows.length === 0 && !(await reaches(former)))
-        ) {
-          unreached.push(
-            `the kind ${name}'s rows on ${former} cannot be moved to ${planned.target}, since the key does not reach ${former}, and Marfa must let the connector reach its own rows there while the rewrite is open`,
+        const others = rows.length > 0 ? sharing(former, planned.own) : [];
+        if (others.length > 0) {
+          unfinished.push(
+            `the kind ${name}'s rows on ${former} are not moved, since the rows of ${others.join(", ")} may be there too and Marfa does not say which kind wrote each`,
           );
           continue;
         }

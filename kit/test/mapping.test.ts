@@ -4,6 +4,7 @@ import { start } from "./installed.js";
 import {
   Harness,
   linkedType,
+  noteType,
   testConnector,
   testType,
   vendor,
@@ -324,6 +325,7 @@ describe("a rewrite back from a former target", () => {
   it("keeps the request open and fails the run, naming the kind and the former type, where Marfa does not let the key reach it", async () => {
     const held = vendor([one, two]);
     const ids = await mappedBack(held);
+    harness.server.withheldReach.add(target);
     expect(await quiet(held)).not.toBe(0);
     for (const id of ids) expect(harness.server.byId(id).type).toBe(target);
     expect(harness.server.rewritesDone).toEqual([1]);
@@ -340,7 +342,6 @@ describe("a rewrite back from a former target", () => {
   it("moves the rows back from the former target and clears the request where Marfa lets the key reach it", async () => {
     const held = vendor([one, two]);
     const ids = await mappedBack(held);
-    harness.server.formerReach.add(target);
     expect(await quiet(held), harness.lines.join("\n")).toBe(0);
     for (const id of ids)
       expect(harness.server.byId(id).type).toBe(linkedType.id);
@@ -358,11 +359,133 @@ describe("a rewrite back from a former target", () => {
     const held = vendor([one, two]);
     const ids = await mappedBack(held);
     mapTo("common.ticket.bug", { version: 2 });
-    harness.server.formerReach.add(target);
     expect(await quiet(held), harness.lines.join("\n")).toBe(0);
     for (const id of ids)
       expect(harness.server.byId(id).type).toBe("common.ticket.bug");
     expect(harness.server.rewritesDone).toEqual([1, 2]);
+  });
+
+  it("moves the rows back from the types Marfa names, where the kit kept no record of landing them there", async () => {
+    const held = vendor([one, two]);
+    expect(await harness.twoWay(held)).toBe(0);
+    const ids = [harness.server.row("a:1").id, harness.server.row("a:2").id];
+    // Moved by a server that kept no record, as one upgraded from before
+    // `from` was answered: the owner saves the mapping onto the type and
+    // back, so that Marfa records it as one the kind was mapped onto.
+    for (const id of ids) harness.server.byId(id).type = target;
+    mapTo(target);
+    harness.server.saveMapping();
+    mapTo(linkedType.id, { version: 2 });
+    harness.server.mapping.rewrites = [
+      {
+        number: 5,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T10:00:00.000Z",
+      },
+    ];
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    for (const id of ids)
+      expect(harness.server.byId(id).type).toBe(linkedType.id);
+    expect(harness.server.rewritesDone).toEqual([5]);
+    expect(harness.lastRun().outcome).toBe("succeeded");
+  });
+
+  it("clears a request whose former type holds only rows in the bin", async () => {
+    harness.server.installType({
+      id: "common.ticket.bug",
+      label: "Bug",
+      parent: "common.ticket",
+      fields: {},
+    });
+    mapTo(target);
+    const held = vendor([one, two]);
+    expect(await harness.twoWay(held)).toBe(0);
+    const ids = [harness.server.row("a:1").id, harness.server.row("a:2").id];
+    for (const id of ids) {
+      expect(harness.server.byId(id).type).toBe(target);
+      harness.server.trash(id);
+    }
+    held.entries = [];
+    mapTo("common.ticket.bug", { version: 2 });
+    harness.server.mapping.rewrites = [
+      {
+        number: 6,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-09-25T11:00:00.000Z",
+      },
+    ];
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    for (const id of ids) expect(harness.server.byId(id).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([6]);
+    expect(harness.lastRun().outcome).toBe("succeeded");
+  });
+
+  it("moves no row from a type another kind's rows were landed on too, and keeps the request open saying why", async () => {
+    harness.server.installType({
+      id: "common.ticket.bug",
+      label: "Bug",
+      parent: "common.ticket",
+      fields: {},
+    });
+    harness.server.types.set(noteType.id, { ...noteType });
+    harness.server.grants.type_permissions = {
+      [linkedType.id]: "write",
+      [noteType.id]: "write",
+    };
+    const note: Entry = {
+      source_id: "n:1",
+      properties: { title: "Note", vendor_id: "n1" },
+    };
+    const held = { ...vendor([one]), notes: [note] };
+    expect(await harness.twoWay(held)).toBe(0);
+    const entry = harness.server.row("a:1").id;
+    const noted = harness.server.row("n:1").id;
+    const ask = (number: number, kinds: string[]): void => {
+      harness.server.mapping.rewrites = [
+        {
+          number,
+          version: harness.server.mapping.version,
+          kinds,
+          requested_at: "2026-09-25T09:00:00.000Z",
+        },
+      ];
+    };
+    // The entry is moved onto the target and on to a third type; with the
+    // kit's own record alone, its row would go back from the target.
+    mapTo(target);
+    ask(1, ["entry"]);
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(entry).type).toBe(target);
+    harness.server.mapping.version = 2;
+    harness.server.mapping.kinds["entry"] = {
+      enabled: true,
+      target_type: "common.ticket.bug",
+    };
+    harness.server.mapping.kinds["note"] = {
+      enabled: true,
+      target_type: target,
+    };
+    ask(2, ["note"]);
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(noted).type).toBe(target);
+    // Both kinds' rows are on the target now, and both kinds leave it.
+    harness.server.mapping.version = 3;
+    harness.server.mapping.kinds["note"] = {
+      enabled: true,
+      target_type: noteType.id,
+    };
+    ask(3, ["entry", "note"]);
+    held.entries = [];
+    held.notes = [];
+    expect(await quiet(held), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(entry).type).toBe(target);
+    expect(harness.server.byId(noted).type).toBe(target);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    expect(harness.problems()["rewrite:3"]).toContain(
+      `the kind entry's rows on ${target} are not moved, since the rows of note may be there too`,
+    );
   });
 
   it("fails a run whose every write is refused because its rows are out of the key's reach", async () => {

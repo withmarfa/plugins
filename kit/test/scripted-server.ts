@@ -469,6 +469,13 @@ export class ScriptedServer {
       requested_at: string;
     }[];
   } = { version: 0, kinds: {}, rewrites: [] };
+  /** Each kind's own type, by name, as the plugin's manifest names it. */
+  kindTypes: Record<string, string> = {};
+  /** The types each kind was mapped onto before, by name, as Marfa keeps
+   *  them when a saved mapping moves a kind off one. */
+  readonly formerTargets = new Map<string, Set<string>>();
+  /** Each kind's target type as the last saved mapping held it. */
+  private readonly savedTargets = new Map<string, string>();
   mappingReads = 0;
   /** What the owner chose for the connector, as its control door answers it. */
   control: { paused: boolean; run_requested_at: string | null } = {
@@ -492,10 +499,9 @@ export class ScriptedServer {
   readonly previewAnswers: { id: string; body: Record<string, unknown> }[] = [];
   /** The numbers of the rewrites the connector cleared, in order. */
   readonly rewritesDone: number[] = [];
-  /** Types the key reaches beyond its type map and the mapping, as Marfa
-   *  would let a connector reach its rows on a former target while a
-   *  rewrite is open. */
-  readonly formerReach = new Set<string>();
+  /** Former target types the key is not let reach while a rewrite is
+   *  open, as a server that does not open that reach answers them. */
+  readonly withheldReach = new Set<string>();
   /** The key is refused as a revoked one is: 401 at every door. */
   revoked = false;
   /** The registration is gone: every door under it answers 404 until the
@@ -840,6 +846,86 @@ export class ScriptedServer {
   touch(sourceId: string, properties: Record<string, unknown>): void {
     const row = this.row(sourceId);
     this.write(row, { ...row.properties, ...properties });
+  }
+
+  /** The owner saves the mapping as it now stands: a kind moved off a type
+   *  that is no kind's own type keeps it as one it was mapped onto before,
+   *  until a save makes it the kind's target again. The mapping door saves
+   *  what a test set before answering. */
+  saveMapping(): void {
+    const owns = new Set(Object.values(this.kindTypes));
+    for (const [name, kind] of Object.entries(this.mapping.kinds)) {
+      const target = kind.target_type ?? this.kindTypes[name];
+      if (target === undefined) continue;
+      const before = this.savedTargets.get(name) ?? this.kindTypes[name];
+      const formers = this.formerTargets.get(name) ?? new Set<string>();
+      if (before !== undefined && before !== target && !owns.has(before))
+        formers.add(before);
+      formers.delete(target);
+      this.formerTargets.set(name, formers);
+      this.savedTargets.set(name, target);
+    }
+  }
+
+  /** The types a rewrite moves each of its kinds' items from: its own type
+   *  and each it was mapped onto before, other than its target, and none
+   *  for a kind that is off. */
+  private rewriteFrom(kinds: readonly string[]): Record<string, string[]> {
+    return Object.fromEntries(
+      kinds.map((name) => {
+        const kind = this.mapping.kinds[name];
+        if (kind?.enabled === false) return [name, []];
+        const target = kind?.target_type ?? this.kindTypes[name];
+        const own = this.kindTypes[name];
+        const types = new Set([
+          ...(own === undefined ? [] : [own]),
+          ...(this.formerTargets.get(name) ?? []),
+        ]);
+        if (target !== undefined) types.delete(target);
+        return [name, [...types].sort()];
+      }),
+    );
+  }
+
+  private pendingRewrites(): unknown[] {
+    return this.mapping.rewrites.map((rewrite) => ({
+      ...structuredClone(rewrite),
+      from: this.rewriteFrom(rewrite.kinds),
+    }));
+  }
+
+  /** Whether an open rewrite lets the key move its own item off a type
+   *  that kind was mapped onto before, onto the kind's target. */
+  private movesOnto(row: Row, type: string): boolean {
+    return (
+      row.source === this.source &&
+      this.formerlyMapped(row.type) &&
+      this.mapping.rewrites.some((rewrite) =>
+        rewrite.kinds.some((name) => {
+          const kind = this.mapping.kinds[name];
+          return (
+            kind?.enabled !== false &&
+            this.formerTargets.get(name)?.has(row.type) === true &&
+            (kind?.target_type ?? this.kindTypes[name]) === type
+          );
+        }),
+      )
+    );
+  }
+
+  /** Whether an open rewrite names an enabled kind mapped onto the type
+   *  before, which lets the key read and list its own items there. */
+  private formerlyMapped(type: string): boolean {
+    return (
+      !this.withheldReach.has(type) &&
+      this.mapping.rewrites.some((rewrite) =>
+        rewrite.kinds.some(
+          (name) =>
+            this.mapping.kinds[name]?.enabled !== false &&
+            this.formerTargets.get(name)?.has(type) === true,
+        ),
+      )
+    );
   }
 
   rewrite(
@@ -1579,7 +1665,11 @@ export class ScriptedServer {
     ) {
       if (method === "GET" && parts.length === 4) {
         this.mappingReads += 1;
-        send(200, structuredClone(this.mapping));
+        this.saveMapping();
+        send(200, {
+          ...structuredClone(this.mapping),
+          rewrites: this.pendingRewrites(),
+        });
         return;
       }
       if (method === "POST" && parts[4] === "rewrite" && parts[5] === "done") {
@@ -1588,7 +1678,7 @@ export class ScriptedServer {
         this.mapping.rewrites = this.mapping.rewrites.filter(
           (rewrite) => rewrite.number !== number,
         );
-        send(200, { rewrites: structuredClone(this.mapping.rewrites) });
+        send(200, { rewrites: this.pendingRewrites() });
         return;
       }
     }
@@ -3085,7 +3175,7 @@ export class ScriptedServer {
       )
     )
       return "write";
-    if (this.formerReach.has(type)) return "write";
+    if (this.formerlyMapped(type)) return "read";
     const level = resolve(
       this.grants.type_permissions ?? this.minted.type_permissions,
       type,
@@ -3254,7 +3344,11 @@ export class ScriptedServer {
       refuse(404, "item_not_found");
       return;
     }
-    if (this.permission(row.type) !== "write") {
+    const moving =
+      input["retype"] === true &&
+      typeof input["type"] === "string" &&
+      this.movesOnto(row, input["type"]);
+    if (!moving && this.permission(row.type) !== "write") {
       refuse(
         403,
         "type_not_permitted",
