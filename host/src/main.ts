@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   install,
   logs,
+  ownRun,
   Refused,
   run,
   status,
@@ -158,6 +159,7 @@ async function main(args: string[]): Promise<number> {
     case "uninstall": {
       if (!known(["--yes"], 0)) return 2;
       const service = serviceHere();
+      ownRun(home, service);
       const plan = uninstallPlan(home, service);
       if (plan.length === 0) {
         io.out("Nothing to remove: the host is not installed here.");

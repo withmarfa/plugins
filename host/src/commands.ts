@@ -49,7 +49,10 @@ const runEndsMs = 75_000;
  * `run` it would not stop uses it, since that one would go on with the old
  * key or write into a folder that was removed.
  */
-function ownRun(home: Home, service: Service | undefined): number | undefined {
+export function ownRun(
+  home: Home,
+  service: Service | undefined,
+): number | undefined {
   const pid = holder(home.lock);
   if (pid !== undefined && service?.pid() !== pid)
     throw new Refused(
