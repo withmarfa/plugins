@@ -43,8 +43,7 @@ const jumpMs = 30 * second;
 
 /** How long after its start a connector is not signalled: until the kit
  *  listens for the wake signal, the signal ends the process. A run asked for
- *  then is still run, since the kit reads the request as its first run
- *  starts. */
+ *  then waits, and is signalled once this is over. */
 const settlingMs = 5 * second;
 
 /** How long a connector has to stop after `SIGTERM` before `SIGKILL`. */
@@ -448,20 +447,13 @@ export class Supervisor {
       const waiting =
         !current && slot.codeRetryAt !== undefined && now < slot.codeRetryAt;
       if (current || waiting) {
-        if (asked) {
-          slot.actedRequest = request;
-          if (this.wake(slot, now))
-            this.log(`${plugin}: the owner asked for a run, so it was woken`);
-        }
+        if (asked) this.wakeFor(slot, request, now);
         return;
       }
       const file = await this.fetchCode(slot, code);
       if (file === undefined) {
-        if (asked && slot.running === running) {
-          slot.actedRequest = request;
-          if (this.wake(slot, this.now()))
-            this.log(`${plugin}: the owner asked for a run, so it was woken`);
-        }
+        if (asked && slot.running === running)
+          this.wakeFor(slot, request, this.now());
         return;
       }
       await this.stopChild(
@@ -484,16 +476,23 @@ export class Supervisor {
     await this.start(slot, file, code, request);
   }
 
-  /**
-   * Sends the wake signal to a running connector past its first moments, and
-   * answers whether it was sent or the connector will read the request as
-   * its first run starts.
-   */
+  /** Sends the wake signal to a running connector past its first moments,
+   *  answering whether it was sent. */
   private wake(slot: Slot, now: number): boolean {
     const running = slot.running;
     if (running === undefined || running.stopping) return false;
-    if (now - running.startedAt >= settlingMs) running.child.signal(wakeSignal);
+    if (now - running.startedAt < settlingMs) return false;
+    running.child.signal(wakeSignal);
     return true;
+  }
+
+  /** Wakes the running connector for the owner's run request, which stays
+   *  pending until the signal is sent: each step tries it again, and a start
+   *  first acts on it. */
+  private wakeFor(slot: Slot, request: string, now: number): void {
+    if (!this.wake(slot, now)) return;
+    slot.actedRequest = request;
+    this.log(`${slot.plugin}: the owner asked for a run, so it was woken`);
   }
 
   private lifted(
