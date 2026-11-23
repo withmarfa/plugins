@@ -1,4 +1,11 @@
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmdirSync,
+  rmSync,
+} from "node:fs";
+import { dirname } from "node:path";
 import { spawnConnector } from "./child.js";
 import { CodeStore, type Transport } from "./code.js";
 import { readIfThere, writeSecret, writeWhole } from "./files.js";
@@ -44,6 +51,13 @@ export class Refused extends Error {
  *  and some more. */
 const runEndsMs = 75_000;
 
+/** How `install` and `uninstall` wait for a stopped `run` to let the folder
+ *  go: a clock that only moves forward, and how long. */
+export interface FolderWait {
+  monotonic?: () => number;
+  ms?: number;
+}
+
 /**
  * The `run` that uses the folder, which `service` would stop: refused when a
  * `run` it would not stop uses it, since that one would go on with the old
@@ -61,26 +75,48 @@ export function ownRun(
   return pid;
 }
 
-/** Takes the folder's run lock, waiting for a stopped `run` to let it go,
- *  so no `run` starts while the folder changes. */
-async function folderLock(home: Home): Promise<Lock> {
-  const until = Date.now() + runEndsMs;
+/** Takes the folder's run lock, waiting for a stopped `run` to let it go, so
+ *  no `run` starts while the folder changes. `then` says what to run once
+ *  the `run` that holds it is stopped. */
+async function folderLock(
+  home: Home,
+  wait: FolderWait,
+  then: string,
+): Promise<Lock> {
+  const now = wait.monotonic ?? (() => performance.now());
+  const until = now() + (wait.ms ?? runEndsMs);
   for (;;) {
     const taken = takeLock(home.lock);
     if ("lock" in taken) return taken.lock;
-    if (Date.now() > until)
+    if (now() > until)
       throw new Refused(
-        `Stop the running host first: marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} still uses ${home.root}.`,
+        `Stop the running host first: marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} still uses ${home.root}. Once it has stopped, run ${then}.`,
       );
     await new Promise((done) => setTimeout(done, 200));
   }
 }
 
+/** Removes the folders `mkdirSync` made, from `root` up to `made`, where
+ *  nothing else was put in them. */
+function unmake(root: string, made: string | undefined): void {
+  if (made === undefined) return;
+  for (let folder = root; ; folder = dirname(folder)) {
+    try {
+      rmdirSync(folder);
+    } catch {
+      return;
+    }
+    if (folder === made || dirname(folder) === folder) return;
+  }
+}
+
 /**
  * Redeems the link, keeps the host's identity and key, and starts the
- * service. Nothing is written until Marfa took the link. Linking again
- * replaces the identity and forgets every connector's key and code, which the
- * new link made worthless.
+ * service. Redeeming ends the old key and gives the new one only in its
+ * answer, so the link is redeemed only once this process holds the folder's
+ * lock, with the service stopped: a failure before then leaves everything as
+ * it was, the link unused. Linking again replaces the identity and forgets
+ * every connector's key and code, which the new link made worthless.
  */
 export async function install(
   home: Home,
@@ -88,12 +124,35 @@ export async function install(
   io: Io,
   service: { service: Service; program: Program } | undefined,
   send: typeof fetch = fetch,
+  wait: FolderWait = {},
 ): Promise<void> {
   const { origin, code } = parseLink(link);
   const running = ownRun(home, service?.service);
-  const redeemed = await redeem(origin, code, send);
-  if (running !== undefined) service?.service.stop();
-  const lock = await folderLock(home);
+  const stopped =
+    service !== undefined &&
+    (running !== undefined || existsSync(service.service.file));
+  if (stopped) service.service.stop();
+  const made = mkdirSync(home.root, { recursive: true, mode: 0o700 });
+  let lock: Lock | undefined;
+  let redeemed: Awaited<ReturnType<typeof redeem>>;
+  try {
+    lock = await folderLock(
+      home,
+      wait,
+      "marfa-connector-host install again with the same link, which was not used",
+    );
+    redeemed = await redeem(origin, code, send);
+  } catch (error) {
+    lock?.release();
+    unmake(home.root, made);
+    if (stopped)
+      try {
+        service.service.start();
+      } catch (again) {
+        io.err(again instanceof Error ? again.message : String(again));
+      }
+    throw error;
+  }
   try {
     rmSync(home.connectors, { recursive: true, force: true });
     writeSecret(home.hostKey, redeemed.key);
@@ -289,17 +348,28 @@ export function uninstallPlan(
   ];
 }
 
+/** Stops the service, waits for its `run` to let the folder go, and only
+ *  then removes the service's file and the folder. */
 export async function uninstall(
   home: Home,
   service: Service | undefined,
+  wait: FolderWait = {},
 ): Promise<void> {
   ownRun(home, service);
-  service?.remove();
-  if (!existsSync(home.root)) return;
-  const lock = await folderLock(home);
-  try {
-    rmSync(home.root, { recursive: true, force: true });
-  } finally {
-    lock.release();
+  service?.stop();
+  if (existsSync(home.root)) {
+    const lock = await folderLock(
+      home,
+      wait,
+      "marfa-connector-host uninstall again",
+    );
+    try {
+      service?.remove();
+      rmSync(home.root, { recursive: true, force: true });
+    } finally {
+      lock.release();
+    }
+    return;
   }
+  service?.remove();
 }

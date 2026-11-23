@@ -30,7 +30,10 @@ out. With `--no-service`, it installs no service, and you run
 new link replaces the host's identity and deletes every connector's key and
 code. While a `run` the service doesn't own uses the host's folder, `install`
 and `uninstall` refuse with "Stop the running host first"; the service's own
-`run` they stop themselves.
+`run` they stop themselves. Either one waits for that `run` to stop before it
+uses the link or removes anything. If it doesn't stop within 75 seconds,
+nothing changes: the link stays unused, `install` starts the service again,
+and the message says what to run once the `run` has stopped.
 
 ## Status, logs and uninstall
 
@@ -55,8 +58,8 @@ on macOS, `$XDG_DATA_HOME/marfa/connector-host/` (by default
 
 - `host.json`: the Marfa address and the host's name and ID.
 - `host.key`: the host's own key, mode 600.
-- `run.lock`: the process ID of the `run` that uses the folder, so only one
-  does.
+- `run.lock`: the process ID of the `run` that uses the folder and the boot
+  it started in, so only one does.
 - `status.json`: what `status` prints, mode 600, present only while `run` is
   going.
 - `connectors/<plugin>/key`: each connector's key, mode 600.
