@@ -192,26 +192,46 @@ function switchCurrent(root: string, version: string): void {
 
 /** `.<version>.aside`: an installed copy moved aside while it is replaced. */
 const asideName = /^\.(\d+\.\d+\.\d+)\.aside$/;
-/** `.<version>.discard`: a copy moved out of the way to be deleted. */
-const discardName = /^\.\d+\.\d+\.\d+\.discard$/;
+/** `.discard-<random>`: a copy moved out of the way to be deleted. */
+const discardName = /^\.discard-[0-9a-f]+$/;
 /** `.stage-<pid>-<random>`: the folder one installer stages into. */
 const stageName = /^\.stage-(\d+)-/;
 
-/** Deletes `path`; one that will not go is left for the next `recover`. */
-function discard(path: string): void {
+/** A name in `dir` that no release, copy set aside or other discard holds. */
+function discardPath(dir: string): string {
+  return join(dir, `.discard-${randomBytes(6).toString("hex")}`);
+}
+
+/** Deletes `path` in place; one that will not go is left for the next `recover`. */
+function remove(path: string): void {
   try {
     rmSync(path, { recursive: true, force: true });
   } catch {
-    // Its name keeps it out of every release.
+    // Its name is never a release's or a copy set aside's.
   }
 }
 
 /**
+ * Renames `path` to a discard name, then deletes it, so a delete that stops
+ * part way never leaves a partial copy under a name `recover` puts back. One
+ * that cannot be renamed stays whole where it is.
+ */
+function discard(dir: string, path: string): void {
+  const going = discardPath(dir);
+  try {
+    renameSync(path, going);
+  } catch {
+    return;
+  }
+  remove(going);
+}
+
+/**
  * What a stopped installer left, cleared under the update lock. Only a
- * rename puts a tree at `versions/<version>`, so one there is whole: a copy
- * set aside goes when one is there and goes back when none is. A copy to
- * discard goes, and a staging folder goes once the process that made it is
- * gone.
+ * rename puts a tree at `versions/<version>` or at a copy set aside, so one
+ * there is whole: a copy set aside goes when one is there and goes back when
+ * none is. A copy to discard goes, and a staging folder goes once the process
+ * that made it is gone.
  */
 function recover(dir: string): void {
   const names = readdirSync(dir);
@@ -219,16 +239,16 @@ function recover(dir: string): void {
     const aside = asideName.exec(name);
     if (aside?.[1] === undefined) continue;
     const dest = join(dir, aside[1]);
-    if (existsSync(dest)) discard(join(dir, name));
+    if (existsSync(dest)) discard(dir, join(dir, name));
     else renameSync(join(dir, name), dest);
   }
   for (const name of names) {
     if (discardName.test(name)) {
-      discard(join(dir, name));
+      remove(join(dir, name));
       continue;
     }
     const pid = Number(stageName.exec(name)?.[1]);
-    if (pid > 0 && pid !== process.pid && !alive(pid)) discard(join(dir, name));
+    if (pid > 0 && pid !== process.pid && !alive(pid)) remove(join(dir, name));
   }
 }
 
@@ -250,17 +270,7 @@ function pruneVersions(root: string, keep: (string | undefined)[]): void {
     heldVersion(new Home(root).lock),
   ]);
   for (const name of names) {
-    if (kept.has(name)) continue;
-    // One rename takes the copy out of `versions/<name>`, so a stop part way
-    // through the delete never leaves a partial copy there.
-    const going = join(dir, `.${name}.discard`);
-    discard(going);
-    try {
-      renameSync(join(dir, name), going);
-    } catch {
-      continue;
-    }
-    discard(going);
+    if (!kept.has(name)) discard(dir, join(dir, name));
   }
 }
 
@@ -348,13 +358,13 @@ async function placeRelease(placing: Placing): Promise<string> {
     try {
       switchCurrent(root, version);
     } catch (error) {
-      const failed = join(dir, `.${version}.discard`);
+      const failed = discardPath(dir);
       renameSync(dest, failed);
       if (had) renameSync(aside, dest);
-      discard(failed);
+      remove(failed);
       throw refuse(`Could not switch to ${version}: ${said(error)}.`);
     }
-    if (had) discard(aside);
+    if (had) discard(dir, aside);
     pruneVersions(root, [placing.running, version]);
     return version;
   } finally {

@@ -809,6 +809,55 @@ describe("a placement that stopped part way", () => {
     }
   });
 
+  it("undoes a failed switch when an earlier copy to discard would not go", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    await activate(root, "0.0.5", stageRelease(root, ".stage-1-a", "good"));
+    // What an older placement of 0.0.5 left and could not delete.
+    const left = stageRelease(root, ".0.0.5.discard", "left");
+    const stuck = join(left, "stuck");
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, "file"), "x");
+    chmodSync(stuck, 0o500);
+    rmSync(join(root, "current"));
+    mkdirSync(join(root, "current", "in-the-way"), { recursive: true });
+    try {
+      await expect(
+        activate(root, "0.0.5", stageRelease(root, ".stage-1-b", "newer")),
+      ).rejects.toThrow(/Could not switch to 0\.0\.5.*Nothing was changed\.$/);
+      expect(hostFile(root, "0.0.5")).toBe("good");
+    } finally {
+      chmodSync(stuck, 0o700);
+    }
+  });
+
+  it("never puts back a copy set aside that a delete stopped part way through", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    const first = stageRelease(root, ".stage-1-a", "first");
+    const stuck = join(first, "stuck");
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, "file"), "x");
+    chmodSync(stuck, 0o500);
+    try {
+      await activate(root, "0.0.5", first);
+      // Installing 0.0.5 again sets the first copy aside and deletes it,
+      // which stops at the folder that will not go.
+      await activate(root, "0.0.5", stageRelease(root, ".stage-1-b", "again"));
+      expect(leftovers(root).filter((name) => name.endsWith(".aside"))).toEqual(
+        [],
+      );
+      await activate(root, "0.0.6", stageRelease(root, ".stage-1-c", "6"));
+      await activate(root, "0.0.7", stageRelease(root, ".stage-1-d", "7"));
+      await activate(root, "0.0.8", stageRelease(root, ".stage-1-e", "8"));
+      expect(versionsOf(root)).toEqual(["0.0.7", "0.0.8"]);
+    } finally {
+      for (const name of readdirSync(join(root, "versions")))
+        if (existsSync(join(root, "versions", name, "stuck")))
+          chmodSync(join(root, "versions", name, "stuck"), 0o700);
+    }
+  });
+
   it("puts a copy set aside back when no copy took its place", async () => {
     const root = scratch();
     plant(root, ["0.0.1"], "0.0.1");
@@ -832,8 +881,8 @@ describe("a placement that stopped part way", () => {
     const root = scratch();
     plant(root, ["0.0.1"], "0.0.1");
     stageRelease(root, "0.0.7", "kept");
-    stageRelease(root, ".0.0.7.discard", "failed");
-    stageRelease(root, ".0.0.5.discard", "failed");
+    stageRelease(root, ".discard-0a1b2c", "failed");
+    stageRelease(root, ".discard-3d4e5f", "failed");
     stageRelease(root, ".0.0.5.aside", "set aside");
     await activate(root, "0.0.3", stageRelease(root, ".stage-1-a", "next"));
     expect(hostFile(root, "0.0.7")).toBe("kept");
