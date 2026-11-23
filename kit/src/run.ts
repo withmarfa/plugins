@@ -3,6 +3,7 @@ import {
   agreedState,
   carried,
   changedInMarfa,
+  held,
   laterThan,
   mark,
   noteWaiting,
@@ -533,37 +534,83 @@ function movedProperties(
   };
 }
 
-/** The kind's own fields of a row on another type: those of its newest
- *  version on the kind's own type, or none where it was never there. */
-async function ownFields(
+/** A row a rewrite moved off a type the kind was mapped onto before: as
+ *  the move left it, with what it held before and the kind's own fields it
+ *  was moved with. */
+interface Moved {
+  readonly item: Item;
+  readonly planned: KindPlan;
+  readonly own: Readonly<Record<string, unknown>>;
+  /** Each value a field held, newest first, the row before the move first. */
+  readonly past: readonly Readonly<Record<string, unknown>>[];
+}
+
+/** The row's versions, newest first, and the kind's own fields of the
+ *  newest on the kind's own type, or none where it was never there. */
+async function history(
   marfa: Marfa,
   row: Item,
   own: string,
-): Promise<Record<string, unknown> | undefined> {
-  let newest:
-    { version: number; properties: Record<string, unknown> } | undefined;
-  for (const version of await marfa.versions(row.id))
-    if (
-      version.type === own &&
-      (newest === undefined || version.version > newest.version)
-    )
-      newest = version;
-  return newest?.properties;
+): Promise<{
+  own: Record<string, unknown> | undefined;
+  past: Record<string, unknown>[];
+}> {
+  const versions = [...(await marfa.versions(row.id))].sort(
+    (a, b) => b.version - a.version,
+  );
+  return {
+    own: versions.find((version) => version.type === own)?.properties,
+    past: [row.properties, ...versions.map((version) => version.properties)],
+  };
 }
 
-/** Agrees each moved row's fields as they now stand, so the move carries
- *  nothing to the vendor: the vendor's next change to a row is written over
- *  what the move took from the row's past. */
+/**
+ * Brings each moved row to what the vendor last agreed, then agrees its
+ * fields as they stand, so the move carries nothing to the vendor. A field
+ * whose own value differs from the mark the vendor last agreed takes the
+ * newest value the row held under that name with that mark: it was changed
+ * while the row was on the other type. A field no past value matches keeps
+ * what the move gave it, until the vendor next changes it; the answer names
+ * each such field with the number of rows it holds an older value on.
+ */
 async function agreeMoved<E extends SettingsDeclaration>(
   setup: RunSetup<E>,
   plan: Plan,
-  moved: readonly Item[],
-): Promise<void> {
+  moved: readonly Moved[],
+): Promise<Map<string, number>> {
+  const older = new Map<string, number>();
   const store = new Store(setup.marfa, setup.connectorId, setup.process);
-  await store.fetch(moved.map((row) => row.id));
-  for (const row of moved) {
-    const agreement = store.get(row.id);
+  await store.fetch(moved.map((one) => one.item.id));
+  for (const one of moved) {
+    const agreement = store.get(one.item.id);
     if (agreement === undefined) continue;
+    let row = one.item;
+    const own: Record<string, unknown> = { ...one.own };
+    let fixed = false;
+    for (const [field, wanted] of Object.entries(agreement.vendor)) {
+      if (field.startsWith("@") || mark(held(own, field)) === wanted) continue;
+      const found = one.past.find(
+        (properties) =>
+          Object.hasOwn(properties, field) &&
+          mark(held(properties, field)) === wanted,
+      );
+      if (found === undefined) {
+        older.set(field, (older.get(field) ?? 0) + 1);
+        continue;
+      }
+      own[field] = held(found, field);
+      fixed = true;
+    }
+    if (fixed) {
+      const landed = movedProperties(one.planned, row, own).properties;
+      const changed = Object.fromEntries(
+        Object.entries(landed).filter(
+          ([field, value]) => mark(value) !== mark(held(row.properties, field)),
+        ),
+      );
+      if (Object.keys(changed).length > 0)
+        row = await setup.marfa.merge(row.id, row.version, changed);
+    }
     const view = plan.map.item(row).properties;
     const side = sideOf(Object.keys(view), view);
     const occurred = agreement.vendor[occurredKey];
@@ -577,6 +624,7 @@ async function agreeMoved<E extends SettingsDeclaration>(
     });
   }
   await store.flush();
+  return older;
 }
 
 /** What the rewrites a run carried out leave behind. */
@@ -676,7 +724,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
   for (const rewrite of mapping.rewrites) {
     const unfinished: string[] = [];
     const unreached: string[] = [];
-    const agreeing: Item[] = [];
+    const agreeing: Moved[] = [];
     let moved = 0;
     for (const name of rewrite.kinds) {
       const kind = connector.types.find((one) => one.name === name);
@@ -730,10 +778,11 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         for (const row of rows) {
           if (setup.signal.aborted) throw new Stopped();
           try {
-            const own =
+            const past =
               former === planned.own
-                ? row.properties
-                : await ownFields(marfa, row, planned.own);
+                ? undefined
+                : await history(marfa, row, planned.own);
+            const own = past === undefined ? row.properties : past.own;
             if (own === undefined) {
               left = true;
               unfinished.push(
@@ -751,7 +800,8 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
               landing.properties,
               landing.clear,
             );
-            if (former !== planned.own) agreeing.push(item);
+            if (past !== undefined)
+              agreeing.push({ item, own, past: past.past, planned });
             moved += 1;
           } catch (error) {
             if (ending.has(causeOf(error)) || causeOf(error) === "marfa")
@@ -767,8 +817,14 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         }
       }
     }
-    if (agreeing.length > 0) await agreeMoved(setup, plan, agreeing);
     const conditionKey = `rewrite:${String(rewrite.number)}`;
+    const older =
+      agreeing.length > 0 ? await agreeMoved(setup, plan, agreeing) : undefined;
+    if (older !== undefined && older.size > 0)
+      conditions.set(
+        `${conditionKey}:older`,
+        `the rewrite ${String(rewrite.number)} moved rows that hold values from before they were on another type, since the vendor changed them there under the mapping's own names: ${[...older].map(([field, rows]) => `${field} on ${String(rows)} ${rows === 1 ? "row" : "rows"}`).join(", ")}; each takes the vendor's value when the vendor next changes it`,
+      );
     if (unreached.length > 0) {
       const message = `the rewrite ${String(rewrite.number)} of ${rewrite.kinds.join(", ")} stays open and this run does not start: ${unreached.join("; ")}`;
       conditions.set(conditionKey, message);

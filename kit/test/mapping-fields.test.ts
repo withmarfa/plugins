@@ -378,6 +378,56 @@ describe("a rewrite back onto the kind's own type", () => {
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(given.changes).toEqual([]);
   });
+  it("keeps a change carried to the vendor while the row was on the target, and names a field it cannot take back", async () => {
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    mapFields({ ...standard, title: { from: "title" } });
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T00:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    harness.server.edit(id, { title: "One, edited", status: "backlog" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(
+      given.changes.map((change) => [
+        change.item.properties["title"],
+        change.item.properties["status"],
+      ]),
+    ).toEqual([["One, edited", "open"]]);
+    // The vendor holds the change now, and sends nothing it did not change.
+    given.entries = [];
+    harness.server.mapping.version = 2;
+    harness.server.mapping.kinds["entry"] = {
+      enabled: true,
+      target_type: ownType.id,
+    };
+    harness.server.mapping.rewrites = [
+      {
+        number: 2,
+        version: 2,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T01:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1, 2]);
+    const after = harness.server.byId(id);
+    expect(after.type).toBe(ownType.id);
+    expect(after.properties).toEqual({
+      ...one.properties,
+      title: "One, edited",
+    });
+    expect(harness.problems()["rewrite:2:older"]).toContain("status on 1 row");
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
 });
 
 describe("status words carried back", () => {
