@@ -51,8 +51,13 @@ function freshHome(): Home {
   return new Home(join(scratch(), "Connector Host"));
 }
 
-/** A service that records what it was asked, and loads nothing. */
-function recordingService(folder: string): Service & { calls: string[] } {
+/** A service that records what it was asked, and loads nothing. Its
+ *  process is `pid`, and stopping it runs `stopped`. */
+function recordingService(
+  folder: string,
+  pid?: number,
+  stopped: () => void = () => undefined,
+): Service & { calls: string[] } {
   const calls: string[] = [];
   const file = join(folder, "so.marfa.connector-host.plist");
   return {
@@ -63,9 +68,27 @@ function recordingService(folder: string): Service & { calls: string[] } {
       writeFileSync(file, "service");
       return [];
     },
+    stop() {
+      calls.push("stop");
+      stopped();
+    },
     remove() {
       calls.push("remove");
+      stopped();
     },
+    pid() {
+      return pid;
+    },
+  };
+}
+
+/** Holds the folder's run lock as a running `run` does, in this process. */
+function holdLock(home: Home): () => void {
+  mkdirSync(home.root, { recursive: true });
+  const taken = takeLock(home.lock);
+  if (!("lock" in taken)) throw new Error("the lock is held");
+  return () => {
+    taken.lock.release();
   };
 }
 
@@ -153,6 +176,58 @@ describe("installing the connector host", () => {
       undefined,
       () => Promise.resolve(redeemed("marfa_k1_second")),
     );
+    expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_second");
+    expect(existsSync(home.connectors)).toBe(false);
+  });
+
+  it("refuses while a run it would not stop uses the folder, and redeems nothing", async () => {
+    const home = await linked();
+    writeSecret(home.key("rss"), "marfa_k1_rss");
+    const release = holdLock(home);
+    let asked = 0;
+    const send: typeof fetch = () => {
+      asked += 1;
+      return Promise.resolve(redeemed("marfa_k1_second"));
+    };
+    const elsewhere = recordingService(scratch(), process.pid + 1);
+    for (const service of [
+      undefined,
+      { service: elsewhere, program: { args: ["/node"], home: undefined } },
+    ])
+      await expect(
+        install(
+          home,
+          "https://marfa.example.com/connect#two",
+          printed(),
+          service,
+          send,
+        ),
+      ).rejects.toThrow("Stop the running host first");
+    expect(asked).toBe(0);
+    expect(elsewhere.calls).toEqual([]);
+    expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_host_secret");
+    expect(readFileSync(home.key("rss"), "utf8")).toBe("marfa_k1_rss");
+    release();
+  });
+
+  it("stops the service's own run before it writes the new identity", async () => {
+    const home = await linked();
+    writeSecret(home.key("rss"), "marfa_k1_rss");
+    const release = holdLock(home);
+    let keyWhenStopped: string | undefined;
+    const service = recordingService(scratch(), process.pid, () => {
+      keyWhenStopped = readFileSync(home.hostKey, "utf8");
+      release();
+    });
+    await install(
+      home,
+      "https://marfa.example.com/connect#two",
+      printed(),
+      { service, program: { args: ["/node"], home: undefined } },
+      () => Promise.resolve(redeemed("marfa_k1_second")),
+    );
+    expect(service.calls).toEqual(["stop", "install /node"]);
+    expect(keyWhenStopped).toBe("marfa_k1_host_secret");
     expect(readFileSync(home.hostKey, "utf8")).toBe("marfa_k1_second");
     expect(existsSync(home.connectors)).toBe(false);
   });
@@ -434,6 +509,31 @@ describe("the connector host's status, logs and uninstall", () => {
     expect(io.lines.at(-1)).toBe("one\ntwo");
   });
 
+  it("refuses to uninstall while a run the service does not own uses the folder", async () => {
+    const home = await linked();
+    const release = holdLock(home);
+    const service = recordingService(scratch(), process.pid + 1);
+    for (const one of [undefined, service])
+      await expect(uninstall(home, one)).rejects.toThrow(
+        "Stop the running host first",
+      );
+    expect(service.calls).toEqual([]);
+    expect(existsSync(home.hostKey)).toBe(true);
+    release();
+    // The witness: once it has stopped, the folder goes.
+    await uninstall(home, service);
+    expect(existsSync(home.root)).toBe(false);
+  });
+
+  it("stops the service's own run, then removes the folder", async () => {
+    const home = await linked();
+    const release = holdLock(home);
+    const service = recordingService(scratch(), process.pid, release);
+    await uninstall(home, service);
+    expect(service.calls).toEqual(["remove"]);
+    expect(existsSync(home.root)).toBe(false);
+  });
+
   it("says what it removes, then removes the service and the whole folder", async () => {
     const home = await linked();
     writeSecret(home.key("rss"), "marfa_k1_rss");
@@ -443,7 +543,7 @@ describe("the connector host's status, logs and uninstall", () => {
       `the service, ${service.file}`,
       `the host's folder, with its key, its connectors' keys, their code and the logs: ${home.root}`,
     ]);
-    uninstall(home, service);
+    await uninstall(home, service);
     expect(service.calls).toEqual(["remove"]);
     expect(existsSync(home.root)).toBe(false);
     expect(uninstallPlan(home, undefined)).toEqual([]);

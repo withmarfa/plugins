@@ -16,7 +16,7 @@ import {
 import { Home, homeFolder, safePluginName } from "./home.js";
 import { LinkRefused } from "./link.js";
 import { RedeemRefused } from "./marfa.js";
-import { serviceFor } from "./service.js";
+import { serviceFor, ServiceRefused } from "./service.js";
 
 const usage = `marfa-connector-host: runs the connectors your Marfa assigns to this machine.
 
@@ -175,7 +175,7 @@ async function main(args: string[]): Promise<number> {
           return 1;
         }
       }
-      uninstall(home, service);
+      await uninstall(home, service);
       io.out(
         "Removed. The host is still listed in your Marfa: remove it with `marfa hosts remove <host>` so its connectors can run elsewhere.",
       );
@@ -198,7 +198,8 @@ try {
   if (
     error instanceof Refused ||
     error instanceof LinkRefused ||
-    error instanceof RedeemRefused
+    error instanceof RedeemRefused ||
+    error instanceof ServiceRefused
   ) {
     io.err(error.message);
   } else {

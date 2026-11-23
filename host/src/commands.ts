@@ -4,7 +4,7 @@ import { CodeStore, type Transport } from "./code.js";
 import { readIfThere, writeSecret, writeWhole } from "./files.js";
 import type { Home } from "./home.js";
 import { parseLink } from "./link.js";
-import { holder, takeLock } from "./lock.js";
+import { holder, takeLock, type Lock } from "./lock.js";
 import { CappedLog, hostLog } from "./log.js";
 import { hostApi, redeem } from "./marfa.js";
 import type { Program, Service } from "./service.js";
@@ -40,6 +40,39 @@ export class Refused extends Error {
   override name = "Refused";
 }
 
+/** How long a stopped service's `run` may take to end: its children's grace
+ *  and some more. */
+const runEndsMs = 75_000;
+
+/**
+ * The `run` that uses the folder, which `service` would stop: refused when a
+ * `run` it would not stop uses it, since that one would go on with the old
+ * key or write into a folder that was removed.
+ */
+function ownRun(home: Home, service: Service | undefined): number | undefined {
+  const pid = holder(home.lock);
+  if (pid !== undefined && service?.pid() !== pid)
+    throw new Refused(
+      `Stop the running host first: marfa-connector-host run, process ${String(pid)}, uses ${home.root}.`,
+    );
+  return pid;
+}
+
+/** Takes the folder's run lock, waiting for a stopped `run` to let it go,
+ *  so no `run` starts while the folder changes. */
+async function folderLock(home: Home): Promise<Lock> {
+  const until = Date.now() + runEndsMs;
+  for (;;) {
+    const taken = takeLock(home.lock);
+    if ("lock" in taken) return taken.lock;
+    if (Date.now() > until)
+      throw new Refused(
+        `Stop the running host first: marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} still uses ${home.root}.`,
+      );
+    await new Promise((done) => setTimeout(done, 200));
+  }
+}
+
 /**
  * Redeems the link, keeps the host's identity and key, and starts the
  * service. Nothing is written until Marfa took the link. Linking again
@@ -54,21 +87,28 @@ export async function install(
   send: typeof fetch = fetch,
 ): Promise<void> {
   const { origin, code } = parseLink(link);
+  const running = ownRun(home, service?.service);
   const redeemed = await redeem(origin, code, send);
-  rmSync(home.connectors, { recursive: true, force: true });
-  writeSecret(home.hostKey, redeemed.key);
-  writeWhole(
-    home.hostJson,
-    `${JSON.stringify(
-      {
-        origin,
-        id: redeemed.host.id,
-        name: redeemed.host.name,
-      } satisfies HostFile,
-      null,
-      2,
-    )}\n`,
-  );
+  if (running !== undefined) service?.service.stop();
+  const lock = await folderLock(home);
+  try {
+    rmSync(home.connectors, { recursive: true, force: true });
+    writeSecret(home.hostKey, redeemed.key);
+    writeWhole(
+      home.hostJson,
+      `${JSON.stringify(
+        {
+          origin,
+          id: redeemed.host.id,
+          name: redeemed.host.name,
+        } satisfies HostFile,
+        null,
+        2,
+      )}\n`,
+    );
+  } finally {
+    lock.release();
+  }
   io.out(`Linked as "${redeemed.host.name}" to ${origin}.`);
   io.out(`Files: ${home.root}`);
   if (service === undefined) {
@@ -246,7 +286,17 @@ export function uninstallPlan(
   ];
 }
 
-export function uninstall(home: Home, service: Service | undefined): void {
+export async function uninstall(
+  home: Home,
+  service: Service | undefined,
+): Promise<void> {
+  ownRun(home, service);
   service?.remove();
-  rmSync(home.root, { recursive: true, force: true });
+  if (!existsSync(home.root)) return;
+  const lock = await folderLock(home);
+  try {
+    rmSync(home.root, { recursive: true, force: true });
+  } finally {
+    lock.release();
+  }
 }
