@@ -102,7 +102,7 @@ function keptOf(value: unknown, problems: unknown): Kept {
           ([own, types]): [string, string[]][] =>
             Array.isArray(types) &&
             types.every((type) => typeof type === "string")
-              ? [[own, types as string[]]]
+              ? [[own, types]]
               : [],
         ),
       )

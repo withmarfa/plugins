@@ -212,9 +212,7 @@ const keptConditions = 200;
 /** The standing conditions as the summary names them: each message once,
  *  without its closing full stop, with the keys of every condition that
  *  says it. */
-function grouped(
-  standing: ReadonlyMap<string, string>,
-): Map<string, string[]> {
+function grouped(standing: ReadonlyMap<string, string>): Map<string, string[]> {
   const lines = new Map<string, string[]>();
   for (const [key, message] of standing) {
     const text = message.trim().replace(/\.+$/, "");
@@ -226,9 +224,7 @@ function grouped(
 }
 
 function line(text: string, keys: readonly string[]): string {
-  return keys.length > 1
-    ? `${text} (${String(keys.length)} conditions)`
-    : text;
+  return keys.length > 1 ? `${text} (${String(keys.length)} conditions)` : text;
 }
 
 function fitting(
@@ -252,8 +248,7 @@ function summarize(
 ): string {
   let summary = counts;
   for (const [text, keys] of grouped(standing)) {
-    if (keys.every((key) => shown.has(key)))
-      summary += `. ${line(text, keys)}`;
+    if (keys.every((key) => shown.has(key))) summary += `. ${line(text, keys)}`;
   }
   const more = standing.size - shown.size;
   if (more > 0) {
@@ -544,7 +539,10 @@ function formerTypes<E extends SettingsDeclaration>(
 ): Map<string, Set<string>> {
   const formers = new Map<string, Set<string>>();
   for (const kind of connector.types) {
-    const held = new Set([kind.type.id, ...(kept?.landed?.[kind.type.id] ?? [])]);
+    const held = new Set([
+      kind.type.id,
+      ...(kept?.landed?.[kind.type.id] ?? []),
+    ]);
     const last =
       kind.name === undefined
         ? undefined

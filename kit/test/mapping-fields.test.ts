@@ -154,7 +154,12 @@ describe("a kind's fields mapped onto the target's", () => {
     const { version, updated_at } = harness.server.row("a:1");
     mapFields(standard);
     expect(await quiet(held([doing])), harness.lines.join("\n")).toBe(0);
-    expect(harness.server.requestsTo("PATCH", "/items/" + harness.server.row("a:1").id)).toHaveLength(1);
+    expect(
+      harness.server.requestsTo(
+        "PATCH",
+        "/items/" + harness.server.row("a:1").id,
+      ),
+    ).toHaveLength(1);
     const after = harness.server.row("a:1");
     expect([after.version, after.updated_at]).toEqual([version, updated_at]);
     expect(harness.lastRun().summary).toMatch(/updated 0\b/);

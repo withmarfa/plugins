@@ -3302,7 +3302,7 @@ export class ScriptedServer {
       this.write(row, left, at);
       return false;
     };
-    let unchanged = false;
+    let unchanged: boolean;
     if (
       typeof sourceId === "string" &&
       this.rows.some(
