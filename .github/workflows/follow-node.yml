@@ -132,18 +132,16 @@ jobs:
           path: ${{ runner.temp }}/bump
 
       # The patch came from a job that ran code fetched from the network, so
-      # it may change the pin and nothing else.
+      # it may change the pin and nothing else. What it staged is checked
+      # after it is applied, path by path with no newline taken for a break
+      # between two, and before anything is committed, by a copy of the check
+      # made first, since the patch could change the script itself.
       - name: Apply the patch
         run: |
-          patch="${RUNNER_TEMP}/bump/bump.patch"
-          outside="$(git apply --numstat -z "${patch}" | tr '\0' '\n' | awk -F'\t' 'NF >= 3 { print $3 }' |
-            grep -Ev '^host/node\.json$' || true)"
-          if [[ -n "${outside}" ]]; then
-            echo "::error::The change touches paths other than the Node pin:"
-            echo "${outside}"
-            exit 1
-          fi
-          git apply --index "${patch}"
+          check="${RUNNER_TEMP}/only-staged-paths.sh"
+          cp scripts/only-staged-paths.sh "${check}"
+          git apply --index "${RUNNER_TEMP}/bump/bump.patch"
+          "${check}" host/node.json
 
       # Made only now. Contents write still reaches every branch and tag in
       # this repository, and nothing else in this job runs code it does not

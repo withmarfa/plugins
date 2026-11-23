@@ -406,7 +406,7 @@ The environment is `MARFA_API_URL`, `MARFA_API_KEY` and, optionally, the [teleme
 
 | Flag                      | Runs                                                                                                                                                                         |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--once`                  | One run, then exit, for launchd, cron or a scheduled container.                                                                                                              |
+| `--once`                  | One run, then exit.                                                                                                                                                          |
 | `--every <interval>`      | A long-lived process. The interval is a whole number with `s`, `m` or `h`, such as `30s`, `15m` or `1h`.                                                                     |
 | `--look-every <interval>` | After `--every`: how often the connector looks between runs (ten seconds by default). It is refused for a connector that neither receives webhooks nor carries changes back. |
 | `--setup`                 | Setup, once, by hand, for a connector with `setup`.                                                                                                                          |
@@ -495,18 +495,9 @@ Everything is redacted as it leaves the process, by the same rule as the log: `M
 
 Telemetry never fails or holds up a run. An export that takes longer than 1.5 seconds, retries included, is dropped, and the first export that fails is warned of once. When the process ends, including on SIGTERM or SIGINT, it sends what is waiting and gives up after at most 3 seconds. A malformed setting, or a signal's own endpoint without `OTEL_EXPORTER_OTLP_ENDPOINT`, stops the start with exit code 2, naming the setting and never its value, as the server refuses one. Failures found before telemetry starts, including a missing `MARFA_API_URL` or `MARFA_API_KEY`, are logged only.
 
-### Outside a host
+### The connector host
 
-The template holds two examples for running a connector without a host.
-
-- **launchd.** `template/launchd.plist.example` runs the connector `--once` at load and then every fifteen minutes (`RunAtLoad` and `StartInterval`), so the first run comes when `launchctl bootstrap` loads it, not one interval later. Copy it to `~/Library/LaunchAgents/`, give it a label and the real paths, and load it with `launchctl bootstrap gui/$(id -u) <plist>`. Its `ProgramArguments` start the connector under a secrets tool, so the key never sits in the plist. A webhook is acted on at the next run, within fifteen minutes. Run `--every` to act on one within seconds.
-- **A container.** `template/Dockerfile` builds an image that runs one connector `--every 15m`. It copies only the workspace's manifests and the kit's, the shared packages' and the connector's sources, so no other file in the checkout reaches the image. Build it from the repository root; its frozen install fetches the published client without a server checkout:
-
-  ```bash
-  docker build -f template/Dockerfile --build-arg CONNECTOR=<name> -t <name> .
-  ```
-
-  Pass `MARFA_API_URL` and `MARFA_API_KEY` with `-e`. The container needs no volume: a new one picks up where the last left off, from the state kept on the instance.
+A connector runs under the connector host.
 
 ## Converting content
 

@@ -1,72 +1,69 @@
-import { mkdtemp, rm, stat } from "node:fs/promises";
-import { afterEach, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
 import { stageContent } from "../src/content-staging.js";
 import { download, StorageLimitExceeded } from "../src/content.js";
 
-vi.mock("node:fs/promises", { spy: true });
 const signal = new AbortController().signal;
-async function directory() {
-  const created = vi.mocked(mkdtemp).mock.results.at(-1);
-  if (created?.type !== "return")
-    throw new Error("staging directory was not created");
-  return created.value;
-}
-afterEach(async () => {
-  for (const result of vi.mocked(mkdtemp).mock.results)
-    if (result.type === "return") {
-      const path = await result.value.catch(() => undefined);
-      if (path) await rm(path, { recursive: true, force: true });
-    }
-  vi.clearAllMocks();
-});
-
-it("cancels the vendor stream when a private staging directory cannot be created", async () => {
-  const failure = new Error("temporary storage is unavailable");
-  vi.mocked(mkdtemp).mockRejectedValueOnce(failure);
-  const cancel = vi.fn();
-  await expect(
-    stageContent(
-      { bytes: new ReadableStream({ cancel }), mime_type: "application/pdf" },
-      signal,
-    ),
-  ).rejects.toBe(failure);
-  expect(cancel).toHaveBeenCalledTimes(1);
-});
-
-it("replays a staged download after an earlier reader stops and cleans up open readers", async () => {
-  const bytes = new Uint8Array(200_000).fill(42);
-  const staged = await stageContent(
-    {
-      bytes: new ReadableStream({
-        start(controller) {
-          controller.enqueue(bytes);
-          controller.close();
-        },
-      }),
-      mime_type: "application/pdf",
+const stream = (...chunks: Uint8Array[]) =>
+  new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
     },
+  });
+
+it("replays a staged download for every attempt, after an earlier reader stops", async () => {
+  const bytes = new Uint8Array(200_000).fill(42);
+  const load = await stageContent(
+    { bytes: stream(bytes), mime_type: "application/pdf" },
     signal,
   );
-  const path = await directory();
-  expect((await stat(path)).mode & 0o777).toBe(0o700);
-  const first = await staged.load(signal);
+  const first = await load(signal);
   expect(first.bytes).toBeInstanceOf(ReadableStream);
   if (!(first.bytes instanceof ReadableStream))
     throw new Error("staged load did not stream");
   const reader = first.bytes.getReader();
   expect((await reader.read()).done).toBe(false);
   await reader.cancel();
-  const replay = await staged.load(signal);
+  const replay = await load(signal);
   expect(replay.mime_type).toBe("application/pdf");
   expect(
     new Uint8Array(await new Response(replay.bytes).arrayBuffer()),
   ).toEqual(bytes);
-  await staged.load(signal);
-  await staged.dispose();
-  await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
+  const again = await load(signal);
+  expect(new Uint8Array(await new Response(again.bytes).arrayBuffer())).toEqual(
+    bytes,
+  );
 });
 
-it("removes a partially staged file when a streamed resource exceeds its bound", async () => {
+it("keeps every chunk of a download in order, and holds bytes it was given whole", async () => {
+  const load = await stageContent(
+    {
+      bytes: stream(
+        new Uint8Array([1, 2]),
+        new Uint8Array([3]),
+        new Uint8Array([4, 5]),
+      ),
+      mime_type: "application/pdf",
+    },
+    signal,
+  );
+  expect(
+    new Uint8Array(
+      await new Response((await load(signal)).bytes).arrayBuffer(),
+    ),
+  ).toEqual(new Uint8Array([1, 2, 3, 4, 5]));
+  const whole = await stageContent(
+    { bytes: new Uint8Array([9, 8]), mime_type: "text/plain" },
+    signal,
+  );
+  expect(
+    new Uint8Array(
+      await new Response((await whole(signal)).bytes).arrayBuffer(),
+    ),
+  ).toEqual(new Uint8Array([9, 8]));
+});
+
+it("refuses a streamed resource that exceeds its bound, and keeps nothing of it", async () => {
   const content = await download(
     "https://readwise-assets.s3.amazonaws.com/fixture.pdf",
     signal,
@@ -74,33 +71,23 @@ it("removes a partially staged file when a streamed resource exceeds its bound",
       maxBytes: 512,
       fetch: () =>
         Promise.resolve(
-          new Response(
-            new ReadableStream({
-              start(controller) {
-                controller.enqueue(new Uint8Array(256));
-                controller.enqueue(new Uint8Array(257));
-                controller.close();
-              },
-            }),
-          ),
+          new Response(stream(new Uint8Array(256), new Uint8Array(257))),
         ),
     },
   );
   await expect(stageContent(content, signal)).rejects.toBeInstanceOf(
     StorageLimitExceeded,
   );
-  await expect(stat(await directory())).rejects.toMatchObject({
-    code: "ENOENT",
-  });
 });
 
-it("removes a partially staged file on cancellation", async () => {
+it("stops reading on cancellation and cancels the vendor stream", async () => {
   const controller = new AbortController();
   let started: () => void = () => undefined;
   const reading = new Promise<void>((resolve) => {
     started = resolve;
   });
   let pulls = 0;
+  let cancelled = false;
   const content = {
     bytes: new ReadableStream<Uint8Array>({
       pull(stream) {
@@ -110,6 +97,9 @@ it("removes a partially staged file on cancellation", async () => {
         }
         started();
         return new Promise<void>(() => undefined);
+      },
+      cancel() {
+        cancelled = true;
       },
     }),
     mime_type: "application/pdf",
@@ -121,7 +111,5 @@ it("removes a partially staged file on cancellation", async () => {
   await reading;
   controller.abort();
   await rejected;
-  await expect(stat(await directory())).rejects.toMatchObject({
-    code: "ENOENT",
-  });
+  expect(cancelled).toBe(true);
 });

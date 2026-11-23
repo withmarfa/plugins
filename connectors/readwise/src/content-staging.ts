@@ -1,70 +1,52 @@
-import { createReadStream, createWriteStream, type ReadStream } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import type { FileSource } from "@withmarfa/connector";
 
-/** Finish vendor reads outside the scoped write and replay bytes for each kit attempt. */
+/**
+ * Finishes a vendor read outside the scoped write and replays what it read,
+ * as a stream, for each attempt the kit makes. The bytes are held in memory,
+ * never written to a file, which the permission flags do not allow a
+ * connector; their size is what `download` already limits.
+ */
 export async function stageContent(
   content: Awaited<ReturnType<FileSource["load"]>>,
   signal: AbortSignal,
-): Promise<{ load: FileSource["load"]; dispose(): Promise<void> }> {
-  let directory: string;
-  try {
-    directory = await mkdtemp(join(tmpdir(), "readwise-content-"));
-  } catch (error) {
-    if (!(content.bytes instanceof Uint8Array))
-      await content.bytes.cancel().catch(() => undefined);
-    throw error;
-  }
-  const path = join(directory, "content");
-  const readers = new Set<ReadStream>();
-  const dispose = async () => {
-    await Promise.all(
-      [...readers].map(
-        (stream) =>
-          new Promise<void>((resolve) => {
-            if (stream.closed) {
-              resolve();
-              return;
-            }
-            stream.once("close", resolve);
-            stream.destroy();
-          }),
-      ),
-    );
-    await rm(directory, { recursive: true, force: true });
-  };
-  try {
-    const input =
-      content.bytes instanceof Uint8Array
-        ? Readable.from([content.bytes])
-        : Readable.fromWeb(content.bytes);
-    await pipeline(
-      input,
-      createWriteStream(path, { flags: "wx", mode: 0o600 }),
-      { signal },
-    );
-    signal.throwIfAborted();
-    return {
-      load(loadSignal) {
-        loadSignal.throwIfAborted();
-        const stream = createReadStream(path, { signal: loadSignal });
-        readers.add(stream);
-        stream.once("close", () => {
-          readers.delete(stream);
-        });
-        return Promise.resolve({
-          bytes: Readable.toWeb(stream) as ReadableStream<Uint8Array>,
-          mime_type: content.mime_type,
-        });
-      },
-      dispose,
+): Promise<FileSource["load"]> {
+  const chunks: Uint8Array[] = [];
+  if (content.bytes instanceof Uint8Array) {
+    chunks.push(content.bytes);
+  } else {
+    const reader = content.bytes.getReader();
+    // A read that never answers ends when the run is stopped.
+    const stop = (): void => {
+      void reader.cancel(signal.reason).catch(() => undefined);
     };
-  } catch (error) {
-    await dispose();
-    throw error;
+    signal.addEventListener("abort", stop, { once: true });
+    try {
+      for (;;) {
+        signal.throwIfAborted();
+        const read = await reader.read();
+        if (read.done) break;
+        chunks.push(read.value);
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", stop);
+    }
   }
+  signal.throwIfAborted();
+  return (loadSignal) => {
+    loadSignal.throwIfAborted();
+    let next = 0;
+    return Promise.resolve({
+      bytes: new ReadableStream<Uint8Array>({
+        pull(stream) {
+          const chunk = chunks[next++];
+          if (chunk === undefined) stream.close();
+          else stream.enqueue(chunk.slice());
+        },
+      }),
+      mime_type: content.mime_type,
+    });
+  };
 }

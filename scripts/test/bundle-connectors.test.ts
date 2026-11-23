@@ -261,46 +261,62 @@ describe("the kit's telemetry", () => {
 });
 
 describe("a worker", () => {
-  const worker = {
+  const main = {
     "connectors/c/dist/main.js": [
       'import { Worker } from "node:worker_threads";',
-      'const worker = new Worker(new URL("./double.js", import.meta.url), {',
-      "  workerData: 21,",
-      "});",
-      'worker.on("message", (value) => { console.log(value); });',
-    ].join("\n"),
-    "connectors/c/dist/double.js": [
-      'import { parentPort, workerData } from "node:worker_threads";',
-      "parentPort.postMessage(workerData * 2);",
+      'new Worker("console.log(42)", { eval: true });',
     ].join("\n"),
   };
 
   it.skipIf(!onPinnedNode)(
-    "is embedded and started from the bundle, which needs the flag that allows workers and nothing else",
+    "is refused under the permission flags, and starts without them",
     async () => {
-      const { file } = await bundled(worker);
-      expect(await started(file)).toBe("42\n");
-      // The witness: the flag is the one that lets it start.
-      await expect(
-        started(file, {
-          flags: permissionFlags(file).filter(
-            (flag) => flag !== "--allow-worker",
-          ),
-        }),
-      ).rejects.toThrow();
+      const file = join(await scratch(), "c-1.2.3.connector.mjs");
+      // The bundler refuses the code, so the file is made by hand here to
+      // show what the flags do with it.
+      await writeFile(file, main["connectors/c/dist/main.js"]);
+      await expect(started(file)).rejects.toThrow(/ERR_ACCESS_DENIED/);
+      // The witness: the same code, without the permission model, starts one.
+      expect(await started(file, { flags: [] })).toBe("42\n");
     },
   );
 
-  it("is refused when the code starts it in a form the bundle cannot embed", async () => {
-    const base = await repository({
-      "connectors/c/dist/main.js": [
-        'import { Worker } from "node:worker_threads";',
-        'new Worker("./double.js");',
-      ].join("\n"),
-    });
+  it("is refused when the code of a connector starts one", async () => {
+    const base = await repository(main);
     await expect(
       bundleConnector("c", "1.2.3", await scratch(), await readPin(), base),
-    ).rejects.toThrow(/starts a worker in a form the bundle cannot embed/);
+    ).rejects.toThrow(/imports node:worker_threads/);
+  });
+});
+
+describe("what a connector reads from the disk", () => {
+  it("is refused when its own code imports a module that writes files or starts a process", async () => {
+    for (const module of [
+      "node:fs",
+      "node:fs/promises",
+      "node:os",
+      "node:child_process",
+    ]) {
+      const base = await repository({
+        "connectors/c/dist/main.js": `import "${module}";`,
+      });
+      await expect(
+        bundleConnector("c", "1.2.3", await scratch(), await readPin(), base),
+        module,
+      ).rejects.toThrow(`imports ${module}`);
+    }
+  });
+
+  it("is not refused for a dependency, which the bundle may carry unused", async () => {
+    await expect(
+      bundled({
+        "connectors/c/dist/main.js": 'import "carried";',
+        "node_modules/carried/package.json":
+          '{"name":"carried","main":"index.js"}',
+        "node_modules/carried/index.js":
+          'import { tmpdir } from "node:os"; export const unused = () => tmpdir();',
+      }),
+    ).resolves.toBeDefined();
   });
 });
 
@@ -374,6 +390,34 @@ describe("what a bundle cannot carry", () => {
       await refusals({ "node_modules/other/index.js": {} as never }, base),
     ).toEqual([]);
   });
+});
+
+describe("Readwise content downloaded from a URL", () => {
+  it.skipIf(!onPinnedNode)(
+    "is held and replayed by the Readwise code in a bundle under the permission flags, which let it write no file",
+    async () => {
+      const dist = join(root, "connectors", "readwise", "dist");
+      const { file } = await bundled({
+        "connectors/c/dist/main.js": [
+          `import { download } from "${join(dist, "content.js")}";`,
+          `import { stageContent } from "${join(dist, "content-staging.js")}";`,
+          "const bytes = new Uint8Array(200_000).fill(42);",
+          "const signal = new AbortController().signal;",
+          'const content = await download("https://readwise-assets.s3.amazonaws.com/f.pdf", signal, {',
+          '  fetch: () => Promise.resolve(new Response(bytes, { headers: { "content-type": "application/pdf" } })),',
+          "});",
+          "const load = await stageContent(content, signal);",
+          "let total = 0;",
+          "for (let attempt = 0; attempt < 2; attempt++) {",
+          "  const loaded = await load(signal);",
+          "  total += (await new Response(loaded.bytes).arrayBuffer()).byteLength;",
+          "}",
+          "console.log(total);",
+        ].join("\n"),
+      });
+      expect(await started(file)).toBe("400000\n");
+    },
+  );
 });
 
 describe("the connectors of this repository, built", () => {
