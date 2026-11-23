@@ -51,8 +51,9 @@ and exits. The service starts the new one. `marfa-connector-host update` does
 this when you run it.
 
 A failed or stalled download, or a checksum that does not match, changes
-nothing. Only one update puts a release in place at a time. The two newest
-copies are kept, and so is the one that is running.
+nothing. Only one update puts a release in place at a time. An update keeps
+the two newest copies, the one `current` names and the one a running host
+uses, and deletes the others.
 
 Turn the daily check off or on again with:
 
@@ -97,8 +98,9 @@ on macOS, `$XDG_DATA_HOME/marfa/connector-host/` (by default
 - `host.json`: the Marfa address, the host's name and ID, and `"updates": false`
   when the daily check is off.
 - `host.key`: the host's own key, mode 600.
-- `run.lock`: the process ID of the `run` that uses the folder and the boot
-  it started in, so only one does.
+- `run.lock`: the process ID of the `run` that uses the folder, the boot it
+  started in and the release it runs, so only one does and no update deletes
+  that release.
 - `status.json`: what `status` prints, mode 600, present only while `run` is
   going.
 - `connectors/<plugin>/key`: each connector's key, mode 600.

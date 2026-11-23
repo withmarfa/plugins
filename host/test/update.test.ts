@@ -5,6 +5,7 @@ import {
 } from "node:http";
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -20,7 +21,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { run } from "../src/commands.js";
 import { writeSecret } from "../src/files.js";
 import { Home } from "../src/home.js";
-import { takeLock } from "../src/lock.js";
+import { heldVersion, takeLock } from "../src/lock.js";
 import { updateExit } from "../src/service.js";
 import {
   activateRelease,
@@ -757,6 +758,126 @@ describe("one update at a time", () => {
       ),
     ).rejects.toThrow(UpdateRefused);
     expect(readlinkSync(join(root, "current"))).toBe("versions/0.0.1");
+  });
+});
+
+/** Puts the copy staged at `stage` in place as `version`. */
+function activate(root: string, version: string, stage: string): Promise<void> {
+  return activateRelease(
+    root,
+    version,
+    pathToFileURL(join(stage, "lib", "host.mjs")).href,
+  );
+}
+
+function hostFile(root: string, name: string): string {
+  return readFileSync(join(root, "versions", name, "lib", "host.mjs"), "utf8");
+}
+
+describe("a placement that stopped part way", () => {
+  it("keeps the installed copy when undoing a failed switch cannot delete the new one", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    await activate(root, "0.0.5", stageRelease(root, ".stage-1-a", "good"));
+    rmSync(join(root, "current"));
+    mkdirSync(join(root, "current", "in-the-way"), { recursive: true });
+    const stage = stageRelease(root, ".stage-1-b", "newer");
+    // A folder whose contents cannot be removed stops a delete part way, as
+    // a crash would.
+    const stuck = join(stage, "stuck");
+    mkdirSync(stuck);
+    writeFileSync(join(stuck, "file"), "x");
+    chmodSync(stuck, 0o500);
+    const unstick = (): void => {
+      for (const name of readdirSync(join(root, "versions"))) {
+        const folder = join(root, "versions", name, "stuck");
+        if (existsSync(folder)) chmodSync(folder, 0o700);
+      }
+    };
+    try {
+      await expect(activate(root, "0.0.5", stage)).rejects.toThrow(
+        /Could not switch to 0\.0\.5.*Nothing was changed\.$/,
+      );
+      expect(hostFile(root, "0.0.5")).toBe("good");
+      rmSync(join(root, "current"), { recursive: true });
+      symlinkSync(join("versions", "0.0.1"), join(root, "current"));
+      // The next placement clears what the stopped one left.
+      await activate(root, "0.0.6", stageRelease(root, ".stage-1-c", "next"));
+      expect(hostFile(root, "0.0.5")).toBe("good");
+    } finally {
+      unstick();
+    }
+  });
+
+  it("puts a copy set aside back when no copy took its place", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    stageRelease(root, ".0.0.5.aside", "set aside");
+    await activate(root, "0.0.6", stageRelease(root, ".stage-1-a", "next"));
+    expect(hostFile(root, "0.0.5")).toBe("set aside");
+    expect(leftovers(root)).toEqual([]);
+  });
+
+  it("deletes a copy set aside once a whole copy took its place", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    stageRelease(root, "0.0.5", "placed");
+    stageRelease(root, ".0.0.5.aside", "set aside");
+    await activate(root, "0.0.6", stageRelease(root, ".stage-1-a", "next"));
+    expect(hostFile(root, "0.0.5")).toBe("placed");
+    expect(leftovers(root)).toEqual([]);
+  });
+
+  it("deletes a copy left to discard, and puts back the copy it replaced", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1"], "0.0.1");
+    stageRelease(root, "0.0.7", "kept");
+    stageRelease(root, ".0.0.7.discard", "failed");
+    stageRelease(root, ".0.0.5.discard", "failed");
+    stageRelease(root, ".0.0.5.aside", "set aside");
+    await activate(root, "0.0.3", stageRelease(root, ".stage-1-a", "next"));
+    expect(hostFile(root, "0.0.7")).toBe("kept");
+    expect(hostFile(root, "0.0.5")).toBe("set aside");
+    expect(leftovers(root)).toEqual([]);
+  });
+});
+
+describe("what pruning keeps", () => {
+  it("keeps the release a live run uses, whatever current names", async () => {
+    const root = scratch();
+    plant(root, ["0.0.1", "0.0.2"], "0.0.2");
+    const held = takeLock(new Home(root).lock, Date.now, "0.0.1");
+    if (!("lock" in held)) throw new Error("the test could not take the lock");
+    try {
+      await activate(root, "0.0.3", stageRelease(root, ".stage-1-a", "3"));
+      await activate(root, "0.0.4", stageRelease(root, ".stage-1-b", "4"));
+      expect(versionsOf(root)).toEqual(["0.0.1", "0.0.3", "0.0.4"]);
+    } finally {
+      held.lock.release();
+    }
+    await activate(root, "0.0.5", stageRelease(root, ".stage-1-c", "5"));
+    expect(versionsOf(root)).toEqual(["0.0.4", "0.0.5"]);
+  });
+
+  it("is told by run which release it runs", async () => {
+    const home = linked();
+    let recorded: string | undefined;
+    const exit = await run({
+      home,
+      env: {},
+      execPath: process.execPath,
+      stopped: new Promise(() => undefined),
+      version: "0.0.1",
+      tickMs: 10,
+      maintain: () => {
+        recorded = heldVersion(home.lock);
+        return Promise.resolve({ kind: "stay" });
+      },
+      send: () => Promise.resolve(marfaAnswer(401, { code: "unauthorized" })),
+    });
+    expect(exit).toBe(0);
+    expect(recorded).toBe("0.0.1");
+    expect(heldVersion(home.lock)).toBeUndefined();
   });
 });
 

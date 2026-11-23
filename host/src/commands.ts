@@ -225,7 +225,10 @@ export async function run(options: RunOptions): Promise<number> {
     throw new Refused(
       `This host is not linked yet. Run: marfa-connector-host install '<link>'`,
     );
-  const taken = takeLock(home.lock);
+  const version =
+    options.version ?? installedVersion(home.root, import.meta.url);
+  // The lock names the release this process runs, so no update prunes it.
+  const taken = takeLock(home.lock, Date.now, version);
   if (!("lock" in taken))
     throw new Refused(
       `Another marfa-connector-host run${taken.holder === undefined ? "" : `, process ${String(taken.holder)},`} already uses ${home.root}.`,
@@ -267,8 +270,6 @@ export async function run(options: RunOptions): Promise<number> {
   log(
     `running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`,
   );
-  const version =
-    options.version ?? installedVersion(home.root, import.meta.url);
   const maintain =
     options.maintain ??
     ((running: string, signal: AbortSignal) => {
