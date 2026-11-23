@@ -29,10 +29,9 @@ import {
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { bundleConnector } from "../bundle-connectors.ts";
 import { checkPlugins } from "../check-plugins.ts";
 import { readPin, type Pin } from "../node-pin.ts";
-import { writeHostRelease, type ReleaseParts } from "./host-archive.ts";
+import type { ReleaseParts } from "./host-archive.ts";
 import {
   compareVersions,
   readPublished,
@@ -134,6 +133,9 @@ async function bundlePlugin(
   let failure: unknown;
   try {
     if (manifest.connector !== undefined) {
+      // Loaded here, since `absent` and `publish` run before anything is
+      // installed and these bring in esbuild.
+      const { bundleConnector } = await import("../bundle-connectors.ts");
       const bundled = await bundleConnector(
         plugin.name,
         version,
@@ -219,6 +221,7 @@ export async function build(
   for (const plugin of plugins) {
     await bundlePlugin(plugin, version, out, base, repo, pin);
   }
+  const { writeHostRelease } = await import("./host-archive.ts");
   await writeHostRelease(version, out, repo, parts);
   const indexed = await runMarfa(["plugins", "index", out]);
   if (indexed.code !== 0) {

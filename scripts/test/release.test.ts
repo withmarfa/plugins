@@ -396,6 +396,30 @@ describe("publishing", () => {
   });
 });
 
+describe("what release.ts loads before anything is installed", () => {
+  // `absent` and `publish` run before `pnpm install`, so every module they
+  // load at start comes with Node; the build loads the rest itself.
+  it("reaches no package but Node's own through its static imports", () => {
+    const seen = new Set<string>();
+    const packages = new Set<string>();
+    const visit = (file: string): void => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      const source = readFileSync(file, "utf8");
+      for (const found of source.matchAll(
+        /^import\s+(?!type\b)[^;]*?\sfrom\s+"([^"]+)";/gms,
+      )) {
+        const specifier = found[1] ?? "";
+        if (specifier.startsWith(".")) visit(resolve(file, "..", specifier));
+        else if (!specifier.startsWith("node:")) packages.add(specifier);
+      }
+    };
+    visit(join(root, "scripts", "release", "release.ts"));
+    expect(seen.size).toBeGreaterThan(3);
+    expect([...packages]).toEqual([]);
+  });
+});
+
 describe("the release workflow", () => {
   interface Job {
     needs?: string | string[];
