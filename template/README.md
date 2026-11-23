@@ -46,4 +46,4 @@ marfa plugins assign <name> --host "<machine>"
 
 Owners set the settings with `marfa plugins settings <name> --set <setting>=<value>` and each secret with `marfa plugins secret <name> <setting>`. The host starts the connector with its key, and the connector keeps no file: its state and settings are on the instance.
 
-To run on a schedule outside a host, `launchd.plist.example` and `Dockerfile` in this folder show a LaunchAgent and a container image.
+A connector runs under the connector host.

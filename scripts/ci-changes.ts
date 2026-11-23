@@ -4,11 +4,10 @@
  * `Checks` always formats every file and reads it for personal details, so
  * it runs for any change; `code` says whether it also builds, typechecks and
  * lints. `tests` says whether the unit tests run, and `scope` which of them.
- * `Proof` runs only when `proof` is true, and `Image`, which builds the
- * template's image and checks the launchd example, only when `image` is true,
- * and `Plugins`, which checks each plugin as installing will, only when
- * `plugins` is true. A skipped job satisfies a required check where a
- * workflow filtered out by `paths` would leave it pending. A pull request is classified by its diff
+ * `Proof` runs only when `proof` is true, and `Plugins`, which checks each
+ * plugin as installing will, only when `plugins` is true. A skipped job
+ * satisfies a required check where a workflow filtered out by `paths` would
+ * leave it pending. A pull request is classified by its diff
  * against its base, and a push to `main` by its diff against the commit it
  * follows, but only when that commit had a green push run of `ci.yml`:
  * otherwise a commit that touches nothing a job reads would show green on top
@@ -18,7 +17,7 @@
  * scope.
  *
  * A draft pull request runs only the quick checks: `Checks` without its
- * tests, so `tests`, `Proof`, `Image` and `Plugins` answer `false` for it.
+ * tests, so `tests`, `Proof` and `Plugins` answer `false` for it.
  * `full` says whether the rest runs, and is `false` only for a draft. Marking
  * the pull request ready for review starts a run that does, and so does every
  * push after.
@@ -34,7 +33,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const JOBS = ["code", "tests", "proof", "image", "plugins"] as const;
+export const JOBS = ["code", "tests", "proof", "plugins"] as const;
 
 export type Job = (typeof JOBS)[number];
 
@@ -119,13 +118,6 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
       ["code", "tests", "proof"],
     ],
     [/^scripts\/proof\//, ["code", "proof"]],
-    // The image copies the tree, so a source or dependency change, which runs
-    // every job, reaches it too. These only the image and its checks read.
-    [
-      /^(template\/(Dockerfile|launchd\.plist\.example)|\.dockerignore)$/,
-      ["image"],
-    ],
-    [/^scripts\/check-image-client\.ts$/, ["code", "tests", "image"]],
     [
       /^(eslint\.config\.js|vitest\.config\.ts|tsconfig\.check\.json)$/,
       ["code", "tests"],
@@ -187,7 +179,6 @@ export function forDraft(answer: Answer): Answer {
     ...answer,
     tests: false,
     proof: false,
-    image: false,
     plugins: false,
   };
 }
