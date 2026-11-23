@@ -142,10 +142,7 @@ export function serviceFor(
   }
   if (platform === "linux") {
     const config = env["XDG_CONFIG_HOME"];
-    const base =
-      config !== undefined && config.startsWith("/")
-        ? config
-        : join(userHome, ".config");
+    const base = config?.startsWith("/") ? config : join(userHome, ".config");
     const file = join(base, "systemd", "user", systemdUnit);
     return {
       file,

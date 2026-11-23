@@ -120,8 +120,12 @@ async function main(args: string[]): Promise<number> {
       // process's inspector with SIGUSR1; a listener of its own stops that.
       process.on("SIGUSR1", () => undefined);
       const stopped = new Promise<void>((done) => {
-        process.once("SIGTERM", () => done());
-        process.once("SIGINT", () => done());
+        process.once("SIGTERM", () => {
+          done();
+        });
+        process.once("SIGINT", () => {
+          done();
+        });
       });
       return run({
         home,

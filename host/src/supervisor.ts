@@ -338,10 +338,12 @@ export class Supervisor {
     slot.busy = true;
     slot.work = (async () => {
       try {
+        // `kick` sets `again` while `drive` runs.
+        const asked = (): boolean => slot.again;
         do {
           slot.again = false;
           await this.drive(slot);
-        } while (slot.again);
+        } while (asked());
       } catch (error) {
         this.log(
           `${slot.plugin}: ${error instanceof Error ? error.message : String(error)}`,

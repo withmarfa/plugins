@@ -130,9 +130,9 @@ export async function run(options: RunOptions): Promise<number> {
     origin: host.origin,
     env: options.env,
   });
-  let stop = false;
+  const asked = { stop: false };
   void options.stopped.then(() => {
-    stop = true;
+    asked.stop = true;
   });
   let written = "";
   const writeStatus = (): void => {
@@ -149,7 +149,7 @@ export async function run(options: RunOptions): Promise<number> {
     `running as "${host.name}" for ${host.origin}, process ${String(process.pid)}`,
   );
   try {
-    while (!stop) {
+    while (!asked.stop) {
       if ((await supervisor.step()) === "unlinked") {
         writeStatus();
         return 0;

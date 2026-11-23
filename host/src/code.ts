@@ -62,7 +62,8 @@ function https(text: string, base?: URL): URL {
 async function digestOf(path: string): Promise<string | undefined> {
   const hash = createHash("sha256");
   try {
-    for await (const chunk of createReadStream(path)) hash.update(chunk);
+    for await (const chunk of createReadStream(path))
+      hash.update(chunk as Buffer);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     throw error;

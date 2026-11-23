@@ -99,6 +99,7 @@ export class CodeServer {
           ? null
           : (async function* (self: CodeServer) {
               for (let at = 0; at < bytes.byteLength; at += 16) {
+                await Promise.resolve();
                 if (cancelled) return;
                 self.handedOut += 1;
                 yield bytes.subarray(at, at + 16);

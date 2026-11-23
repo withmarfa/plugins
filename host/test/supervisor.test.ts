@@ -58,7 +58,7 @@ describe("the connector host's supervisor", () => {
   it("gives the connector exactly its listed environment", async () => {
     const env = {
       PATH: process.env["PATH"],
-      HOME: "/home/someone",
+      HOME: "/srv/linux/someone",
       TZ: "Europe/London",
       LANG: "en_GB.UTF-8",
       LC_TIME: "en_GB.UTF-8",

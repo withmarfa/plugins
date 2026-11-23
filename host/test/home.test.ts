@@ -7,23 +7,23 @@ import { scratch } from "./helpers.js";
 
 describe("where the connector host keeps its files", () => {
   it("uses Application Support on macOS, the XDG data folder on Linux, and the folder the environment names", () => {
-    expect(homeFolder({}, "darwin", "/Users/someone")).toBe(
-      "/Users/someone/Library/Application Support/Marfa/Connector Host",
+    expect(homeFolder({}, "darwin", "/srv/mac/someone")).toBe(
+      "/srv/mac/someone/Library/Application Support/Marfa/Connector Host",
     );
-    expect(homeFolder({}, "linux", "/home/someone")).toBe(
-      "/home/someone/.local/share/marfa/connector-host",
+    expect(homeFolder({}, "linux", "/srv/linux/someone")).toBe(
+      "/srv/linux/someone/.local/share/marfa/connector-host",
     );
     expect(
-      homeFolder({ XDG_DATA_HOME: "/data" }, "linux", "/home/someone"),
+      homeFolder({ XDG_DATA_HOME: "/data" }, "linux", "/srv/linux/someone"),
     ).toBe("/data/marfa/connector-host");
     expect(
-      homeFolder({ XDG_DATA_HOME: "relative" }, "linux", "/home/someone"),
-    ).toBe("/home/someone/.local/share/marfa/connector-host");
+      homeFolder({ XDG_DATA_HOME: "relative" }, "linux", "/srv/linux/someone"),
+    ).toBe("/srv/linux/someone/.local/share/marfa/connector-host");
     expect(
       homeFolder(
         { MARFA_CONNECTOR_HOST_HOME: "/tmp/host" },
         "darwin",
-        "/Users/someone",
+        "/srv/mac/someone",
       ),
     ).toBe("/tmp/host");
   });

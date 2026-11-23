@@ -127,11 +127,18 @@ class Host {
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     return run(this.node, [hostMain, ...args], { env: this.env }).then(
       ({ stdout, stderr }) => ({ code: 0, stdout, stderr }),
-      (error: { code?: number; stdout?: string; stderr?: string }) => ({
-        code: typeof error.code === "number" ? error.code : 1,
-        stdout: error.stdout ?? "",
-        stderr: error.stderr ?? "",
-      }),
+      (error: unknown) => {
+        const failed = error as {
+          code?: unknown;
+          stdout?: string;
+          stderr?: string;
+        };
+        return {
+          code: typeof failed.code === "number" ? failed.code : 1,
+          stdout: failed.stdout ?? "",
+          stderr: failed.stderr ?? "",
+        };
+      },
     );
   }
 

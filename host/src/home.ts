@@ -20,10 +20,7 @@ export function homeFolder(
       "Connector Host",
     );
   const data = env["XDG_DATA_HOME"];
-  const base =
-    data !== undefined && data.startsWith("/")
-      ? data
-      : join(userHome, ".local", "share");
+  const base = data?.startsWith("/") ? data : join(userHome, ".local", "share");
   return join(base, "marfa", "connector-host");
 }
 
