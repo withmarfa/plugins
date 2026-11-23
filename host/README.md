@@ -28,7 +28,9 @@ enables the systemd user unit `marfa-connector-host.service` and prints the
 out. With `--no-service`, it installs no service, and you run
 `marfa-connector-host run` under your own supervisor. Installing again with a
 new link replaces the host's identity and deletes every connector's key and
-code.
+code. While a `run` the service doesn't own uses the host's folder, `install`
+and `uninstall` refuse with "Stop the running host first"; the service's own
+`run` they stop themselves.
 
 ## Status, logs and uninstall
 
@@ -53,7 +55,13 @@ on macOS, `$XDG_DATA_HOME/marfa/connector-host/` (by default
 
 - `host.json`: the Marfa address and the host's name and ID.
 - `host.key`: the host's own key, mode 600.
+- `run.lock`: the process ID of the `run` that uses the folder, so only one
+  does.
+- `status.json`: what `status` prints, mode 600, present only while `run` is
+  going.
 - `connectors/<plugin>/key`: each connector's key, mode 600.
+- `connectors/<plugin>/minted`: the version of the connector that its key was
+  minted for.
 - `connectors/<plugin>/code/<sha256>.mjs`: each connector's code.
 - `logs/host.log` and `logs/<plugin>.log`: each capped at 4 MiB, with one
   older file kept.
@@ -73,7 +81,17 @@ No key is printed, logged or passed on a command line.
   connector's own key and reports one failed run, so you see the failure in
   Marfa.
 
-Each connector runs under Node's permission model: it can read only its own
-code file, reach the network and start workers, and it gets only
+## What a connector can do
+
+Each connector runs in a process of its own under Node's permission model: it
+can read only its own code file and reach the network. It can't write files,
+start child processes or workers, or load native add-ons. It gets only
 `MARFA_API_URL`, `MARFA_API_KEY`, `PATH`, `HOME`, the locale and time zone,
 and the `OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
+
+Node doesn't treat its permission model as a security boundary against code
+written to escape it. For example, it doesn't stop a connector from sending
+signals to other processes of the same user. The permission model guards
+against a faulty connector, not a hostile one, so install only plugins you
+trust. That's why installing a plugin with a connector needs the
+`connectors.manage` permission.
