@@ -87,8 +87,9 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     [/^\.github\//, []],
 
     // The Node the host carries is read by the tests, which run on it too,
-    // and by the bundles, which are built for it and run on it.
-    [/^host\/node\.json$/, ["tests", "bundles"]],
+    // by the bundles, which are built for it and run on it, and by the
+    // proof's connector-host group, which runs the host on it.
+    [/^host\/node\.json$/, ["tests", "proof", "bundles"]],
 
     // A fixture is test input, and the proof reads the RSS connector's.
     [/(^|\/)(fixtures|__fixtures__|testdata)\//, ALL],
@@ -119,7 +120,11 @@ export const RULES: readonly (readonly [RegExp, readonly Job[], Connector?])[] =
     // The proof runs every connector from what `pnpm build` makes, and the
     // build leaves tests out. A test of one connector runs that connector's.
     [/^connectors\/([a-z0-9-]+)\/test\//, ["code", "tests"], connectorOf],
-    [/^(kit|shared\/[^/]+)\/test\//, ["code", "tests"]],
+    [/^(kit|shared\/[^/]+|host)\/test\//, ["code", "tests"]],
+    // The connector host: its own tests, and the proof's connector-host
+    // group, which runs it from what `pnpm build` makes. No connector, image
+    // or plugin reads it.
+    [/^host\//, ["code", "tests", "proof"]],
     [
       /^scripts\/(test\/|no-skipped-tests\.ts$|retried-tests\.ts$|check-pr-description\.ts$|connector-plugins\.ts$)/,
       ["code", "tests"],

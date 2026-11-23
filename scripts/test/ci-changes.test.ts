@@ -154,9 +154,34 @@ describe("what a change runs beyond formatting and the scan", () => {
       ["code", "tests", "bundles"],
     ],
     [
-      "the Node the host carries, which the tests run on and the bundles are made for",
+      "the Node the host carries, which the tests and the host's proof run on and the bundles are made for",
       ["host/node.json"],
-      ["tests", "bundles"],
+      ["tests", "proof", "bundles"],
+    ],
+    [
+      "a test of the connector host",
+      ["host/test/supervisor.test.ts"],
+      ["code", "tests"],
+    ],
+    [
+      "the connector host's source, which its proof group runs",
+      ["host/src/supervisor.ts"],
+      ["code", "tests", "proof"],
+    ],
+    [
+      "the connector host's manifest",
+      ["host/package.json"],
+      ["code", "tests", "proof"],
+    ],
+    [
+      "the connector host's README, which is documentation",
+      ["host/README.md"],
+      [],
+    ],
+    [
+      "the connector host's proof group",
+      ["scripts/proof/connector-host.ts"],
+      ["code", "proof"],
     ],
 
     [
