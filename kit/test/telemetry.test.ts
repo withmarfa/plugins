@@ -320,9 +320,7 @@ describe("a collector that cannot be reached", () => {
   });
 });
 
-/** Runs a connector on the built kit as its own process, as launchd or a
- *  container does, and answers how long the process took to end. */
-/** Whether the process had to be killed at the 20 s limit to end. */
+/** Whether the connector's own process had to be killed at the 20 s limit to end. */
 async function endsOnlyWhenKilled(
   env: Record<string, string>,
 ): Promise<boolean> {

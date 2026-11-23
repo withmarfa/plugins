@@ -276,7 +276,7 @@ describe("scripts/report-scheduled-failure.sh", () => {
   it("says so when no job ended as failed, rather than leaving the list empty", () => {
     const result = run("no-failed-job", {
       FAKE_JOBS: JSON.stringify({
-        jobs: [{ name: "Image", conclusion: "cancelled" }],
+        jobs: [{ name: "Cancelled job", conclusion: "cancelled" }],
       }),
     });
     expect(result.status).toBe(0);
