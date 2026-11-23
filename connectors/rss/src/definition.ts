@@ -8,6 +8,7 @@ import {
   maxFeedElements,
   maxFeedEntries,
   maxFieldLength,
+  maxResultChars,
   privateHosts,
   renderVersion,
   TooManyElements,
@@ -25,7 +26,6 @@ import {
 import {
   parseLimits,
   parseTimeoutMs,
-  maxResultChars,
   readBounded,
   TooBig,
   TooHeavy,

@@ -41,6 +41,8 @@ jobs:
       plugins: ${{ steps.classify.outputs.plugins }}
       full: ${{ steps.classify.outputs.full }}
       scope: ${{ steps.classify.outputs.scope }}
+      bundles: ${{ steps.classify.outputs.bundles }}
+      node: ${{ steps.pin.outputs.version }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,6 +54,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-changes.ts
+      # The Node the connector host carries. Every job that runs on it reads it
+      # from here, so `host/node.json` is the only place it is written.
+      - id: pin
+        run: echo "version=$(node -p "require('./host/node.json').version")" >> "${GITHUB_OUTPUT}"
 
   # Every file is formatted and read for personal details, so a change to
   # documentation runs those two, on the root's own dependencies, which need
@@ -88,11 +94,13 @@ jobs:
       - if: ${{ needs.changes.outputs.code == 'false' }}
         run: pnpm exec vitest run scripts/test/tree.test.ts
 
-  # The unit tests, in shards that each run a share of the test files. A change
-  # to one connector alone runs that connector's tests (`scope`); anything
-  # else runs them all. A test that fails runs once more and is reported.
+  # The unit tests, in shards that each run a share of the test files, on the
+  # oldest Node the connector runtime supports and on the Node the connector
+  # host carries (`host/node.json`). A change to one connector alone runs that
+  # connector's tests (`scope`); anything else runs them all. A test that fails
+  # runs once more and is reported.
   tests:
-    name: Tests ${{ matrix.shard }}/${{ strategy.job-total }}
+    name: Tests ${{ matrix.shard }}/3 on ${{ matrix.node == 'pinned' && 'the pinned Node' || format('Node {0}', matrix.node) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.full != 'false' && (needs.changes.result != 'success' || needs.changes.outputs.tests != 'false') }}
     runs-on: ubuntu-latest
@@ -101,6 +109,7 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3]
+        node: [22, pinned]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -108,14 +117,14 @@ jobs:
           dest: ${{ runner.temp }}/setup-pnpm
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: ${{ matrix.node == 'pinned' && needs.changes.outputs.node || matrix.node }}
           cache: pnpm
       - run: scripts/monorepo.sh
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - env:
           SCOPE: ${{ needs.changes.outputs.scope }}
-          SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
+          SHARD: ${{ matrix.shard }}/3
         run: |
           paths=()
           if [ -n "${SCOPE}" ] && [ "${SCOPE}" != all ]; then
@@ -165,6 +174,39 @@ jobs:
           node-version: 22
       - run: scripts/monorepo.sh
       - run: node --experimental-strip-types scripts/check-plugins.ts
+
+  # Bundles each connector into the one file the connector host runs, then runs
+  # them on the Node the host carries (`host/node.json`) as the host will:
+  # under the permission flags, with `--help` from an empty folder, and the RSS
+  # group of the proof from its bundle, which reaches the network, a worker and
+  # the server. The build and the bundles run on that Node, so the bundles are
+  # checked on the runtime they are made for.
+  bundles:
+    name: Bundles
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.bundles != 'false') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ needs.changes.outputs.node }}
+          cache: pnpm
+      - run: scripts/monorepo.sh
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Bundle every connector
+        run: node --experimental-strip-types scripts/bundle-connectors.ts --version 0.0.0 --out "${RUNNER_TEMP}/bundles"
+      - name: Run each bundle's --help under the permission flags
+        run: node --experimental-strip-types scripts/check-bundles.ts "${RUNNER_TEMP}/bundles"
+      - name: Run the RSS proof group from its bundle
+        env:
+          PROOF_BUNDLES: ${{ runner.temp }}/bundles
+        run: pnpm proof --group rss
 
   # Nothing else builds the image or reads the launchd example, so a change to
   # either, or to what the image copies, runs this.
@@ -216,7 +258,7 @@ jobs:
         run: gh run cancel "${GITHUB_RUN_ID}"
 
   # The one required check. A skipped job passes a required check, and a draft
-  # skips the tests, `Proof` and `Image`, so on a draft this job is named `Draft
+  # skips the tests, `Proof`, `Image`, `Plugins` and `Bundles`, so on a draft this job is named `Draft
   # CI`: the required `Full CI` stays expected, which blocks a merge, until the
   # run that marking the pull request ready starts has finished every job.
   # It runs after a failed job and fails then. A cancelled run skips it, and a
@@ -225,7 +267,7 @@ jobs:
   # still runs then, and fails, so `Full CI` is red and not cancelled.
   gate:
     name: ${{ github.event.pull_request.draft && 'Draft CI' || 'Full CI' }}
-    needs: [changes, checks, tests, proof, image, plugins]
+    needs: [changes, checks, tests, proof, image, plugins, bundles]
     if: ${{ !cancelled() || needs.checks.result == 'failure' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
