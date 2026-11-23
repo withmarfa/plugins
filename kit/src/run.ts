@@ -631,13 +631,29 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
       }
       for (const former of formers.get(planned.own) ?? []) {
         if (former === planned.target) continue;
-        const rows = (await marfa.ownRows(former, "any")).filter(
+        let listed: Item[] | undefined;
+        try {
+          listed = await marfa.ownRows(former, "any");
+        } catch (error) {
+          if (
+            !(
+              error instanceof Refusal &&
+              error.status === 403 &&
+              error.code === "type_not_permitted"
+            )
+          )
+            throw error;
+        }
+        const rows = (listed ?? []).filter(
           (row) =>
             row.type === former &&
             row.source === connector.source &&
             row.state !== "trashed",
         );
-        if (rows.length === 0 && !(await reaches(former))) {
+        if (
+          listed === undefined ||
+          (rows.length === 0 && !(await reaches(former)))
+        ) {
           unreached.push(
             `the kind ${name}'s rows on ${former} cannot be moved to ${planned.target}, since the key does not reach ${former}, and Marfa must let the connector reach its own rows there while the rewrite is open`,
           );

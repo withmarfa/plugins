@@ -2044,7 +2044,7 @@ export class ScriptedServer {
       return;
     }
     if (method === "GET" && url.pathname === "/items") {
-      this.listItems(url.searchParams, send);
+      this.listItems(url.searchParams, send, refuse);
       this.afterRead?.(request);
       return;
     }
@@ -2365,7 +2365,7 @@ export class ScriptedServer {
   /** A type filter names the type, every type whose identifier begins with
    *  it and a dot, and every type whose chain of parents reaches it
    *  (`types/listing-subtree`). */
-  private ofType(row: Row, type: string | null): boolean {
+  private ofType(row: Pick<Row, "type">, type: string | null): boolean {
     if (type === null || row.type === type) return true;
     if (row.type.startsWith(`${type}.`)) return true;
     const seen = new Set([row.type]);
@@ -2378,7 +2378,7 @@ export class ScriptedServer {
     return false;
   }
 
-  private listItems(query: URLSearchParams, send: Send): void {
+  private listItems(query: URLSearchParams, send: Send, refuse: Refuse): void {
     const state = query.get("state") ?? "active";
     const type = query.get("type");
     // The edge terms a filter takes, joined by OR, up to the server's caps
@@ -2400,6 +2400,22 @@ export class ScriptedServer {
         terms.some((term) => term === null))
     ) {
       send(400, { error: { code: "validation_error" } });
+      return;
+    }
+    if (
+      type !== null &&
+      this.types.has(type) &&
+      ![...this.types.keys()].some(
+        (id) =>
+          this.ofType({ type: id }, type) && this.permission(id) !== "none",
+      )
+    ) {
+      refuse(
+        403,
+        "type_not_permitted",
+        `Read access to type "${type}" denied`,
+        { grant: { kind: "type", name: type, level: "read" } },
+      );
       return;
     }
     // A row of a type the key cannot read is left out of every page, as

@@ -111,6 +111,22 @@ describe("a type filter", () => {
     expect(names(body["data"])).toEqual(["test.base", "test.base.child"]);
   });
 
+  // `search-and-filters/type-unreadable` and `type-unreadable-grant`.
+  it("refuses a type 403 type_not_permitted, naming it and read, where the key reads nothing under it", async () => {
+    server.grants.type_permissions = { "test.*": "read" };
+    const refused = await call("GET", "/items?type=acme.mid");
+    expect(refused.status).toBe(403);
+    expect(refused.body["error"]).toMatchObject({
+      code: "type_not_permitted",
+      details: { grant: { kind: "type", name: "acme.mid", level: "read" } },
+    });
+    // The witness: a type under it the key reads makes it a listing again.
+    server.grants.type_permissions = { "test.*": "read", "acme.leaf": "read" };
+    const listed = await call("GET", "/items?type=acme.mid");
+    expect(listed.status).toBe(200);
+    expect(names(listed.body["data"])).toEqual(["acme.leaf"]);
+  });
+
   it("lists a type with nothing under it alone", async () => {
     const { body } = await call("GET", "/items?type=test.other");
     expect(names(body["data"])).toEqual(["test.other"]);

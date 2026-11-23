@@ -332,6 +332,9 @@ describe("a rewrite back from a former target", () => {
     expect(run.error).toContain(`the kind entry`);
     expect(run.error).toContain(target);
     expect(run.error).toContain("Marfa must let");
+    expect(run.error).toContain(
+      `the rewrite 2 of entry stays open and this run does not start: the kind entry's rows on ${target} cannot be moved to ${linkedType.id}`,
+    );
   });
 
   it("moves the rows back from the former target and clears the request where Marfa lets the key reach it", async () => {
