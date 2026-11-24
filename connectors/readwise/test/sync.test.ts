@@ -392,6 +392,8 @@ it.each(["refresh", "source", "export"] as const)(
       last_activity_at: "2026-01-01T00:00:00Z",
       trashed_at: null,
       read_only: false,
+      web_url: "http://localhost:8600/i/item",
+      app_url: "marfa://instance/item",
       properties: {
         account: "primary",
         canonical_key: "primary:reader-document:doc",
