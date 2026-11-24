@@ -26,6 +26,8 @@ const row = (sourceId = "one:source:7"): Item => ({
   last_activity_at: "2026-01-01T00:00:00Z",
   trashed_at: null,
   read_only: false,
+  web_url: "http://localhost:8600/i/item",
+  app_url: "marfa://instance/item",
   properties: {
     account: "one",
     canonical_key: readerIdentity("one", "document", "doc"),

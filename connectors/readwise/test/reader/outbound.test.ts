@@ -202,6 +202,8 @@ function change(
       last_activity_at: "2026-10-15T00:00:00Z",
       trashed_at: null,
       read_only: false,
+      web_url: "http://localhost:8600/i/item",
+      app_url: "marfa://instance/item",
     },
   };
 }

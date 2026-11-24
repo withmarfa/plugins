@@ -48,6 +48,8 @@ function fixture(size: number) {
     last_activity_at: "2026-01-01T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-01-01T00:00:00Z",
     properties: { ...entry.properties },
   });

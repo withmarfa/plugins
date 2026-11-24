@@ -369,6 +369,8 @@ function stored(id: string, extra: Record<string, unknown> = {}): Item {
     last_activity_at: stamp,
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     properties: {
       account: "one",
       canonical_key: `one:reader-document:${id}`,

@@ -89,6 +89,8 @@ it("refines an existing highlight alias with verified export parent evidence for
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
@@ -241,6 +243,8 @@ it("accepts one export ID with a canonical natural key and retains its export lo
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
@@ -331,6 +335,8 @@ it.each([false, true])(
       last_activity_at: "2026-10-15T00:00:00Z",
       trashed_at: null,
       read_only: false,
+      web_url: "http://localhost:8600/i/item",
+      app_url: "marfa://instance/item",
       occurred_at: "2026-10-15T00:00:00Z",
       properties: {
         account: "one",
@@ -499,6 +505,8 @@ it.each(["links", "source_ids"] as const)(
       last_activity_at: "2026-10-15T00:00:00Z",
       trashed_at: null,
       read_only: false,
+      web_url: "http://localhost:8600/i/item",
+      app_url: "marfa://instance/item",
       occurred_at: "2026-10-15T00:00:00Z",
       properties: {
         account: "one",
@@ -664,6 +672,8 @@ function lifecycleFixture() {
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
@@ -866,6 +876,8 @@ it("enriches a Reader-only natural row without reassigning an existing export id
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
@@ -901,6 +913,8 @@ it("keeps a lone document holder unresolved when two export sources claim it", a
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
@@ -1510,6 +1524,8 @@ function createdRow(state: Item["state"]): Item {
     last_activity_at: "2026-10-15T00:00:00Z",
     trashed_at: state === "trashed" ? "2026-10-15T00:00:00Z" : null,
     read_only: false,
+    web_url: "http://localhost:8600/i/item",
+    app_url: "marfa://instance/item",
     occurred_at: "2026-10-15T00:00:00Z",
     properties: {
       account: "one",
