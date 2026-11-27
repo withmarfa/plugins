@@ -15,6 +15,6 @@
     "dist"
   ],
   "dependencies": {
-    "@withmarfa/client": "0.0.101"
+    "@withmarfa/client": "0.0.103"
   }
 }
