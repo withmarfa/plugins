@@ -150,6 +150,9 @@ export function agreedState(state: string): AgreedState {
 export interface MergeInput {
   readonly fields: readonly string[];
   readonly readOnly: (field: string) => boolean;
+  /** Fields whose stored value the connector cannot read: the vendor's value
+   *  replaces it even where neither side changed since the agreement. */
+  readonly unreadable?: (field: string) => boolean;
   readonly observe?: (field: string) => boolean;
   readonly retired?: readonly string[];
   readonly preserveFirst?: boolean;
@@ -261,7 +264,7 @@ export function merge(input: MergeInput): Merged {
     const marfaChanged = marfaNow !== at(agreement.marfa, field);
     const since = agreement.waiting?.[field] ?? row.updated_at;
     if (!marfaChanged) {
-      if (!vendorChanged) {
+      if (!vendorChanged && input.unreadable?.(field) !== true) {
         keep(field, undefined);
         continue;
       }

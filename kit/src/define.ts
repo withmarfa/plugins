@@ -693,6 +693,14 @@ export interface Kind {
    */
   readonly readOnly?: readonly string[];
   /**
+   * Whether a row's stored value for a field is one the connector cannot
+   * read, such as an entry in a shape the type no longer has. The vendor's
+   * value then replaces it on the next read of the row, as for a read-only
+   * field, and it is never carried back.
+   */
+  readonly unreadable?:
+    ((field: string, value: unknown) => boolean) | undefined;
+  /**
    * Read-only fields that say where a row sits, such as its container's
    * visibility, not what happened to it: a change in one is never the
    * vendor's activity, so it neither brings a trashed row back nor returns

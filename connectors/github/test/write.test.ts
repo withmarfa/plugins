@@ -256,15 +256,49 @@ describe("an issue changed in Marfa", () => {
     expect(written()).toEqual([`PATCH /issues/${String(issue.number)}`]);
   });
 
-  it("sends an assignee by name, leaves one with no name out and says so", async () => {
+  it("sends an assignee by name", async () => {
     const issue = github.addIssue(repository, { title: "Owned" });
     await ok();
+    marfa.edit(row(issue.node).id, { assignees: [{ name: "someone" }] });
+    await ok();
+    expect(issue.assignees).toEqual(["someone"]);
+  });
+
+  it("sends no assignees on an update when an entry has no name, so no one GitHub holds is unassigned", async () => {
+    const issue = github.addIssue(repository, {
+      title: "Owned",
+      assignees: ["alice"],
+    });
+    await ok();
     marfa.edit(row(issue.node).id, {
-      assignees: [{ name: "someone" }, { email: "x@example.com" }],
+      assignees: [{ name: "bob" }, { email: "x@example.com" }],
     });
     const output = await ok();
-    expect(issue.assignees).toEqual(["someone"]);
-    expect(output).toContain("has no name");
+    expect(issue.assignees).toEqual(["alice"]);
+    expect(output).toContain(
+      "no assignee is sent and GitHub keeps the ones it holds",
+    );
+  });
+
+  it("sends no assignees for a list with a bare login among its entries, and puts the row back from GitHub", async () => {
+    const issue = github.addIssue(repository, {
+      title: "Owned",
+      assignees: ["alice"],
+    });
+    await ok();
+    marfa.edit(row(issue.node).id, {
+      assignees: ["alice", { name: "bob" }],
+    });
+    await settled();
+    expect(issue.assignees).toEqual(["alice"]);
+    expect(row(issue.node).properties["assignees"]).toEqual([
+      { name: "alice" },
+    ]);
+    expect(
+      github
+        .writes()
+        .filter((one) => JSON.stringify(one.body).includes('"assignees"')),
+    ).toEqual([]);
   });
 
   it("keeps GitHub's assignees when no entry has a name", async () => {
@@ -277,6 +311,48 @@ describe("an issue changed in Marfa", () => {
     const output = await ok();
     expect(issue.assignees).toEqual(["someone"]);
     expect(output).toContain("has no name");
+  });
+
+  it("rewrites assignees stored as bare logins in the core shape and unassigns no one", async () => {
+    const issue = github.addIssue(repository, {
+      title: "Owned",
+      assignees: ["someone"],
+    });
+    await ok();
+    marfa.edit(row(issue.node).id, { assignees: ["someone"] });
+    await settled();
+    expect(row(issue.node).properties["assignees"]).toEqual([
+      { name: "someone" },
+    ]);
+    expect(issue.assignees).toEqual(["someone"]);
+    expect(
+      github
+        .writes()
+        .filter((one) => JSON.stringify(one.body).includes('"assignees"')),
+    ).toEqual([]);
+  });
+
+  it("sends no assignees for an unrelated change on a row stored as bare logins", async () => {
+    const issue = github.addIssue(repository, {
+      title: "Owned",
+      assignees: ["someone"],
+    });
+    await ok();
+    marfa.edit(row(issue.node).id, {
+      title: "Renamed",
+      assignees: ["someone"],
+    });
+    await settled();
+    expect(issue.title).toBe("Renamed");
+    expect(issue.assignees).toEqual(["someone"]);
+    expect(
+      github.writes().filter((one) => one.method === "PATCH"),
+    ).toHaveLength(1);
+    expect(
+      github
+        .writes()
+        .filter((one) => JSON.stringify(one.body).includes('"assignees"')),
+    ).toEqual([]);
   });
 
   it("closes as a duplicate when its status says duplicate", async () => {
@@ -456,6 +532,25 @@ describe("a row made in Marfa", () => {
     expect(marfa.byId(made.id).properties["github_id"]).toBe(issue?.node);
     expect(marfa.byId(made.id).properties["body"]).toBe("From an agent");
     expect(marfa.byId(made.id).properties["number"]).toBe(issue?.number);
+  });
+
+  it("is created with the assignees it names and says so for one it cannot read", async () => {
+    await ok();
+    marfa.insert(
+      undefined,
+      { title: "Owned", assignees: [{ name: "someone" }, "other"] },
+      "github.issue",
+      "person",
+    );
+    marfa.drawEdge(
+      marfa.rows.at(-1)?.id ?? "",
+      row(repository.node).id,
+      "github.in-repository",
+    );
+    const output = await ok();
+    const issue = github.issues.find((one) => one.title === "Owned");
+    expect(issue?.assignees).toEqual(["someone"]);
+    expect(output).toContain("no name that can be read");
   });
 
   it("as a conflicted copy of an issue is not sent, and stays in Marfa with a condition", async () => {

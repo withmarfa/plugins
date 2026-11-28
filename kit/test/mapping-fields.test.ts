@@ -257,7 +257,7 @@ describe("a kind's fields mapped onto the target's", () => {
     expect(harness.server.row("a:1").properties["title"]).toBe("One (v1)");
     expect(harness.server.row("a:1").properties["label"]).toBe("imported");
     expect(harness.problems()[`put-back:${row.id}`]).toBe(
-      `title, label on ${row.id} were changed in Marfa and put back from the vendor, which Marfa mirrors`,
+      `title, label on ${row.id} were changed in Marfa and put back from the vendor, whose value is the one kept`,
     );
 
     // The witness: a field filled from the kind's own carries back, named

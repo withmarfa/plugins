@@ -38,7 +38,7 @@ import {
 } from "./repository-files.js";
 import { scopeOf } from "./scope.js";
 import { readOnly, setUp } from "./setup.js";
-import { carry, remake } from "./write.js";
+import { assigneesReadable, carry, remake } from "./write.js";
 import comment from "./github.comment.json" with { type: "json" };
 import discussion from "./github.discussion.json" with { type: "json" };
 import issue from "./github.issue.json" with { type: "json" };
@@ -219,6 +219,8 @@ export function connector(settings: Settings = {}) {
         ],
         derived: ["private", "github_files"],
         revive: true,
+        unreadable: (field, value) =>
+          field === "assignees" && !assigneesReadable(value),
       },
       {
         name: "comment",
