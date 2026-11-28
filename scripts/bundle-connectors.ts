@@ -51,13 +51,15 @@ const besideItself =
   /__dirname|__filename|import\.meta\.(?:url|dirname|filename)/;
 
 /** The modules the permission flags leave a connector no use of: it writes no
- *  file, starts no process and no worker. */
+ *  file, starts no process and no worker, and uses neither SQLite nor FFI. */
 const refusedModules = new Set([
   "node:fs",
   "node:fs/promises",
   "node:os",
   "node:child_process",
   "node:worker_threads",
+  "node:sqlite",
+  "node:ffi",
 ]);
 
 const nativeAddOns =
