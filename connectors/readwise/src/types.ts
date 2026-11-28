@@ -16,7 +16,11 @@ export const sourceFields = [
   "published_at",
   ...Object.keys(source.fields),
 ];
-/** Fields the type still declares, since a published plugin never narrows, that no row holds any more. */
+/**
+ * Fields the type still declares, since a published plugin never narrows, that
+ * the connector no longer writes. The `retired` entry that clears them from
+ * existing rows stays for as long as the type declares them.
+ */
 export const retiredHighlightFields = ["title", "body"];
 export const highlightFields = [
   "text",

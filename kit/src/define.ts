@@ -702,10 +702,13 @@ export interface Kind {
    */
   readonly derived?: readonly string[];
   /**
-   * Properties an earlier version of the connector wrote that the type no
-   * longer declares: the next write of a row it holds removes them. List a
-   * name for one release, then delete it, since a row the connector does not
-   * write keeps what it holds.
+   * Properties an earlier version of the connector wrote and this one does
+   * not: the next write of a row it holds removes them, since a row the
+   * connector does not write keeps what it holds. Two kinds of name belong
+   * here. A name the type no longer declares stays for one release, then is
+   * deleted. A name the type still declares, because a published plugin never
+   * narrows, stays for as long as the type declares it and the connector
+   * writes none of it.
    */
   readonly retired?: readonly string[];
   /**
