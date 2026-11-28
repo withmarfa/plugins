@@ -235,7 +235,7 @@ export function testConnector(held: Vendor) {
   });
 }
 
-function twoWayConnector(held: Vendor) {
+export function twoWayConnector(held: Vendor) {
   return defineConnector({
     name: "test",
     description: "A two-way connector the kit's tests drive.",
