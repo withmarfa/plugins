@@ -135,9 +135,12 @@ function logins(
     else nameless += 1;
   }
   if (nameless > 0) {
+    const left = creating
+      ? `${nameless === 1 ? "it is" : "they are"} not sent`
+      : "no assignee is sent and GitHub keeps the ones it holds";
     context.log.condition(
       `assignee-unnamed:${item.id}`,
-      `${String(nameless)} of the assignees of ${item.id} ${nameless === 1 ? "has" : "have"} no name that can be read, which GitHub needs, so ${nameless === 1 ? "it is" : "they are"} not sent`,
+      `${String(nameless)} of the assignees of ${item.id} ${nameless === 1 ? "has" : "have"} no name that can be read, which GitHub needs, so ${left}`,
     );
     if (!creating || named.length === 0) return undefined;
   }

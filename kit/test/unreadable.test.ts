@@ -49,6 +49,26 @@ describe("a stored value the kind says it cannot read", () => {
     );
   });
 
+  it("is not carried when no earlier version holds the agreed value to put back", async () => {
+    const { held, row } = await made();
+    const record = harness.agreement(row.id) as {
+      marfa: Record<string, string>;
+    };
+    harness.server.agreements.set(row.id, {
+      waiting: false,
+      updated_at: row.updated_at,
+      record: {
+        ...record,
+        marfa: { ...record.marfa, note: mark("never held") },
+      },
+    });
+    harness.server.edit(row.id, { note: "bare" });
+    held.entries = [];
+    expect(await harness.twoWay(held)).toBe(0);
+    expect(held.changes).toEqual([]);
+    expect(harness.server.row("a:1").properties["note"]).toBe("bare");
+  });
+
   it("is carried when the kind does not flag it", async () => {
     const { held, row } = await made();
     Reflect.deleteProperty(held, "unreadable");

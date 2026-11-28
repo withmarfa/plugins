@@ -275,7 +275,9 @@ describe("an issue changed in Marfa", () => {
     });
     const output = await ok();
     expect(issue.assignees).toEqual(["alice"]);
-    expect(output).toContain("has no name");
+    expect(output).toContain(
+      "no assignee is sent and GitHub keeps the ones it holds",
+    );
   });
 
   it("sends no assignees for a list with a bare login among its entries, and puts the row back from GitHub", async () => {
