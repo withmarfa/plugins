@@ -27,6 +27,7 @@ import {
 import { carryDiscussions, remakeDiscussions } from "./discussion-write.js";
 import { defaultBase, spacingOf, type App } from "./github.js";
 import { hints } from "./hooks.js";
+import { assigneesReadable } from "./write.js";
 import { notificationType } from "./notifications.js";
 import { read } from "./read.js";
 import { fileKinds, filesConnection } from "./files.js";
@@ -219,6 +220,8 @@ export function connector(settings: Settings = {}) {
         ],
         derived: ["private", "github_files"],
         revive: true,
+        unreadable: (field, value) =>
+          field === "assignees" && !assigneesReadable(value),
       },
       {
         name: "comment",

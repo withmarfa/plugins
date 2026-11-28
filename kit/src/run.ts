@@ -326,6 +326,7 @@ export function specsOf<E extends SettingsDeclaration>(
         kind.type.id,
         {
           policy: kind.policy,
+          unreadable: kind.unreadable,
           type: kind.type.id,
           source: connector.source,
           link,

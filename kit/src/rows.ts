@@ -117,6 +117,7 @@ export class Declined extends Error {
 
 export interface Spec {
   readonly policy?: import("./define.js").Kind["policy"];
+  readonly unreadable?: import("./define.js").Kind["unreadable"];
   /** Runtime admission for an identity whose durable write cannot yet recover. */
   readonly suspended?: (
     item: Item | undefined,
@@ -850,7 +851,9 @@ export class Rows {
     const kind = forRow(this.kind, row, entry);
     const merged = merge({
       fields: kind.fields,
-      readOnly: (field) => kind.readOnly.has(field),
+      readOnly: (field) =>
+        kind.readOnly.has(field) ||
+        kind.unreadable?.(field, row.properties[field]) === true,
       observe: (field) => kind.observed?.has(field) === true,
       retired: kind.retired,
       preserveFirst: kind.firstAgreement === "preserve",

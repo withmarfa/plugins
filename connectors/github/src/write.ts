@@ -99,26 +99,42 @@ function entries(value: unknown): Record<string, unknown>[] {
     : [];
 }
 
-/** The logins an item's `assignees` entries name. An entry with no `name` is
- *  not one GitHub can be asked to assign, so it is said once and left out. A
- *  list with entries and no name among them gives `undefined`, so nothing is
- *  sent: sending none would unassign the people GitHub holds. */
+/** Whether a stored `assignees` value holds only entries, the core shape. A
+ *  bare string, or a value that is no list, is not that. */
+export function assigneesReadable(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (one) => typeof one === "object" && one !== null && !Array.isArray(one),
+    )
+  );
+}
+
+/** The logins an item's `assignees` entries name. An entry with no `name`, or
+ *  one that is not an entry at all, is not one GitHub can be asked to assign,
+ *  so it is said once and left out. A list with such entries and no name
+ *  among them gives `undefined`, so nothing is sent: sending none would
+ *  unassign the people GitHub holds. */
 function logins(
   context: Context,
   item: Item,
   value: unknown,
 ): string[] | undefined {
   const named: string[] = [];
-  let nameless = 0;
-  for (const one of entries(value)) {
-    const name = one["name"];
+  let nameless = assigneesReadable(value) || Array.isArray(value) ? 0 : 1;
+  for (const one of Array.isArray(value) ? value : []) {
+    const name =
+      typeof one === "object" && one !== null
+        ? (one as Record<string, unknown>)["name"]
+        : undefined;
     if (typeof name === "string" && name !== "") named.push(name);
     else nameless += 1;
   }
   if (nameless > 0) {
     context.log.condition(
       `assignee-unnamed:${item.id}`,
-      `${String(nameless)} of the assignees of ${item.id} ${nameless === 1 ? "has" : "have"} no name, which GitHub needs, so ${nameless === 1 ? "it is" : "they are"} not sent`,
+      `${String(nameless)} of the assignees of ${item.id} ${nameless === 1 ? "has" : "have"} no name that can be read, which GitHub needs, so ${nameless === 1 ? "it is" : "they are"} not sent`,
     );
     if (named.length === 0) return undefined;
   }
