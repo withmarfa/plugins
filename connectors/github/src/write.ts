@@ -113,13 +113,15 @@ export function assigneesReadable(value: unknown): boolean {
 
 /** The logins an item's `assignees` entries name. An entry with no `name`, or
  *  one that is not an entry at all, is not one GitHub can be asked to assign,
- *  so it is said once and left out. A list with such entries and no name
- *  among them gives `undefined`, so nothing is sent: sending none would
- *  unassign the people GitHub holds. */
+ *  and it is said once. A create (`creating`) sends the names it has. An
+ *  update sends none of the list when any entry is unreadable, and gives
+ *  `undefined`: a list sent without that person would unassign them at
+ *  GitHub. */
 function logins(
   context: Context,
   item: Item,
   value: unknown,
+  creating = false,
 ): string[] | undefined {
   const named: string[] = [];
   let nameless =
@@ -137,7 +139,7 @@ function logins(
       `assignee-unnamed:${item.id}`,
       `${String(nameless)} of the assignees of ${item.id} ${nameless === 1 ? "has" : "have"} no name that can be read, which GitHub needs, so ${nameless === 1 ? "it is" : "they are"} not sent`,
     );
-    if (named.length === 0) return undefined;
+    if (!creating || named.length === 0) return undefined;
   }
   return named;
 }
@@ -973,7 +975,8 @@ async function createIssue(
         title,
         body: marked(item),
         labels: list(item, "labels"),
-        assignees: logins(context, item, item.properties["assignees"]) ?? [],
+        assignees:
+          logins(context, item, item.properties["assignees"], true) ?? [],
       })
     ).data as RestIssue;
   } catch (error) {
