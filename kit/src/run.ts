@@ -937,12 +937,35 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         const reading = back
           ? await formerReading(setup, kept, kind, former)
           : undefined;
-        if (back) await store.fetch(rows.map((row) => row.id));
+        await store.fetch(rows.map((row) => row.id));
         const moves: { row: Item; landing: Landing }[] = [];
         for (const row of rows) {
           if (setup.signal.aborted) throw new Stopped();
           if (!back) {
-            moves.push({ row, landing: movedProperties(planned, row) });
+            const landing = movedProperties(planned, row);
+            const agreed = store.get(row.id);
+            if (agreed !== undefined) {
+              const view = plan.map.item({
+                ...row,
+                type: planned.target,
+                properties: landedOn(row, landing),
+              }).properties;
+              const landed: Record<string, string> = {};
+              for (const field of new Set([
+                ...Object.keys(agreed.marfa),
+                ...Object.keys(agreed.vendor),
+              ])) {
+                const own = held(row.properties, field);
+                const now = held(view, field);
+                if (mark(now) !== mark(own)) landed[field] = mark(now);
+              }
+              if (Object.keys(landed).length > 0)
+                store.set(row.id, {
+                  ...agreed,
+                  marfa: { ...agreed.marfa, ...landed },
+                });
+            }
+            moves.push({ row, landing });
             continue;
           }
           try {
@@ -985,7 +1008,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
         }
         // Agreed first: a move that then fails leaves the row where it was,
         // and the next run moves it on what this one agreed.
-        if (back) await store.flush();
+        await store.flush();
         for (const { row, landing } of moves) {
           if (setup.signal.aborted) throw new Stopped();
           try {

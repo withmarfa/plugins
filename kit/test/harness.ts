@@ -266,6 +266,7 @@ export function twoWayConnector(held: Vendor) {
       for (const selectors of held.unreachedBatches ?? [])
         context.log.unreached(selectors);
       if (held.fail !== undefined) throw held.fail;
+      if (held.read !== undefined) return held.read(context);
       if (held.token !== undefined) context.state.set("token", held.token);
       await context.upsert(testType.id, held.entries);
       if (held.notes !== undefined)

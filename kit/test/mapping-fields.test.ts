@@ -1039,4 +1039,74 @@ describe("status words on a row still on the kind's own type", () => {
     expect(row.type).toBe(target);
     expect(row.properties["status"]).toBe("doing");
   });
+
+  const rewrite = [
+    {
+      number: 1,
+      version: 1,
+      kinds: ["entry"],
+      requested_at: "2026-11-22T00:00:00.000Z",
+    },
+  ];
+
+  it("carries nothing back on the next watch after a rewrite moves it", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).properties["status"]).toBe("doing");
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("still carries back an edit made in Marfa after the rewrite", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    harness.server.edit(id, { summary: "edited" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes.map((change) => [...change.changed])).toEqual([
+      ["note"],
+    ]);
+  });
+
+  it("replays a saved intent holding a landed word onto a row on the target and lands it as the mapping says", async () => {
+    mapFields(standard);
+    const given = held();
+    expect(await harness.twoWay(given)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    const saved: Entry = {
+      ...one,
+      properties: { ...one.properties, status: "doing", note: "again" },
+    };
+    harness.server.entryRefusals.set("a:1", {
+      status: 400,
+      code: "invalid_properties",
+      message: "Refused once",
+    });
+    const retry = { mode: "replay" as const, context: "a".repeat(64) };
+    given.read = async (context) => {
+      const scope = context.forScope("A", { retry });
+      await scope.upsert(ownType.id, [saved]);
+      await scope.state.checkpoint("page", 1);
+    };
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    harness.server.entryRefusals.delete("a:1");
+    given.read = async (context) => {
+      const scope = context.forScope("A", { retry });
+      await scope.state.checkpoint("page", 2);
+    };
+    harness.clock.advance(24 * 60 * 60 * 1000);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.byId(id);
+    expect(row.type).toBe(target);
+    expect(row.properties["status"]).toBe("doing");
+    expect(row.properties["summary"]).toBe("again");
+  });
 });
