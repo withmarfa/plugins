@@ -441,6 +441,12 @@ export class Marfa {
     return this.types?.item(item) ?? item;
   }
 
+  /** Whether the row was last answered on the kind's own type, which the
+   *  mapping has yet to move off it. */
+  unmoved(id: string): boolean {
+    return this.types?.unmoved(id) ?? false;
+  }
+
   private unmapped: Marfa | undefined;
 
   /** This connection, naming types as they are given. */

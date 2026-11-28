@@ -926,3 +926,117 @@ describe("a preview of a kind's mapping", () => {
     expect([...conditions.keys()]).toEqual(["mapping-template:entry:title"]);
   });
 });
+
+describe("status words on a row still on the kind's own type", () => {
+  beforeEach(() => {
+    // The target holds `doing` in the group the kind's `waiting` is in.
+    harness.server.types.delete(target);
+    harness.server.installType({
+      ...targetType,
+      fields: {
+        ...targetType.fields,
+        status: {
+          type: "status",
+          status_values: [
+            { value: "not_started", group: "not_started" },
+            { value: "doing", group: "in_progress" },
+            { value: "canceled", group: "canceled" },
+          ],
+        },
+      },
+    });
+  });
+
+  /** A row the kit wrote on the kind's own type, with the mapping saved
+   *  after and no rewrite asked for. */
+  async function unmoved(given: Vendor): Promise<string> {
+    expect(await harness.twoWay(given)).toBe(0);
+    const id = harness.server.row("a:1").id;
+    expect(harness.server.byId(id).properties["status"]).toBe("waiting");
+    mapFields(standard);
+    return id;
+  }
+
+  it("keeps its word through a run that sends the entry again", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.byId(id);
+    expect(row.type).toBe(ownType.id);
+    expect(row.properties["status"]).toBe("waiting");
+    expect(given.changes).toEqual([]);
+  });
+
+  it("keeps its word through a carry-back of an edit made in Marfa", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    given.entries = [];
+    harness.server.edit(id, { note: "edited" });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(
+      given.changes.map((change) => change.item.properties["status"]),
+    ).toEqual(["waiting"]);
+    expect(harness.server.byId(id).properties["status"]).toBe("waiting");
+  });
+
+  it("keeps a word whose group the target lacks, with no condition", async () => {
+    const given = held([
+      { ...one, properties: { ...one.properties, status: "done" } },
+    ]);
+    const id = await (async () => {
+      expect(await harness.twoWay(given)).toBe(0);
+      mapFields(standard);
+      return harness.server.row("a:1").id;
+    })();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).properties["status"]).toBe("done");
+    expect(harness.problems()).not.toHaveProperty("mapping-status:entry:done");
+  });
+
+  it("gives each row the word of the type it is on while a rewrite has moved only one of two", async () => {
+    const two: Entry = {
+      source_id: "a:2",
+      properties: { ...one.properties, vendor_id: "v2", title: "Two" },
+    };
+    const given = held([one, two]);
+    expect(await harness.twoWay(given)).toBe(0);
+    const stuck = harness.server.row("a:2").id;
+    mapFields(standard);
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T00:00:00.000Z",
+      },
+    ];
+    harness.server.refuseNext("PATCH /items/" + stuck, 409, "version_conflict");
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const moved = harness.server.row("a:1");
+    expect([moved.type, moved.properties["status"]]).toEqual([target, "doing"]);
+    expect(harness.server.byId(stuck).type).toBe(ownType.id);
+    expect(harness.server.byId(stuck).properties["status"]).toBe("waiting");
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    expect(harness.server.row("a:1").properties["status"]).toBe("doing");
+    expect(harness.server.byId(stuck).properties["status"]).toBe("doing");
+    expect(given.changes).toEqual([]);
+  });
+
+  it("gives a row already on the target the mapped word, as the witness", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    harness.server.mapping.rewrites = [
+      {
+        number: 1,
+        version: 1,
+        kinds: ["entry"],
+        requested_at: "2026-11-22T00:00:00.000Z",
+      },
+    ];
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.byId(id);
+    expect(row.type).toBe(target);
+    expect(row.properties["status"]).toBe("doing");
+  });
+});

@@ -17,6 +17,7 @@ import {
 import { controlReadMs, Wake } from "./control.js";
 import { exitCode } from "./exit.js";
 import {
+  defaulted,
   readSettings,
   secretsOf,
   shortSecretsProblem,
@@ -649,14 +650,16 @@ export async function start<E extends SettingsDeclaration>(
     }
     environment = readEnvironment(runtime.env);
     telemetrySettings = readTelemetry(runtime.env);
-    if (
-      schedule.mode === "every" &&
-      schedule.lookGiven &&
-      !looks(connector, widestValues)
-    ) {
-      throw new ConfigurationError(
-        "--look-every is for a connector that receives webhooks or carries changes back, which this one does not",
+    if (schedule.mode === "every" && schedule.lookGiven) {
+      const values = defaulted(
+        connector.settings ?? ([] as unknown as E),
+        widestValues,
       );
+      if (!looks(build(values), values)) {
+        throw new ConfigurationError(
+          "--look-every is for a connector that receives webhooks or carries changes back, which this one does not",
+        );
+      }
     }
   } catch (error) {
     if (!(error instanceof ConfigurationError)) throw error;

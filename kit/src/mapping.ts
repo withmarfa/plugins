@@ -247,36 +247,21 @@ export class FieldMap {
   }
 
   /**
-   * The entry as the connector's view writes it: its carried fields, a
-   * status word as it reads back from the target, and each value the
-   * mapping fills, rendered from the entry's fields. A value that cannot be
-   * written, such as a template that fails or a word whose group the
-   * target lacks, is named in `unwrittenKey`, so the row keeps what it
-   * holds there, and raises a condition.
+   * The entry as the connector's view writes it to the target: its carried
+   * fields and each value the mapping fills, rendered from the entry's
+   * fields, with the status word still the vendor's. A value that cannot be
+   * written, such as a template that fails, is named in `unwrittenKey`, so
+   * the row keeps what it holds there, and raises a condition. `land` then
+   * moves the status word, for a row written as the target.
    */
-  entry(entry: Entry, id?: string): { entry: Entry; faults: FieldFaults } {
+  fill(entry: Entry, id?: string): { entry: Entry; faults: FieldFaults } {
     const given = cleaned(entry.properties);
     const properties: Record<string, unknown> = {};
     const unwritten: string[] = [];
     const faults: FieldFaults = new Map();
     const where = id ?? entry.source_id;
     for (const field of this.carried) {
-      if (!Object.hasOwn(given, field)) continue;
-      const value = given[field];
-      if (!this.isStatus(field) || typeof value !== "string") {
-        properties[field] = value;
-        continue;
-      }
-      const word = this.word(value);
-      if (word === undefined) {
-        unwritten.push(field);
-        faults.set(
-          `mapping-status:${this.label}:${value}`,
-          `the status word ${value} of ${where} is not written, since ${this.target} holds no word in its group`,
-        );
-        continue;
-      }
-      properties[field] = this.wordBack(word) ?? value;
+      if (Object.hasOwn(given, field)) properties[field] = given[field];
     }
     if (this.heldLink !== undefined && Object.hasOwn(given, this.heldLink))
       properties[this.heldLink] = given[this.heldLink];
@@ -304,6 +289,46 @@ export class FieldMap {
     }
     if (unwritten.length > 0) properties[unwrittenKey] = unwritten;
     return { entry: { ...entry, properties }, faults };
+  }
+
+  /**
+   * The entry with its status word as it reads back from the target, for a
+   * row written as the target type: the vendor's word lands on the target's
+   * word of its group and reads back as the kind's word that lands there. A
+   * word whose group the target lacks is not written, so the row keeps what
+   * it holds, with a condition. A row still on the kind's own type is never
+   * given this, since it holds the kind's own words.
+   */
+  land(
+    shaped: { entry: Entry; faults: FieldFaults },
+    id?: string,
+  ): { entry: Entry; faults: FieldFaults } {
+    const field = this.ownStatus?.field;
+    const value =
+      field === undefined ? undefined : shaped.entry.properties[field];
+    if (field === undefined || typeof value !== "string") return shaped;
+    const properties = { ...shaped.entry.properties };
+    const faults: FieldFaults = new Map(shaped.faults);
+    const word = this.word(value);
+    if (word === undefined) {
+      Reflect.deleteProperty(properties, field);
+      properties[unwrittenKey] = [
+        ...(Array.isArray(properties[unwrittenKey])
+          ? (properties[unwrittenKey] as string[])
+          : []),
+        field,
+      ];
+      faults.set(
+        `mapping-status:${this.label}:${value}`,
+        `the status word ${value} of ${id ?? shaped.entry.source_id} is not written, since ${this.target} holds no word in its group`,
+      );
+    } else properties[field] = this.wordBack(word) ?? value;
+    return { entry: { ...shaped.entry, properties }, faults };
+  }
+
+  /** The entry as `fill` and `land` leave it. */
+  entry(entry: Entry, id?: string): { entry: Entry; faults: FieldFaults } {
+    return this.land(this.fill(entry, id), id);
   }
 
   /** The connector's view of a row written as the target type. */
@@ -470,6 +495,18 @@ export class TypeMap {
           ? onOwn.readUnmoved(item.properties)
           : item.properties;
     return { ...item, type: type ?? item.type, properties };
+  }
+
+  /** Whether the row by id was last answered on the kind's own type, with
+   *  the mapping moving the kind elsewhere: it holds the kind's own words
+   *  until a rewrite moves it. */
+  unmoved(id: string): boolean {
+    const served = this.served.get(id);
+    return (
+      served !== undefined &&
+      this.onOwn.has(served) &&
+      !this.onTarget.has(served)
+    );
   }
 
   /** The properties to send for the connector's view of a row: a new row of

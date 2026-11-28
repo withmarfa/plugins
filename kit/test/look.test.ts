@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { start } from "./installed.js";
-import { Harness, testConnector, vendor } from "./harness.js";
+import type { Setting, SettingsDeclaration } from "../src/define.js";
+import {
+  Harness,
+  linkedType,
+  testConnector,
+  testSettings,
+  twoWayConnector,
+  vendor,
+} from "./harness.js";
 
 let harness: Harness;
 beforeEach(async () => {
@@ -368,5 +376,97 @@ describe("--look-every", () => {
     await harness.clock.sleeping(30_000);
     harness.stop();
     expect(await exit).toBe(0);
+  });
+});
+
+describe("--look-every, for a connector whose carry-back depends on a setting", () => {
+  const args = ["--every", "15m", "--look-every", "30s"];
+
+  /** The two-way connector, carrying back only where `carry` is on. */
+  function carryingOn(setting: Setting, carried: (value: unknown) => boolean) {
+    return (values: Record<string, unknown>) => ({
+      ...twoWayConnector(vendor([])),
+      settings: [...testSettings, setting] as SettingsDeclaration,
+      carries: () => (carried(values[setting.name]) ? [linkedType.id] : []),
+    });
+  }
+
+  async function started(
+    definition: ReturnType<typeof carryingOn>,
+    widest: Record<string, unknown> = {},
+  ): Promise<number> {
+    const exit = start(
+      definition as never,
+      harness.runtime(args),
+      widest as never,
+    );
+    const early = await Promise.race([
+      exit,
+      harness.clock.sleeping(30_000).then(() => undefined),
+    ]);
+    if (early !== undefined) return early;
+    harness.stop();
+    return exit;
+  }
+
+  const refusal =
+    "--look-every is for a connector that receives webhooks or carries changes back";
+  const flag = (extra: Partial<Setting>): Setting => ({
+    name: "carry",
+    label: "Carry",
+    kind: "boolean",
+    ...extra,
+  });
+
+  it("accepts a connector whose default turns the carry-back on, though its widest does not name the setting", async () => {
+    const exit = await started(
+      carryingOn(flag({ default: true }), (value) => value === true),
+    );
+    expect(exit, harness.lines.join("\n")).toBe(0);
+  });
+
+  it("refuses the same connector with the default off, as the witness", async () => {
+    const exit = await started(
+      carryingOn(flag({ default: false }), (value) => value === true),
+    );
+    expect(exit).toBe(2);
+    expect(harness.lines.join("\n")).toContain(refusal);
+  });
+
+  it("refuses a connector whose setting has no default and whose widest does not name it", async () => {
+    const exit = await started(carryingOn(flag({}), (value) => value === true));
+    expect(exit).toBe(2);
+    expect(harness.lines.join("\n")).toContain(refusal);
+  });
+
+  it("lets the widest settings win over the default", async () => {
+    const definition = carryingOn(
+      flag({ default: false }),
+      (value) => value === true,
+    );
+    harness.server.settings = { ...harness.server.settings, carry: true };
+    expect(
+      await started(definition, { carry: true }),
+      harness.lines.join("\n"),
+    ).toBe(0);
+  });
+
+  it("reads a choice setting's default as a run does", async () => {
+    const choice = (value: string): Setting => ({
+      name: "mode",
+      label: "Mode",
+      kind: "choice",
+      choices: ["read", "both"],
+      default: value,
+    });
+    expect(
+      await started(carryingOn(choice("both"), (value) => value === "both")),
+      harness.lines.join("\n"),
+    ).toBe(0);
+    harness.lines.length = 0;
+    expect(
+      await started(carryingOn(choice("read"), (value) => value === "both")),
+    ).toBe(2);
+    expect(harness.lines.join("\n")).toContain(refusal);
   });
 });

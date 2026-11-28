@@ -421,8 +421,9 @@ export class Rows {
     let entry = given;
     const mapped = this.kind.fieldMap;
     if (mapped !== undefined) {
-      // Mapped from every field the vendor gave, before any is left out.
-      const shaped = mapped.entry(given);
+      // Mapped from every field the vendor gave, before any is left out. The
+      // status word waits for the row it is written to.
+      const shaped = mapped.fill(given);
       for (const [key, message] of shaped.faults)
         this.hooks.condition(key, message);
       entry = shaped.entry;
@@ -450,6 +451,25 @@ export class Rows {
         ),
       }),
     };
+  }
+
+  /** The entry with its status word as the row it is written to holds it: as
+   *  the target type's words for a new row and one on the target, and the
+   *  vendor's own for a row still on the kind's own type. */
+  private worded(entry: Entry, row: Item | undefined): Entry {
+    const mapped = this.kind.fieldMap;
+    if (
+      mapped === undefined ||
+      (row !== undefined && this.marfa.unmoved(row.id))
+    )
+      return entry;
+    const shaped = mapped.land({ entry, faults: new Map() }, row?.id);
+    for (const [key, message] of shaped.faults)
+      this.hooks.condition(key, message);
+    if (shaped.entry.properties === entry.properties) return entry;
+    const captured = this.attempts.get(entry);
+    if (captured !== undefined) this.attempts.set(shaped.entry, captured);
+    return shaped.entry;
   }
 
   async upsert(entries: readonly Entry[]): Promise<void> {
@@ -567,11 +587,12 @@ export class Rows {
         continue;
       }
       const occurredAt = instant(entry.occurred_at);
+      const created = this.worded(entry, undefined);
       creates.push([
-        entry,
+        created,
         {
-          source_id: entry.source_id,
-          properties,
+          source_id: created.source_id,
+          properties: cleaned(created.properties),
           ...(occurredAt !== undefined && { occurred_at: occurredAt }),
         },
       ]);
@@ -665,7 +686,7 @@ export class Rows {
     }
     this.reached.add(found.id);
     let agreement = this.store.get(found.id);
-    const agreed = this.agreedFile(given, agreement);
+    const agreed = this.agreedFile(this.worded(given, found), agreement);
     let entry = agreed.entry;
     if (
       entry.changed_at !== undefined &&
