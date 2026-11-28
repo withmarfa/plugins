@@ -204,6 +204,31 @@ export function forRow(
   };
 }
 
+/** Whether the kind says a row's stored value for a field is one it cannot read. */
+export function unreadableIn(
+  kind: Spec,
+  field: string,
+  properties: Readonly<Record<string, unknown>>,
+): boolean {
+  return kind.unreadable?.(field, held(properties, field)) === true;
+}
+
+/** Whether a field takes the vendor's value whatever Marfa holds, so a change
+ *  made to it in Marfa is put back and never carried: a read-only field, or
+ *  one whose stored value the kind cannot read. */
+export function mirrors(
+  kind: Spec,
+  field: string,
+  properties: Readonly<Record<string, unknown>>,
+): boolean {
+  return kind.readOnly.has(field) || unreadableIn(kind, field, properties);
+}
+
+/** The condition the owner sees for fields put back from the vendor. */
+export function putBackText(id: string, fields: readonly string[]): string {
+  return `${fields.map(namedField).join(", ")} on ${id} ${fields.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, whose value is the one kept`;
+}
+
 export function watchedFields(kind: Spec): string[] {
   return kind.fields.filter((field) => !kind.observed?.has(field));
 }
@@ -851,9 +876,8 @@ export class Rows {
     const kind = forRow(this.kind, row, entry);
     const merged = merge({
       fields: kind.fields,
-      readOnly: (field) =>
-        kind.readOnly.has(field) ||
-        kind.unreadable?.(field, row.properties[field]) === true,
+      readOnly: (field) => mirrors(kind, field, row.properties),
+      unreadable: (field) => unreadableIn(kind, field, row.properties),
       observe: (field) => kind.observed?.has(field) === true,
       retired: kind.retired,
       preserveFirst: kind.firstAgreement === "preserve",
@@ -889,10 +913,7 @@ export class Rows {
       );
     }
     if (merged.putBack.length > 0) {
-      this.hooks.condition(
-        `put-back:${id}`,
-        `${merged.putBack.map(namedField).join(", ")} on ${id} ${merged.putBack.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
-      );
+      this.hooks.condition(`put-back:${id}`, putBackText(id, merged.putBack));
     }
   }
 
@@ -1267,7 +1288,7 @@ export class Rows {
       for (const field of fields) {
         if (
           kind.observed?.has(field) ||
-          (mirroredOnly && !kind.readOnly.has(field))
+          (mirroredOnly && !mirrors(kind, field, row.properties))
         )
           continue;
         const wanted = agreement.marfa[field] ?? "";
@@ -1375,7 +1396,7 @@ export class Rows {
           mark(held(said, field)) !== mark(held(row.properties, field)) &&
           // A change a person made since is theirs, still to carry, but a
           // read-only field mirrors the vendor whatever a person wrote.
-          (kind.readOnly.has(field) ||
+          (mirrors(kind, field, row.properties) ||
             mark(held(row.properties, field)) === (agreed[field] ?? "")),
       );
       if (differing.length === 0) return;
@@ -1421,10 +1442,7 @@ export class Rows {
         (field) => mark(held(row.properties, field)) !== (agreed[field] ?? ""),
       );
       if (back.length > 0) {
-        this.hooks.condition(
-          `put-back:${id}`,
-          `${back.map(namedField).join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
-        );
+        this.hooks.condition(`put-back:${id}`, putBackText(id, back));
       }
       const agreement = this.store.get(id);
       if (agreement !== undefined) {

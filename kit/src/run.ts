@@ -52,6 +52,8 @@ import {
 import {
   carriable,
   forRow,
+  mirrors,
+  putBackText,
   watchedFields,
   cascaded,
   connectKey,
@@ -2680,7 +2682,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     const off = changedInMarfa(
       agreement,
       kind.fields.filter(
-        (field) => kind.readOnly.has(field) && field !== kind.link,
+        (field) => mirrors(kind, field, item.properties) && field !== kind.link,
       ),
       item.properties,
     );
@@ -2752,16 +2754,14 @@ export async function runOnce<E extends SettingsDeclaration>(
     const stale = changedInMarfa(
       agreement,
       kind.fields.filter(
-        (field) => kind.readOnly.has(field) && field !== kind.link,
+        (field) =>
+          mirrors(kind, field, current.properties) && field !== kind.link,
       ),
       current.properties,
     );
     const back = stale.length === 0 ? [] : await rows.putBack(id, stale, true);
     if (back.length > 0) {
-      raised.set(
-        `put-back:${id}`,
-        `${back.map(namedField).join(", ")} on ${id} ${back.length === 1 ? "was" : "were"} changed in Marfa and put back from the vendor, which Marfa mirrors`,
-      );
+      raised.set(`put-back:${id}`, putBackText(id, back));
     }
     const types = connections.typesFrom(kind.type);
     const mirrored = types.filter((type) => connections.mirrored(kind, type));
@@ -3244,7 +3244,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     )
       return;
     const carriable = watchedFields(kind).filter(
-      (field) => !kind.readOnly.has(field),
+      (field) => !mirrors(kind, field, current.properties),
     );
     const changed =
       changeKind === "trashed"
@@ -3286,7 +3286,7 @@ export async function runOnce<E extends SettingsDeclaration>(
         Object.entries(agreement.waiting ?? {}).filter(
           ([key]) =>
             key === connectKey ||
-            kind.readOnly.has(key) ||
+            mirrors(kind, key, current.properties) ||
             (binned && key === connectionsKey),
         ),
       );
@@ -3456,7 +3456,7 @@ export async function runOnce<E extends SettingsDeclaration>(
     if (item.state !== "trashed") {
       for (const field of changedInMarfa(next, kind.fields, item.properties)) {
         const since = base?.waiting?.[field];
-        if (kind.readOnly.has(field) && since !== undefined) {
+        if (mirrors(kind, field, item.properties) && since !== undefined) {
           waiting[field] = since;
         }
       }
@@ -4128,7 +4128,7 @@ export async function runOnce<E extends SettingsDeclaration>(
               changedInMarfa(
                 agreement,
                 watchedFields(kind).filter(
-                  (field) => !kind.readOnly.has(field),
+                  (field) => !mirrors(kind, field, item.properties),
                 ),
                 item.properties,
               ),

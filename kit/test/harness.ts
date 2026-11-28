@@ -169,6 +169,7 @@ export interface Vendor {
   connections?: ConnectionDefinition[];
   retired?: { type: string; connection: string }[];
   readOnly?: string[];
+  unreadable?: (field: string, value: unknown) => boolean;
   derived?: string[];
   derive?: { keys: string[]; values: Record<string, unknown> };
   ask?:
@@ -247,6 +248,7 @@ function twoWayConnector(held: Vendor) {
         revive: held.revive === true,
         ...(held.archivedWhen !== undefined && { archived: held.archivedWhen }),
         ...(held.readOnly !== undefined && { readOnly: held.readOnly }),
+        ...(held.unreadable !== undefined && { unreadable: held.unreadable }),
         ...(held.derived !== undefined && { derived: held.derived }),
       },
       ...(held.notes === undefined
