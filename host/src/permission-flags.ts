@@ -10,6 +10,10 @@
  * started with `execArgv` that grant it every permission, which would end
  * the sandbox.
  *
+ * `--no-experimental-sqlite` and `--no-experimental-ffi` remove two modules
+ * the permission model does not fully cover: `node:sqlite` opens files
+ * outside the allowed path, and `node:ffi` loads by default.
+ *
  * `maxHeapMb` caps the old generation of every connector's heap, since
  * nothing else bounds what a connector holds once it parses in the one
  * thread. Buffers live outside that heap and are bounded by the limits on
@@ -27,6 +31,8 @@ export function permissionFlags(bundle: string): string[] {
     "--permission",
     `--allow-fs-read=${bundle}`,
     "--allow-net",
+    "--no-experimental-sqlite",
+    "--no-experimental-ffi",
     `--max-old-space-size=${String(maxHeapMb)}`,
   ];
 }

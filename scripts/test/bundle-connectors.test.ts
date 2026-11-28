@@ -263,6 +263,34 @@ describe("a worker", () => {
   });
 });
 
+describe("SQLite and FFI", () => {
+  // Each way a bundle can reach a built-in module, printing what it got.
+  const reach = [
+    'import { createRequire } from "node:module";',
+    "const require = createRequire(import.meta.url);",
+    "for (const name of ['node:sqlite', 'node:ffi']) {",
+    "  const got = [];",
+    "  try { await import(name); got.push('import'); } catch {}",
+    "  try { require(name); got.push('require'); } catch {}",
+    "  if (process.getBuiltinModule(name) !== undefined) got.push('getBuiltinModule');",
+    "  console.log(name + ': ' + (got.join(',') || 'none'));",
+    "}",
+  ].join("\n");
+
+  it("cannot be loaded by import, require or getBuiltinModule under the permission flags", async () => {
+    const file = join(await scratch(), "c-1.2.3.connector.mjs");
+    await writeFile(file, reach);
+    expect(await started(file)).toBe("node:sqlite: none\nnode:ffi: none\n");
+    // The witness: without the two flags, the same code loads node:sqlite.
+    const withoutFlags = permissionFlags(file).filter(
+      (flag) => !flag.startsWith("--no-experimental-"),
+    );
+    expect(await started(file, { flags: withoutFlags })).toMatch(
+      /^node:sqlite: import,require,getBuiltinModule\n/,
+    );
+  });
+});
+
 describe("what a connector reads from the disk", () => {
   it("is refused when its own code imports a module that writes files or starts a process", async () => {
     for (const module of [
@@ -270,6 +298,8 @@ describe("what a connector reads from the disk", () => {
       "node:fs/promises",
       "node:os",
       "node:child_process",
+      "node:sqlite",
+      "node:ffi",
     ]) {
       const base = await repository({
         "connectors/c/dist/main.js": `import "${module}";`,

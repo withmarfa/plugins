@@ -133,15 +133,17 @@ No key is printed, logged or passed on a command line.
 
 ## What a connector can do
 
-Each connector runs in a process of its own under Node's permission model: it
-can read only its own code file and reach the network. It can't write files,
-start child processes or workers, or load native add-ons. It gets only
-`MARFA_API_URL`, `MARFA_API_KEY`, `PATH`, `HOME`, the locale and time zone,
-and the `OTEL_*` and `MARFA_OTEL_*` settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
+Each connector runs in a process of its own under Node's permission model. It
+reads only its own code file, through Node's file APIs, and it can reach the
+network. It can't use SQLite or FFI, write files, start child processes or
+workers, or load native add-ons. It gets only `MARFA_API_URL`, `MARFA_API_KEY`,
+`PATH`, `HOME`, the locale and time zone, and the `OTEL_*` and `MARFA_OTEL_*`
+settings when the host has `OTEL_EXPORTER_OTLP_ENDPOINT` set.
 
-Node doesn't treat its permission model as a security boundary against code
-written to escape it. For example, it doesn't stop a connector from sending
-signals to other processes of the same user. The permission model guards
-against a faulty connector, not a hostile one, so install only plugins you
-trust. That's why installing a plugin with a connector needs the
-`connectors.manage` permission.
+Node doesn't treat its permission model as a boundary against code written to
+escape it. Today it doesn't stop a connector from signaling other processes of
+the same user, opening the inspector of another Node process of the same user,
+or connecting to Unix sockets on the machine. The permission model guards
+against a faulty connector, not a hostile one. An operating-system sandbox is
+planned. Until then, install only plugins you trust. That's why installing a
+plugin with a connector needs the `connectors.manage` permission.
