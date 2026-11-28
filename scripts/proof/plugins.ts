@@ -274,6 +274,33 @@ export async function provePlugins(
         return `${String(plugins.length)} plugins; ${where}${said.map((line) => `; ${line}`).join("")}`;
       },
     );
+
+    await check(
+      "plugins: the Readwise highlight type, installed over the published release, takes core.highlight's display hints: its passage as the body, no title field and no name from the body",
+      async () => {
+        const ran = await runMarfa(
+          ["--json", "types", "get", "readwise.highlight"],
+          { env: { MARFA_API_URL: url, MARFA_API_KEY: minted.key } },
+        );
+        const hints = (
+          JSON.parse(ran.stdout) as {
+            display_hints?: {
+              body_field?: string;
+              name_from_body?: boolean;
+              title_field?: string;
+            };
+          }
+        ).display_hints;
+        if (
+          hints?.body_field !== "text" ||
+          hints.name_from_body !== false ||
+          hints.title_field !== undefined
+        ) {
+          throw new Error(`display hints ${JSON.stringify(hints)}`);
+        }
+        return `body_field ${hints.body_field}, name_from_body ${String(hints.name_from_body)}, no title_field`;
+      },
+    );
   } finally {
     await Promise.all(served.map(stop));
     await rm(work, { recursive: true, force: true });

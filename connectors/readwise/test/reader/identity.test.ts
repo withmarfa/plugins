@@ -290,7 +290,7 @@ it.each([false, true])(
     ).toMatchObject({
       source_id: "one:reader-highlight:hi",
       properties: {
-        text: "Current Reader passage",
+        text: "Export passage",
         readwise_text: "Export passage",
       },
     });
@@ -371,7 +371,9 @@ it.each([false, true])(
         document,
         resolved.enrichment,
       ).entry;
-      expect(mapped.properties["text"]).toBe("Current Reader passage");
+      expect(mapped.properties["text"]).toBe(
+        id === "hi" ? "Acknowledged export passage" : "Current Reader passage",
+      );
       expect(mapped.properties["readwise_text"]).toBe(
         id === "hi" ? "Acknowledged export passage" : undefined,
       );

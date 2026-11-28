@@ -177,7 +177,7 @@
     },
     "readwise_text": {
       "type": "string",
-      "description": "The export passage as Markdown, when it differs from the canonical Reader passage."
+      "description": "The export passage as Markdown, when it differs from the passage Reader holds."
     },
     "category": {
       "type": "string",
@@ -189,20 +189,16 @@
     },
     "title": {
       "type": "string",
-      "description": "The passage's first paragraph or heading as plain text, at most 80 characters, or what the passage pictures when it has no words."
+      "description": "Not written: the connector clears it. Marfa names a highlight after its source, and `text` holds the passage."
     },
     "body": {
       "type": "string",
-      "description": "The whole passage as Markdown, pictures included."
+      "description": "Not written: the connector clears it. `text` holds the whole passage as Markdown, pictures included."
     },
     "original_values": {
       "type": "object",
       "description": "Values Readwise sent in a shape their field's kind refuses, kept as sent, by field name."
     }
-  },
-  "display_hints": {
-    "title_field": "title",
-    "body_field": "body"
   },
   "link_field": "canonical_key"
 }

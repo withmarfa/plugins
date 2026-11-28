@@ -3,7 +3,6 @@ import {
   isReaderManaged,
   mapSource,
   mapHighlight,
-  sourceTitle,
   mapReaderSource,
   mapReaderHighlight,
   readerIdentity,
@@ -293,16 +292,8 @@ export class SharedRows {
       }
     const properties = { ...current.properties };
     if (exportEntry !== undefined) {
-      const {
-        title,
-        body,
-        original_values: refused,
-        ...exported
-      } = exportEntry.properties;
+      const { original_values: refused, ...exported } = exportEntry.properties;
       Object.assign(properties, exported);
-      // Reader's title and body stand; the export's fill only a row without them.
-      if (title !== undefined) properties["title"] ??= title;
-      if (body !== undefined) properties["body"] ??= body;
       // The export's refused values replace its earlier ones, and a field it
       // now refuses no longer holds the value it sent before. Reader's own
       // refused values are found again when its row is mapped.
@@ -380,12 +371,7 @@ export class SharedRows {
     source: Source,
     highlight: Highlight,
   ): Promise<Entry | undefined> {
-    const entry = mapHighlight(
-      this.account,
-      source.user_book_id,
-      highlight,
-      sourceTitle(source),
-    );
+    const entry = mapHighlight(this.account, source.user_book_id, highlight);
     if (source.source === "reader") this.rows.fromReader?.add(entry.source_id);
     const held = await this.locate(
       "readwise.highlight",

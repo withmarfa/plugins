@@ -332,7 +332,6 @@ describe("export rows Reader manages", () => {
           held.properties = mapReaderHighlight("one", document, {
             properties: held.properties,
             sourceId: held.source_id ?? "",
-            documentTitle: "Reader Title",
           }).entry.properties;
           return held.properties;
         },
@@ -354,33 +353,21 @@ describe("export rows Reader manages", () => {
       };
     }
     it.each(["Export Title", undefined])(
-      "keeps Reader's title when the Reader connector runs first, export title %s",
+      "holds the passage in text and no title or body in either order, export title %s",
       async (exportTitle) => {
         const run = runs(exportTitle);
         const written = { ...run.reader() };
-        expect(written).toMatchObject({
-          title: "Picture from Reader Title",
-          body: picture,
-        });
+        expect(written["text"]).toBe(picture);
+        expect(written).not.toHaveProperty("title");
+        expect(written).not.toHaveProperty("body");
         expect(await run.highlights()).toEqual(written);
         expect(run.reader()).toEqual(written);
-        expect(await run.highlights()).toEqual(written);
-      },
-    );
-    it.each(["Export Title", undefined])(
-      "settles on Reader's title when the export runs first, export title %s",
-      async (exportTitle) => {
-        const run = runs(exportTitle);
-        expect((await run.highlights())["title"]).toBe(
-          exportTitle === undefined ? "Picture" : `Picture from ${exportTitle}`,
-        );
-        const written = { ...run.reader() };
-        expect(written).toMatchObject({
-          title: "Picture from Reader Title",
-          body: picture,
-        });
-        expect(await run.highlights()).toEqual(written);
-        expect(run.reader()).toEqual(written);
+        const other = runs(exportTitle);
+        const exported = { ...(await other.highlights()) };
+        expect(exported["text"]).toBe(picture);
+        expect(exported).not.toHaveProperty("title");
+        expect(exported).not.toHaveProperty("body");
+        expect(other.reader()).toEqual(exported);
       },
     );
     it("takes a date the export refuses out of the field it held", async () => {

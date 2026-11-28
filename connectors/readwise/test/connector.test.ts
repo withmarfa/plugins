@@ -109,6 +109,133 @@ describe("with Reader off", () => {
   });
 });
 
+describe("highlights written before the passage moved to text", () => {
+  const picture =
+    "![](https://readwise-assets.s3.amazonaws.com/media/picture.png)";
+  /** What the earlier release left on a row: the passage as `body`, a title from it. */
+  function aged(
+    marfa: Awaited<ReturnType<typeof fixture>>["marfa"],
+    sourceId: string,
+  ) {
+    const row = marfa.row(sourceId);
+    row.properties["title"] = "Old title from the passage";
+    row.properties["body"] = String(row.properties["text"]);
+  }
+
+  it("writes a new highlight with text and no title or body", async () => {
+    const { vendor, once, rows } = await fixture();
+    const [book] = vendor.sources;
+    book?.highlights.push({ id: 12, external_id: "k-12", text: picture });
+    await once();
+    for (const row of rows("readwise.highlight")) {
+      expect(typeof row.properties["text"]).toBe("string");
+      expect(row.properties).not.toHaveProperty("title");
+      expect(row.properties).not.toHaveProperty("body");
+    }
+    expect(
+      rows("readwise.highlight").map((row) => row.properties["text"]),
+    ).toContain(picture);
+  });
+
+  it.each([
+    ["off", {}],
+    ["on", readerOn],
+  ])(
+    "rewrites an old-shape row on the next run, sends nothing, and keeps the passage, Reader %s",
+    async (_, settings) => {
+      const { marfa, vendor, once } = await fixture(settings);
+      const [book] = vendor.sources;
+      book?.highlights.push({ id: 12, external_id: "k-12", text: picture });
+      await once();
+      await once();
+      for (const id of [
+        "primary:highlight:11",
+        "primary:highlight:21",
+        "primary:highlight:12",
+      ]) {
+        aged(marfa, id);
+      }
+      const passages = [
+        "primary:highlight:11",
+        "primary:highlight:21",
+        "primary:highlight:12",
+      ].map((id) => marfa.row(id).properties["text"]);
+      await once();
+      for (const id of [
+        "primary:highlight:11",
+        "primary:highlight:21",
+        "primary:highlight:12",
+      ]) {
+        expect(marfa.row(id).properties).not.toHaveProperty("title");
+        expect(marfa.row(id).properties).not.toHaveProperty("body");
+      }
+      expect(
+        [
+          "primary:highlight:11",
+          "primary:highlight:21",
+          "primary:highlight:12",
+        ].map((id) => marfa.row(id).properties["text"]),
+      ).toEqual(passages);
+      expect(marfa.row("primary:highlight:12").properties["text"]).toBe(
+        picture,
+      );
+      expect(vendor.writes).toEqual([]);
+      expect(
+        Object.keys(marfa.problems.get("readwise") ?? {}).filter(
+          (key) => !key.startsWith("put-back:"),
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it("rewrites the other old rows when one highlight cannot be written", async () => {
+    const { marfa, vendor, once } = await fixture();
+    await once();
+    aged(marfa, "primary:highlight:11");
+    aged(marfa, "primary:highlight:21");
+    vendor.sources[0]?.highlights.push({
+      id: 12,
+      external_id: "k-12",
+      text: picture,
+    });
+    marfa.entryRefusals.set("primary:highlight:12", {
+      status: 400,
+      code: "invalid_properties",
+      message: "refused for the test",
+    });
+    await once();
+    for (const id of ["primary:highlight:11", "primary:highlight:21"]) {
+      expect(marfa.row(id).properties).not.toHaveProperty("body");
+      expect(marfa.row(id).properties).not.toHaveProperty("title");
+    }
+    expect(() => marfa.row("primary:highlight:12")).toThrow();
+    expect(vendor.writes).toEqual([]);
+  });
+
+  it("still carries a person's edit to a managed highlight's note, and puts back an edit to text without sending it", async () => {
+    const { marfa, vendor, once } = await fixture(readerOn);
+    await once();
+    await once();
+    aged(marfa, "primary:highlight:11");
+    marfa.edit(marfa.row("primary:highlight:11").id, {
+      text: "Rewritten in Marfa",
+      note: "Marfa note",
+    });
+    await once();
+    expect(vendor.writes).toEqual([
+      {
+        method: "PATCH",
+        path: "/v3/update/hi-1/",
+        body: { notes: "Marfa note" },
+      },
+    ]);
+    expect(vendor.documents.get("hi-1")?.content).toBe("Reader passage");
+    const row = marfa.row("primary:highlight:11");
+    expect(row.properties["text"]).toBe("Export passage");
+    expect(row.properties).not.toHaveProperty("body");
+  });
+});
+
 describe("with Reader on", () => {
   const adopted = async (settings: Record<string, unknown> = {}) => {
     const found = await fixture({ ...readerOn, ...settings });
@@ -134,7 +261,7 @@ describe("with Reader on", () => {
       (row) => row.properties["reader_id"] === "hi-1",
     );
     expect(passage?.source_id).toBe("primary:highlight:11");
-    expect(passage?.properties["text"]).toBe("Reader passage");
+    expect(passage?.properties["text"]).toBe("Export passage");
     expect(passage?.properties["readwise_text"]).toBe("Export passage");
   });
 

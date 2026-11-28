@@ -16,6 +16,8 @@ export const sourceFields = [
   "published_at",
   ...Object.keys(source.fields),
 ];
+/** Fields the type still declares, since a published plugin never narrows, that no row holds any more. */
+export const retiredHighlightFields = ["title", "body"];
 export const highlightFields = [
   "text",
   "note",
@@ -23,5 +25,7 @@ export const highlightFields = [
   "locator_type",
   "start_location",
   "end_location",
-  ...Object.keys(highlight.fields),
+  ...Object.keys(highlight.fields).filter(
+    (field) => !retiredHighlightFields.includes(field),
+  ),
 ];

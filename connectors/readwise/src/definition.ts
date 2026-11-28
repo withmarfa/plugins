@@ -4,6 +4,7 @@ import {
   highlightType,
   sourceFields,
   highlightFields,
+  retiredHighlightFields,
   readerMutableSourceFields,
   readerMutableHighlightFields,
   readerFileType,
@@ -58,6 +59,7 @@ export function connector() {
         direction: "both",
         type: highlightType,
         fields: highlightFields,
+        retired: retiredHighlightFields,
         readOnly: highlightFields.filter(
           (field) =>
             !(readerMutableHighlightFields as readonly string[]).includes(
