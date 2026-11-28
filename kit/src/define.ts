@@ -885,7 +885,8 @@ export interface Connector<
  * writes only when a setting turns it on: built again from the settings at the
  * start of every run, and, for the checks the start makes, from the settings
  * that give its widest shape, where a setting it is not given reads as
- * `undefined` whatever its declaration.
+ * `undefined` whatever its declaration. The check of `--look-every` builds it
+ * as a run would, from each setting's default with those settings over them.
  */
 export type ConnectorOf<E extends SettingsDeclaration> = (
   settings: SettingValues<E>,

@@ -116,6 +116,27 @@ export function setCommand(plugin: string, setting: Setting): string {
     : `marfa plugins settings ${plugin} --set ${setting.name}=<value>`;
 }
 
+/** What a run reads for a setting: the value held for it, else its declared
+ *  default, which a secret never has. */
+function withDefault(setting: Setting, value: unknown): unknown {
+  return value ?? (setting.secret === true ? undefined : setting.default);
+}
+
+/**
+ * The values a run would build the connector from if Marfa held only `given`:
+ * each declared setting's default, with `given` over it.
+ */
+export function defaulted<E extends SettingsDeclaration>(
+  declared: E,
+  given: Readonly<Record<string, unknown>>,
+): SettingValues<E> {
+  const values: Record<string, unknown> = {};
+  for (const setting of declared) {
+    values[setting.name] = withDefault(setting, given[setting.name]);
+  }
+  return values as SettingValues<E>;
+}
+
 /**
  * The settings as the connector reads them, typed by kind with the declared
  * default applied, or why the run cannot start with them: a required setting
@@ -133,8 +154,8 @@ export function readSettings<E extends SettingsDeclaration>(
   for (const setting of declared) {
     const answered = held.settings.find((one) => one.name === setting.name);
     if (answered?.unreadable === true) unreadable.push(setting);
-    let value = answered?.value ?? undefined;
-    value ??= setting.secret === true ? undefined : setting.default;
+    let value: unknown = answered?.value ?? undefined;
+    value = withDefault(setting, value);
     if (value === undefined) {
       if (setting.required === true) missing.add(setting.name);
       values[setting.name] = undefined;
