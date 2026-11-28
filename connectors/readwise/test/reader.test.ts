@@ -61,7 +61,7 @@ describe("shared Reader mapping", () => {
     );
     expect(mapped.entry.source_id).toBe("one:highlight:42");
     expect(mapped.entry.properties).toMatchObject({
-      text: "Reader text",
+      text: "Export text",
       readwise_text: "Export text",
       readwise_id: "42",
       note: "",

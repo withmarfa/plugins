@@ -196,7 +196,7 @@ export async function proveReadwiseWithReader(
         );
         assert.equal(
           (await row("adoption:highlight:11")).properties["text"],
-          "Reader passage 1",
+          "Export passage 1",
         );
         assert.equal(
           (await row("adoption:highlight:11")).properties["readwise_text"],
@@ -289,7 +289,7 @@ export async function proveReadwiseWithReader(
             ],
           ),
         );
-        return "Reader passage stays canonical; full export and note metadata bytes are downloadable files";
+        return "Reader passage is the text when Readwise cut the export; full export and note metadata bytes are downloadable files";
       },
     );
     await verify(
@@ -490,7 +490,7 @@ export async function proveReadwiseWithReader(
         assert.equal(
           (await row("reader-first:reader-highlight:solo-highlight"))
             .properties["text"],
-          "Reader-only passage",
+          "Different export text",
         );
         assert.equal(
           (await row("reader-first:reader-highlight:solo-highlight"))
@@ -870,7 +870,7 @@ export async function proveReadwiseWithReader(
           adopted.properties["canonical_key"],
           "lifecycle:reader-highlight:lifecycle-hi",
         );
-        assert.equal(adopted.properties["text"], "Current Reader passage");
+        assert.equal(adopted.properties["text"], "Active passage");
         assert.equal(adopted.properties["readwise_text"], "Active passage");
         const snapshot = async () => {
           const files = await settledFiles(admin);

@@ -422,7 +422,6 @@ export async function sync(
           ...(notes.has(document.id)
             ? { notes: notes.get(document.id) ?? [] }
             : {}),
-          documentTitle: parent?.title,
         };
         if ((notes.get(document.id)?.length ?? 0) > 256)
           throw new Error(

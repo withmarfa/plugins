@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   fitKinds,
-  highlightDisplay,
+  highlightFields,
+  highlightPassage,
   highlightKinds,
   highlightType,
   isDate,
@@ -11,7 +12,6 @@ import {
   mapReaderSource,
   mapSource,
   readwisePassageLimit,
-  shortened,
   sourceKinds,
   sourceType,
   urlValue,
@@ -31,280 +31,89 @@ function reader(content: string, extra: Record<string, unknown> = {}) {
   };
 }
 
-describe("highlight title and body", () => {
-  it("names a highlight by the first paragraph of its passage as plain text", () => {
-    expect(
-      highlightDisplay("# 9:06 PM\n\nJesse asks", undefined, "Doc"),
-    ).toEqual({
-      title: "9:06 PM",
-      body: "# 9:06 PM\n\nJesse asks",
+describe("highlight passage", () => {
+  it("writes the whole passage to text and names the highlight nothing", () => {
+    const exported = mapHighlight("one", 7, {
+      id: 42,
+      text: "# 9:06 PM\n\nJesse asks",
+      note: "n",
     });
-    expect(
-      highlightDisplay(
-        "**Bold** and [a link](https://example.com) &amp; `code`\nsecond line",
-        undefined,
-        undefined,
-      ).title,
-    ).toBe("Bold and a link & code second line");
-    expect(
-      highlightDisplay("- first item\n- second", undefined, undefined).title,
-    ).toBe("first item second");
-  });
-  it("joins a paragraph Reader broke around a link or a soft wrap", () => {
-    expect(
-      highlightDisplay(
-        "It may be a\nfeature request\n that never ships.\n \t\nNext paragraph",
-        undefined,
-        undefined,
-      ).title,
-    ).toBe("It may be a feature request that never ships.");
-    expect(
-      highlightDisplay("First\r\n\r\nSecond", undefined, undefined).title,
-    ).toBe("First");
-    expect(
-      highlightDisplay("Line one<br>line two", undefined, undefined).title,
-    ).toBe("Line one line two");
-    expect(
-      highlightDisplay(
-        "We recently introduced\nMarfa, a store\nfor one person.",
-        undefined,
-        undefined,
-      ).title,
-    ).toBe("We recently introduced Marfa, a store for one person.");
-  });
-  it("takes the title from the export passage, and Reader's when the export has no words", () => {
-    expect(
-      highlightDisplay("Plain words", "*Export* words", undefined).title,
-    ).toBe("Export words");
-    expect(
-      highlightDisplay("", `${picture}\n\n*Export*\nwords`, undefined).title,
-    ).toBe("Export words");
-    expect(highlightDisplay("Plain words", picture, undefined).title).toBe(
-      "Plain words",
-    );
-    expect(highlightDisplay("Plain words", "  ", undefined).title).toBe(
-      "Plain words",
-    );
-  });
-  // Passages from a real Reader library.
-  it("joins a passage Reader broke around its links", () => {
-    expect(
-      highlightDisplay(
-        "We recently introduced\n   \n    claimable sandboxes\n   \n   , which let you start using Stripe directly",
-        "We recently introduced [claimable sandboxes](https://docs.stripe.com/sandboxes/claimable-sandboxes) , which let you start using Stripe directly from your AI coding tools",
-        undefined,
-      ).title,
-    ).toBe(
-      "We recently introduced claimable sandboxes, which let you start using Stripe…",
-    );
-  });
-  it("keeps a lead line the export sets apart as its own paragraph", () => {
-    expect(
-      highlightDisplay(
-        "Feature Specification\nThe ability for a PM to gather requirements",
-        "Feature Specification\n\n> The ability for a PM to gather requirements",
-        undefined,
-      ).title,
-    ).toBe("Feature Specification");
-  });
-  it("separates blocks Reader glued together with no space", () => {
-    expect(
-      highlightDisplay(
-        "Principles for agent-scale source controlWith agentic coding, many common assumptions",
-        "Principles for agent-scale source control\n\nWith agentic coding, many common assumptions",
-        undefined,
-      ).title,
-    ).toBe("Principles for agent-scale source control");
-  });
-  it("ends the title at a heading in either passage", () => {
-    expect(
-      highlightDisplay(
-        "# 9:06:16 PM - May 27, 2025\n\nJesse is asking me how I feel",
-        "# 9:06:16 PM - May 27, 2025 Jesse is asking me how I feel",
-        undefined,
-      ).title,
-    ).toBe("9:06:16 PM - May 27, 2025");
-    expect(
-      highlightDisplay("Lead in\n## Section\nBody text", undefined, undefined)
-        .title,
-    ).toBe("Lead in");
-    expect(
-      highlightDisplay("## Section\nBody text", undefined, undefined).title,
-    ).toBe("Section");
-  });
-  it("leaves list and quotation markers out of the title", () => {
-    expect(
-      highlightDisplay(
-        "When somebody decides to build an AI data center",
-        "•   When somebody decides to build an AI data center",
-        undefined,
-      ).title,
-    ).toBe("When somebody decides to build an AI data center");
-    for (const marked of [
-      "\\- Item",
-      "\\* Item",
-      "\\+ Item",
-      "1\\. Item",
-      "\\> Item",
-    ])
-      expect(highlightDisplay("", marked, undefined).title, marked).toBe(
-        "Item",
-      );
-    expect(highlightDisplay("Plain words", "•", undefined).title).toBe(
-      "Plain words",
-    );
-    expect(highlightDisplay("•", undefined, "Doc").title).toBe(
-      "Highlight from Doc",
-    );
-  });
-  it("closes up the space before punctuation", () => {
-    expect(
-      highlightDisplay(
-        "Recent Works by Wang Yidong\n   \n   , Schoeni Art Gallery",
-        "*Recent Works by Wang Yidong* , Schoeni Art Gallery ( Hong Kong ) ; 1993 !",
-        undefined,
-      ).title,
-    ).toBe(
-      "Recent Works by Wang Yidong, Schoeni Art Gallery ( Hong Kong); 1993!",
-    );
-    expect(
-      highlightDisplay(
-        "If backlinks were steaks, .edu and .gov domains would be",
-        undefined,
-        undefined,
-      ).title,
-    ).toBe("If backlinks were steaks, .edu and .gov domains would be");
-  });
-  it("leaves a heading's permalink out of the title", () => {
-    expect(
-      highlightDisplay(
-        "The best part is it doesn’t use more AI #\nMost of the proposed solutions",
-        "The best part is it doesn’t use more AI [#](https://simonwillison.net/2025/Apr/11/camel/#the-best-part)\n\nMost of the proposed solutions",
-        undefined,
-      ).title,
-    ).toBe("The best part is it doesn’t use more AI");
-    expect(
-      highlightDisplay(
-        "[#hashtag](https://example.com) words",
-        undefined,
-        undefined,
-      ).title,
-    ).toBe("#hashtag words");
-  });
-  it("cuts a long title at a word boundary to 80 characters with an ellipsis", () => {
-    const line =
-      "Compared with bleeding-edge models released just months ago, it feels incremental. And more.";
-    const title = shortened(line);
-    expect(title).toBe(
-      "Compared with bleeding-edge models released just months ago, it feels…",
-    );
-    expect(title.length).toBeLessThanOrEqual(80);
-    expect(shortened("a, b; ".repeat(20))).not.toMatch(/[,;] ?…$/);
-    expect(shortened("x".repeat(200))).toHaveLength(80);
-    expect(shortened("short title")).toBe("short title");
-    const emoji = shortened("👩‍👩‍👧 ".repeat(60));
-    expect(emoji.endsWith("👩‍👩‍👧…")).toBe(true);
-  });
-  it("names a picture-only passage after its document", () => {
-    const mapped = mapReaderHighlight("one", reader(""), {
-      properties: { readwise_text: picture, reader_managed: true },
-      documentTitle: "  A  long\nread ",
+    expect(exported.properties).toMatchObject({
+      text: "# 9:06 PM\n\nJesse asks",
+      note: "n",
     });
-    expect(mapped.entry.properties).toMatchObject({
-      title: "Picture from A long read",
-      body: picture,
-      text: "",
-    });
+    expect(exported.properties).not.toHaveProperty("title");
+    expect(exported.properties).not.toHaveProperty("body");
     expect(
-      mapReaderHighlight("one", reader(""), {
-        properties: { readwise_text: picture, reader_managed: true },
-      }).entry.properties["title"],
-    ).toBe("Picture");
-    expect(
-      mapReaderHighlight("one", reader(""), {
-        properties: { readwise_text: `${picture}\n\n${"long ".repeat(40)}` },
-        documentTitle: "Doc",
-      }).entry.properties["title"],
-    ).toBe(
-      "long long long long long long long long long long long long long long long…",
-    );
-    expect(highlightDisplay("", undefined, undefined).title).toBe("Highlight");
-  });
-  it("keeps a picture title a fuller caller set while the passage is unchanged", () => {
-    const first = mapReaderHighlight("one", reader(""), {
-      properties: { readwise_text: picture, reader_managed: true },
-      documentTitle: "Doc",
-    }).entry.properties;
-    const kept = mapReaderHighlight("one", reader(""), { properties: first });
-    expect(kept.entry.properties["title"]).toBe("Picture from Doc");
-    const changed = mapReaderHighlight("one", reader(""), {
-      properties: { ...first, readwise_text: `${picture} ` },
+      mapHighlight("one", 7, { id: 43, text: picture }).properties,
+    ).toMatchObject({
+      text: picture,
     });
-    expect(changed.entry.properties["title"]).toBe("Picture");
   });
-  it("shows the export Markdown whole, and Reader's passage when Readwise cut the export", () => {
+  it("takes the export Markdown whole, and Reader's passage when Readwise cut the export", () => {
     const markdown = 'Joan Didion: *"I write"*';
-    expect(
-      mapReaderHighlight("one", reader('Joan Didion: "I write"'), {
-        properties: { readwise_text: markdown, reader_managed: true },
-      }).entry.properties,
-    ).toMatchObject({ title: 'Joan Didion: "I write"', body: markdown });
+    const marked = mapReaderHighlight("one", reader('Joan Didion: "I write"'), {
+      properties: { readwise_text: markdown, reader_managed: true },
+    }).entry.properties;
+    expect(marked["text"]).toBe(markdown);
+    expect(marked).not.toHaveProperty("title");
+    expect(marked).not.toHaveProperty("body");
     const whole = `${"word ".repeat(1_300)}end`;
     const cut = whole.slice(0, readwisePassageLimit);
     expect(
       mapReaderHighlight("one", reader(whole), {
         properties: { readwise_text: cut, reader_managed: true },
-      }).entry.properties["body"],
+      }).entry.properties["text"],
     ).toBe(whole);
+    expect(highlightPassage("", picture)).toBe(picture);
+    expect(highlightPassage("Plain", "  ")).toBe("Plain");
   });
-  it("writes the same title from the export's and Reader's mappings", () => {
+  it("keeps a picture-only passage, which Reader holds as no words", () => {
+    const mapped = mapReaderHighlight("one", reader(""), {
+      properties: { readwise_text: picture, reader_managed: true },
+    });
+    expect(mapped.entry.properties["text"]).toBe(picture);
+    expect(mapped.entry.properties).not.toHaveProperty("title");
+  });
+  it("writes the same passage from the export's and Reader's mappings", () => {
     const text = "**Strategy** is a coherent response\nto a challenge";
-    const exported = mapHighlight(
-      "one",
-      7,
-      { id: 42, text, note: "n" },
-      "Book",
-    );
+    const exported = mapHighlight("one", 7, { id: 42, text, note: "n" });
     const read = mapReaderHighlight(
       "one",
       reader("Strategy is a coherent response\nto a challenge"),
-      {
-        properties: { readwise_text: text, reader_managed: true },
-        documentTitle: "Book",
-      },
+      { properties: { readwise_text: text, reader_managed: true } },
     );
-    expect(exported.properties["title"]).toBe(
-      "Strategy is a coherent response to a challenge",
-    );
-    expect(read.entry.properties["title"]).toBe(exported.properties["title"]);
-    expect(read.entry.properties["body"]).toBe(exported.properties["body"]);
-    expect(exported.properties["note"]).toBe("n");
-    const pictured = mapHighlight("one", 7, { id: 43, text: picture }, "Book");
-    expect(pictured.properties).toMatchObject({
-      title: "Picture from Book",
-      body: picture,
-      text: picture,
-    });
+    expect(read.entry.properties["text"]).toBe(exported.properties["text"]);
   });
-  it("keeps the whole passage beside a placeholder body when it exceeds a property", () => {
+  it("drops a title and body an earlier release wrote when Reader maps the row", () => {
+    const mapped = mapReaderHighlight("one", reader("Words"), {
+      properties: {
+        reader_managed: true,
+        title: "Old title",
+        body: "Old body",
+        text: "Words",
+      },
+    });
+    expect(mapped.entry.properties).not.toHaveProperty("title");
+    expect(mapped.entry.properties).not.toHaveProperty("body");
+  });
+  it("keeps the whole passage in a text file when it exceeds a property", () => {
     const passage = `Opening line\n\n${"x".repeat(100_001)}`;
     const mapped = mapReaderHighlight("one", reader(passage));
-    expect(mapped.entry.properties).toMatchObject({
-      title: "Opening line",
-      text: "Complete text is preserved in the attached text file.",
-      body: "Complete passage is preserved in the attached text file.",
-    });
+    expect(mapped.entry.properties["text"]).toBe(
+      "Complete text is preserved in the attached text file.",
+    );
+    expect(mapped.entry.properties).not.toHaveProperty("body");
     expect(mapped.textFiles.map(({ field, text }) => [field, text])).toEqual([
       ["text", passage],
     ]);
   });
-  it("declares title and body as the highlight's display fields", () => {
-    expect(highlightType.display_hints).toEqual({
-      title_field: "title",
-      body_field: "body",
-    });
+  it("inherits core.highlight's display hints and still declares the fields it published", () => {
+    expect(highlightType.display_hints).toBeUndefined();
     expect(highlightType.fields["title"]?.type).toBe("string");
     expect(highlightType.fields["body"]?.type).toBe("string");
+    expect(highlightFields).not.toContain("title");
+    expect(highlightFields).not.toContain("body");
   });
 });
 

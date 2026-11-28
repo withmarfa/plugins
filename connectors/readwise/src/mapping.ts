@@ -1,5 +1,4 @@
 import type { Entry } from "@withmarfa/connector";
-import { highlightDisplay } from "./display.js";
 import type { Highlight, Source, Tag } from "./export.js";
 import { fitKinds, kindsOf } from "./kinds.js";
 import { highlightType, sourceType } from "./types.js";
@@ -110,7 +109,6 @@ export function mapHighlight(
   account: string,
   sourceId: number,
   highlight: Highlight,
-  documentTitle?: string,
 ): Entry {
   if (highlight.is_deleted === true || typeof highlight.text !== "string")
     throw new Error(
@@ -122,7 +120,6 @@ export function mapHighlight(
     account,
     readwise_source_id: String(sourceId),
     text: highlight.text,
-    ...highlightDisplay(highlight.text, undefined, documentTitle),
     note: highlight.note,
     color:
       highlight.color && colors.has(highlight.color)

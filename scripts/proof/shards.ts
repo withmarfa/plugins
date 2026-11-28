@@ -73,7 +73,7 @@ export const GROUPS = [
   { name: "outbound", instance: "shared", statements: 1, seconds: 2 },
   { name: "inbound-retry", instance: "shared", statements: 6, seconds: 9 },
   { name: "retry-archive", instance: "shared", statements: 1, seconds: 1 },
-  { name: "plugins", instance: "own", statements: 4, seconds: 2 },
+  { name: "plugins", instance: "own", statements: 5, seconds: 2 },
   { name: "google-sign-in", instance: "hooks", statements: 5, seconds: 2 },
   { name: "control", instance: "hooks", statements: 4, seconds: 3 },
   { name: "todoist-mapping", instance: "own", statements: 6, seconds: 10 },

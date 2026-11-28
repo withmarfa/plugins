@@ -285,7 +285,7 @@ it.each(["safe", "lone-holder", "unknown-parent", "reactivated"])(
           reader_parent_id: "doc",
           readwise_id: "42",
           readwise_text: "Active passage",
-          text: "Current Reader passage",
+          text: "Active passage",
           note: "",
           tags: [],
         },

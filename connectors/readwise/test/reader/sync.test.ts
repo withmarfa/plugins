@@ -454,9 +454,7 @@ describe("Reader upgrade to display fields and kinds", () => {
       "one:reader-highlight:hi",
     ]);
     expect(written.get("one:reader-highlight:hi")).toMatchObject({
-      title: "Picture from A long read",
-      body: picture,
-      text: "",
+      text: picture,
       note: "kept note",
       readwise_id: "42",
       readwise_text: picture,
