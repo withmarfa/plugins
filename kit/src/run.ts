@@ -76,6 +76,7 @@ import {
   type KindPlan,
   type Mapping,
   type Plan,
+  type TypeMap,
 } from "./mapping.js";
 import { readOnlyTypesOf } from "./read-only-types.js";
 import type { Clock } from "./runtime.js";
@@ -503,6 +504,61 @@ function landedOn(row: Item, landing: Landing): Record<string, unknown> {
   return { ...properties, ...landing.properties };
 }
 
+/** The connector's view of the row once the move lands it on the kind's
+ *  target, which the server has yet to answer. */
+function viewOnTarget(
+  map: TypeMap,
+  planned: KindPlan,
+  row: Item,
+  landing: Landing,
+): Record<string, unknown> {
+  return map.named({
+    ...row,
+    type: planned.target,
+    properties: landedOn(row, landing),
+  }).properties;
+}
+
+/**
+ * The Marfa side of a row's agreement as a move from the kind's own type
+ * lands it, in the connector's view: each agreed value goes through the
+ * landing the row's own value goes through. A field the row holds as agreed
+ * lands as the row does, so nothing is carried for it, and one changed in
+ * Marfa and not yet carried lands apart from the row, so the watch still
+ * carries it. The side holds marks, so a value is read back from the row's
+ * own value or a word of the kind's status field; a mark that is neither is
+ * kept.
+ */
+function landedSide(
+  map: TypeMap,
+  planned: KindPlan,
+  row: Item,
+  side: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const view = viewOnTarget(map, planned, row, movedProperties(planned, row));
+  const landed: Record<string, string> = { ...side };
+  for (const [field, agreed] of Object.entries(side)) {
+    let now: Readonly<Record<string, unknown>>;
+    if (agreed === mark(held(row.properties, field))) now = view;
+    else {
+      const word = planned.fields
+        ?.ownWords(field)
+        .find((one) => mark(one) === agreed);
+      if (word === undefined) continue;
+      now = viewOnTarget(
+        map,
+        planned,
+        row,
+        movedProperties(planned, row, { ...row.properties, [field]: word }),
+      );
+    }
+    const value = mark(held(now, field));
+    if (value === "") Reflect.deleteProperty(landed, field);
+    else landed[field] = value;
+  }
+  return landed;
+}
+
 /** What a rewrite sends to move a row to the kind's target: the kind's own
  *  fields, from the row or from `own` where it is on another type, as the
  *  mapping lands them, and the row's fields to clear. */
@@ -833,9 +889,12 @@ function landedUnderAfter<E extends SettingsDeclaration>(
  * holds that type's fields, so it is moved with the kind's own fields from
  * its newest version on the kind's own type, brought to what the vendor
  * last agreed and keeping each change made in Marfa and not yet carried
- * (`returning`), and one never there is left. Its agreement is written
- * before the move, which is one write at the version read, so a move that
- * fails leaves the row where it was for the next run. A request is cleared
+ * (`returning`), and one never there is left. A row moved from the kind's
+ * own type has its agreement landed as the row is (`landedSide`). Its
+ * agreement is written before the move, which is one write at the version
+ * read, so a move that fails leaves the row where it was for the next run;
+ * one Marfa refuses puts back an agreement landed from the kind's own
+ * type, since the row still holds its own words. A request is cleared
  * only once each of its kinds is done; one a row refused, whose target is gone or that is turned off waits
  * for a later run, and a condition says why. So does one whose rows are on a
  * type another kind's rows may be on too: Marfa does not say which kind
@@ -938,34 +997,28 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
           ? await formerReading(setup, kept, kind, former)
           : undefined;
         await store.fetch(rows.map((row) => row.id));
-        const moves: { row: Item; landing: Landing }[] = [];
+        const moves: {
+          row: Item;
+          landing: Landing;
+          /** The agreement as it was before this move's landing of it. */
+          before?: Agreement | undefined;
+        }[] = [];
         for (const row of rows) {
           if (setup.signal.aborted) throw new Stopped();
           if (!back) {
             const landing = movedProperties(planned, row);
             const agreed = store.get(row.id);
-            if (agreed !== undefined) {
-              const view = plan.map.item({
-                ...row,
-                type: planned.target,
-                properties: landedOn(row, landing),
-              }).properties;
-              const landed: Record<string, string> = {};
-              for (const field of new Set([
-                ...Object.keys(agreed.marfa),
-                ...Object.keys(agreed.vendor),
-              ])) {
-                const own = held(row.properties, field);
-                const now = held(view, field);
-                if (mark(now) !== mark(own)) landed[field] = mark(now);
-              }
-              if (Object.keys(landed).length > 0)
-                store.set(row.id, {
-                  ...agreed,
-                  marfa: { ...agreed.marfa, ...landed },
-                });
+            if (agreed === undefined) {
+              moves.push({ row, landing });
+              continue;
             }
-            moves.push({ row, landing });
+            const side = landedSide(plan.map, planned, row, agreed.marfa);
+            if (isDeepStrictEqual(side, agreed.marfa)) {
+              moves.push({ row, landing });
+              continue;
+            }
+            store.set(row.id, { ...agreed, marfa: side });
+            moves.push({ row, landing, before: agreed });
             continue;
           }
           try {
@@ -986,11 +1039,7 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
             );
             const landing = movedProperties(planned, row, returned.own);
             if (returned.agreement !== undefined) {
-              const view = plan.map.item({
-                ...row,
-                type: planned.target,
-                properties: landedOn(row, landing),
-              }).properties;
+              const view = viewOnTarget(plan.map, planned, row, landing);
               const side = sideOf(Object.keys(view), view);
               for (const field of returned.edited)
                 Reflect.deleteProperty(side, field);
@@ -1007,9 +1056,11 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
           }
         }
         // Agreed first: a move that then fails leaves the row where it was,
-        // and the next run moves it on what this one agreed.
+        // and the next run moves it on what this one agreed. Landing an
+        // agreement the kit landed before changes nothing.
         await store.flush();
-        for (const { row, landing } of moves) {
+        let unlanded = false;
+        for (const { row, landing, before } of moves) {
           if (setup.signal.aborted) throw new Stopped();
           try {
             for (const [field, message] of landing.faults)
@@ -1024,8 +1075,15 @@ async function carryOutRewrites<E extends SettingsDeclaration>(
             moved += 1;
           } catch (error) {
             leave(row, error);
+            // Refused, so the row still holds the kind's own words, which
+            // the agreement must too until a later run moves it.
+            if (before !== undefined && causeOf(error) === "refused") {
+              store.set(row.id, before);
+              unlanded = true;
+            }
           }
         }
+        if (unlanded) await store.flush();
         if (!left && former !== planned.own) {
           const held = emptied.get(planned.own) ?? new Set<string>();
           held.add(former);

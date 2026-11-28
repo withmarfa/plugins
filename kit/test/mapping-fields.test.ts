@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Entry, TypeDefinition } from "../src/define.js";
+import { mark } from "../src/agreement.js";
 import { previewOf, type ResolvedType } from "../src/mapping.js";
 import { templateCharacters } from "../src/template.js";
 import {
@@ -1057,6 +1058,130 @@ describe("status words on a row still on the kind's own type", () => {
     harness.server.mapping.rewrites = rewrite;
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(harness.server.byId(id).properties["status"]).toBe("doing");
+    expect(given.changes).toEqual([]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  /** The Marfa side of the first agreement written for the row from the
+   *  request at `from` on: the one a rewrite writes before its move. */
+  function agreedOnMove(id: string, from: number): Record<string, string> {
+    const written = harness.server
+      .requestsTo("POST", "/connectors/connector-1/agreements")
+      .slice(from)
+      .flatMap(
+        (request) =>
+          (
+            request.body as {
+              set: {
+                item_id: string;
+                record: { marfa: Record<string, string> };
+              }[];
+            }
+          ).set,
+      )
+      .find((entry) => entry.item_id === id);
+    expect(written).toBeDefined();
+    return written?.record.marfa ?? {};
+  }
+
+  function agreementWrites(): number {
+    return harness.server.requestsTo(
+      "POST",
+      "/connectors/connector-1/agreements",
+    ).length;
+  }
+
+  it("agrees the status word as the row lands it where no change in Marfa waits, so nothing is carried", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    const from = agreementWrites();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(agreedOnMove(id, from)["status"]).toBe(mark("doing"));
+    expect(given.changes).toEqual([]);
+  });
+
+  it("still carries a status word changed in Marfa before the rewrite moves the row", async () => {
+    const given = held([
+      { ...one, properties: { ...one.properties, status: "open" } },
+    ]);
+    const id = await (async () => {
+      expect(await harness.twoWay(given)).toBe(0);
+      mapFields(standard);
+      return harness.server.row("a:1").id;
+    })();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+    harness.server.edit(id, { status: "waiting" });
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    const from = agreementWrites();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    const row = harness.server.byId(id);
+    expect([row.type, row.properties["status"]]).toEqual([target, "doing"]);
+    expect(agreedOnMove(id, from)["status"]).toBe(mark("open"));
+    expect(
+      given.changes.map((change) => [
+        [...change.changed],
+        change.item.properties["status"],
+      ]),
+    ).toEqual([[["status"], "doing"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("lands no field but the status word, so another changed in Marfa before the rewrite is carried as it was", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    harness.server.edit(id, { note: "edited" });
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    const from = agreementWrites();
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(agreedOnMove(id, from)).toMatchObject({
+      note: mark("first"),
+      status: mark("doing"),
+    });
+    expect(
+      given.changes.map((change) => [
+        [...change.changed],
+        change.item.properties["note"],
+        change.item.properties["status"],
+      ]),
+    ).toEqual([[["note"], "edited", "doing"]]);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(given.changes).toEqual([]);
+  });
+
+  it("keeps the agreement in the row's own word where Marfa refuses the move, so the run carries only what changed in Marfa, and nothing once a later run moves it", async () => {
+    const given = held();
+    const id = await unmoved(given);
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    harness.server.edit(id, { note: "edited" });
+    given.entries = [];
+    harness.server.mapping.rewrites = rewrite;
+    harness.server.refuseNext("PATCH /items/" + id, 409, "version_conflict");
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.byId(id).type).toBe(ownType.id);
+    expect(harness.server.rewritesDone).toEqual([]);
+    expect(
+      given.changes.map((change) => [
+        [...change.changed],
+        change.item.properties["status"],
+      ]),
+    ).toEqual([[["note"], "waiting"]]);
+    expect(harness.agreement(id)?.["marfa"]).toMatchObject({
+      note: mark("edited"),
+      status: mark("waiting"),
+    });
+    expect(await quiet(given), harness.lines.join("\n")).toBe(0);
+    expect(harness.server.rewritesDone).toEqual([1]);
+    const row = harness.server.byId(id);
+    expect([row.type, row.properties["status"]]).toEqual([target, "doing"]);
     expect(given.changes).toEqual([]);
     expect(await quiet(given), harness.lines.join("\n")).toBe(0);
     expect(given.changes).toEqual([]);

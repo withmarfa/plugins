@@ -217,6 +217,14 @@ export class FieldMap {
     return this.ownStatus?.field === own;
   }
 
+  /** Every word of the kind's own type for `own`, where it is the status
+   *  field whose words land through their group; none for any other. */
+  ownWords(own: string): string[] {
+    return this.isStatus(own)
+      ? (this.ownStatus?.words.map((one) => one.value) ?? [])
+      : [];
+  }
+
   /** The target's word for a word of the kind's own type: an override, the
    *  same word where the target holds it in the same group, or the
    *  target's first word of that group. `undefined` where the target holds
@@ -482,6 +490,12 @@ export class TypeMap {
   /** The row as the connector names it: its type, and its fields. */
   item<T extends Item>(item: T): T {
     this.served.set(item.id, item.type);
+    return this.named(item);
+  }
+
+  /** The row as `item` names it, for a row the server has not answered as
+   *  it is given, such as one a move has yet to land. */
+  named<T extends Item>(item: T): T {
     const type = this.toOwn.get(item.type);
     const onTarget = this.onTarget.get(item.type);
     const onOwn =
