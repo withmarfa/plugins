@@ -122,7 +122,8 @@ function logins(
   value: unknown,
 ): string[] | undefined {
   const named: string[] = [];
-  let nameless = assigneesReadable(value) || Array.isArray(value) ? 0 : 1;
+  let nameless =
+    Array.isArray(value) || value === undefined || value === null ? 0 : 1;
   for (const one of Array.isArray(value) ? value : []) {
     const name =
       typeof one === "object" && one !== null

@@ -27,7 +27,6 @@ import {
 import { carryDiscussions, remakeDiscussions } from "./discussion-write.js";
 import { defaultBase, spacingOf, type App } from "./github.js";
 import { hints } from "./hooks.js";
-import { assigneesReadable } from "./write.js";
 import { notificationType } from "./notifications.js";
 import { read } from "./read.js";
 import { fileKinds, filesConnection } from "./files.js";
@@ -39,7 +38,7 @@ import {
 } from "./repository-files.js";
 import { scopeOf } from "./scope.js";
 import { readOnly, setUp } from "./setup.js";
-import { carry, remake } from "./write.js";
+import { assigneesReadable, carry, remake } from "./write.js";
 import comment from "./github.comment.json" with { type: "json" };
 import discussion from "./github.discussion.json" with { type: "json" };
 import issue from "./github.issue.json" with { type: "json" };
